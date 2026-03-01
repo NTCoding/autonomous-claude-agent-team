@@ -64,10 +64,10 @@ describe('runTransition — illegal transition', () => {
     expect(result.output).toContain('Illegal transition')
   })
 
-  it('does not include procedure content in illegal transition error', () => {
+  it('includes current state procedure in illegal transition error', () => {
     const deps = makeDeps()
     const result = runTransition('s1', 'COMPLETE', deps)
-    expect(result.output).not.toContain('Do something')
+    expect(result.output).toContain('Do something')
   })
 
   it('does not write state on illegal transition', () => {
@@ -90,14 +90,14 @@ describe('runTransition — precondition failure', () => {
     expect(result.output).toContain('Cannot transition to RESPAWN')
   })
 
-  it('does not include procedure content in precondition error', () => {
+  it('includes current state procedure in precondition error', () => {
     const planningState: WorkflowState = { ...INITIAL_STATE, state: 'PLANNING' }
     const deps = makeDeps({
       readState: () => planningState,
       getGitInfo: () => ({ ...CLEAN_GIT, workingTreeClean: false }),
     })
     const result = runTransition('s1', 'RESPAWN', deps)
-    expect(result.output).not.toContain('Do something')
+    expect(result.output).toContain('Do something')
   })
 })
 

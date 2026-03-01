@@ -16,6 +16,7 @@ import {
   parseSubagentStartInput,
   parseTeammateIdleInput,
   parseCommonInput,
+  EXIT_ALLOW,
   EXIT_ERROR,
   EXIT_BLOCK,
 } from './infra/hook-io.js'
@@ -35,7 +36,6 @@ import { runBlockWrites } from './operations/block-writes.js'
 import { runBlockCommits } from './operations/block-commits.js'
 import { runBlockPluginReads } from './operations/block-plugin-reads.js'
 import { runVerifyIdentity } from './operations/verify-identity.js'
-import { runInjectStateProcedure } from './operations/inject-state-procedure.js'
 import { runInjectSubagentContext } from './operations/inject-subagent-context.js'
 import { runEvaluateIdle } from './operations/evaluate-idle.js'
 import { runShutDown } from './operations/shut-down.js'
@@ -119,8 +119,11 @@ function runPreToolUseHooks(deps: WorkflowDeps): OperationResult {
     if (result.exitCode === EXIT_BLOCK) {
       return result
     }
+    if (result.output) {
+      return result
+    }
   }
-  return handleInjectState([], deps)
+  return { output: '', exitCode: EXIT_ALLOW }
 }
 
 function stateDeps(deps: WorkflowDeps) {
@@ -326,15 +329,6 @@ function handleVerifyIdentity(_args: readonly string[], deps: WorkflowDeps): Ope
     stateFileExists: deps.stateFileExists,
     getStateFilePath: deps.getStateFilePath,
     readTranscriptMessages: deps.readTranscriptMessages,
-  })
-}
-
-function handleInjectState(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  const hookInput = parsePreToolUseInput(deps.readStdin())
-  return runInjectStateProcedure(hookInput.session_id, hookInput, {
-    readState: deps.readState,
-    stateFileExists: deps.stateFileExists,
-    getStateFilePath: deps.getStateFilePath,
     readFile: deps.readFile,
     getPluginRoot: deps.getPluginRoot,
   })

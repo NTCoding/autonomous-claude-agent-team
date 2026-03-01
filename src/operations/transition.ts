@@ -35,7 +35,8 @@ export function runTransition(
   const legalityResult = isTransitionLegal(state.state, to, state.preBlockedState)
 
   if (!legalityResult.legal) {
-    return { output: formatIllegalTransitionError(legalityResult.reason), exitCode: EXIT_BLOCK }
+    const currentProcedure = readCurrentProcedure(state.state, deps)
+    return { output: formatIllegalTransitionError(legalityResult.reason, currentProcedure), exitCode: EXIT_BLOCK }
   }
 
   const gitInfo = deps.getGitInfo()
@@ -43,7 +44,8 @@ export function runTransition(
   const preconditionResult = checkPreconditions(state.state, to, state, gitInfo, prChecksPass)
 
   if (!preconditionResult.pass) {
-    return { output: formatTransitionError(to, preconditionResult.reason), exitCode: EXIT_BLOCK }
+    const currentProcedure = readCurrentProcedure(state.state, deps)
+    return { output: formatTransitionError(to, preconditionResult.reason, currentProcedure), exitCode: EXIT_BLOCK }
   }
 
   const updatedState = applyTransitionWithLog(state.state, to, state, gitInfo.headCommit, deps.now())
@@ -65,6 +67,11 @@ function determinePrChecksPass(
     return false
   }
   return deps.checkPrChecks(state.prNumber)
+}
+
+function readCurrentProcedure(state: StateName, deps: TransitionDeps): string {
+  const path = getProcedurePath(state, deps.getPluginRoot())
+  return deps.readFile(path)
 }
 
 function applyTransitionWithLog(

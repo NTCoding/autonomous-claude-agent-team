@@ -237,6 +237,23 @@ describe('runWorkflow — hook mode routing', () => {
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
   })
 
+  it('returns additionalContext from PreToolUse when verify-identity detects identity loss', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
+        stateFileExists: () => true,
+        readState: () => ({ ...INITIAL_STATE, state: 'PLANNING' }),
+        readTranscriptMessages: () => [
+          { id: '1', hasTextContent: true, startsWithLeadPrefix: true },
+          { id: '2', hasTextContent: true, startsWithLeadPrefix: false },
+        ],
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('additionalContext')
+  })
+
   it('routes SubagentStart and returns EXIT_ALLOW with no state file', () => {
     const result = runWorkflow(
       [],

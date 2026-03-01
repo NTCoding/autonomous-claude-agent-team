@@ -25,19 +25,21 @@ export function formatTransitionSuccess(
 export function formatTransitionError(
   to: StateName,
   reason: string,
+  currentProcedure: string,
 ): string {
   return formatBlock(
     `Cannot transition to ${to}`,
-    `${reason}\n\nYou are still in the current state. Complete the checklist before transitioning.`,
+    `${reason}\n\nYou are still in the current state. Complete the checklist before transitioning.\n\n${currentProcedure}`,
   )
 }
 
 export function formatIllegalTransitionError(
   reason: string,
+  currentProcedure: string,
 ): string {
   return formatBlock(
     'Illegal transition',
-    `${reason}\n\nYou are still in the current state. Complete the checklist before transitioning.`,
+    `${reason}\n\nYou are still in the current state. Complete the checklist before transitioning.\n\n${currentProcedure}`,
   )
 }
 

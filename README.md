@@ -73,9 +73,11 @@ RESPAWN happens at the start of **every** iteration. It shuts down the existing 
 **Hooks:**
 
 - `SessionStart` — persists `CLAUDE_SESSION_ID` to env
-- `PreToolUse` — blocks plugin reads; blocks writes during RESPAWN; blocks commits during DEVELOPING/REVIEWING; validates lead identity; injects current state procedure before every lead tool call
+- `PreToolUse` — blocks plugin reads; blocks writes during RESPAWN; blocks commits during DEVELOPING/REVIEWING; validates lead identity and re-injects state procedure if lost
 - `SubagentStart` — injects iteration, issue, and state context into spawned agents at startup; registers agent in active agents list
 - `TeammateIdle` — blocks developer going idle in DEVELOPING without signalling done; blocks lead going idle in any state except BLOCKED or COMPLETE
+
+The state procedure is injected in three moments only: successful transition (new state's procedure), failed transition (current state's procedure as a reminder), and identity loss recovery. Not on every tool call.
 
 ## What you need to know
 

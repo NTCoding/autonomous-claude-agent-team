@@ -52,31 +52,31 @@ describe('formatTransitionSuccess — procedure content', () => {
 
 describe('formatTransitionError', () => {
   it('includes destination state and reason', () => {
-    const result = formatTransitionError('REVIEWING', 'developerDone is false')
+    const result = formatTransitionError('REVIEWING', 'developerDone is false', '')
     expect(result).toContain('REVIEWING')
     expect(result).toContain('developerDone is false')
   })
 
   it('includes complete the checklist instruction', () => {
-    const result = formatTransitionError('REVIEWING', 'reason')
+    const result = formatTransitionError('REVIEWING', 'reason', '')
     expect(result).toContain('Complete the checklist before transitioning')
   })
 
-  it('does not include procedure content', () => {
-    const result = formatTransitionError('REVIEWING', 'reason')
-    expect(result).not.toContain('Do something')
+  it('includes current state procedure content', () => {
+    const result = formatTransitionError('REVIEWING', 'reason', '- [ ] Do something')
+    expect(result).toContain('Do something')
   })
 })
 
 describe('formatIllegalTransitionError', () => {
   it('includes the reason in output', () => {
-    const result = formatIllegalTransitionError('Cannot go SPAWN -> COMPLETE')
+    const result = formatIllegalTransitionError('Cannot go SPAWN -> COMPLETE', '')
     expect(result).toContain('Cannot go SPAWN -> COMPLETE')
   })
 
-  it('does not include procedure content', () => {
-    const result = formatIllegalTransitionError('Cannot go SPAWN -> COMPLETE')
-    expect(result).not.toContain('Do something')
+  it('includes current state procedure content', () => {
+    const result = formatIllegalTransitionError('Cannot go SPAWN -> COMPLETE', '- [ ] Do something')
+    expect(result).toContain('Do something')
   })
 })
 

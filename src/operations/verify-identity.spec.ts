@@ -34,6 +34,8 @@ function makeDeps(
     stateFileExists: () => exists,
     getStateFilePath: (id) => `/test/state-${id}.json`,
     readTranscriptMessages: () => messages,
+    readFile: () => '# Procedure\n\n- [ ] Do the thing',
+    getPluginRoot: () => '/plugin',
   }
 }
 
@@ -75,5 +77,15 @@ describe('runVerifyIdentity — identity lost', () => {
     const result = runVerifyIdentity('s1', makeHookInput(), deps)
     expect(result.exitCode).toStrictEqual(0)
     expect(result.output).toContain('additionalContext')
+  })
+
+  it('includes current state procedure in recovery context', () => {
+    const messages = [
+      makeMsg('1', true, true),
+      makeMsg('2', true, false),
+    ]
+    const deps = makeDeps(messages)
+    const result = runVerifyIdentity('s1', makeHookInput(), deps)
+    expect(result.output).toContain('Do the thing')
   })
 })

@@ -2,6 +2,7 @@ import type { WorkflowState } from '../domain/workflow-state.js'
 import type { PreToolUseInput } from '../infra/hook-io.js'
 import type { AssistantMessage } from '../domain/identity-rules.js'
 import { checkLeadIdentity } from '../domain/identity-rules.js'
+import { getProcedurePath } from '../domain/state-procedure-map.js'
 import { formatContextInjection, EXIT_ALLOW } from '../infra/hook-io.js'
 
 type OperationResult = { readonly output: string; readonly exitCode: number }
@@ -11,6 +12,8 @@ export type VerifyIdentityDeps = {
   readonly stateFileExists: (path: string) => boolean
   readonly getStateFilePath: (sessionId: string) => string
   readonly readTranscriptMessages: (path: string) => readonly AssistantMessage[]
+  readonly readFile: (path: string) => string
+  readonly getPluginRoot: () => string
 }
 
 export function runVerifyIdentity(
@@ -28,7 +31,9 @@ export function runVerifyIdentity(
   const result = checkLeadIdentity(messages, state.state)
 
   if (result.status === 'lost') {
-    return { output: formatContextInjection(result.recoveryMessage), exitCode: EXIT_ALLOW }
+    const procedurePath = getProcedurePath(state.state, deps.getPluginRoot())
+    const procedureContent = deps.readFile(procedurePath)
+    return { output: formatContextInjection(`${result.recoveryMessage}\n\n${procedureContent}`), exitCode: EXIT_ALLOW }
   }
 
   return { output: '', exitCode: EXIT_ALLOW }
