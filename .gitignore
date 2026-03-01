@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+coverage/
+
+# OS
+.DS_Store
+
+# Test artifacts
+.claude/plugins/

@@ -1,0 +1,5 @@
+{
+  "name": "autonomous-claude-agent-team",
+  "version": "1.9.6",
+  "description": "Hook-driven state machine for orchestrating a three-agent Claude feature team"
+}

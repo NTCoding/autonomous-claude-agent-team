@@ -1,0 +1,17 @@
+{
+  "name": "autonomous-claude-agent-team",
+  "owner": {
+    "name": "NTCoding"
+  },
+  "metadata": {
+    "description": "Hook-driven state machine for orchestrating a three-agent Claude feature team",
+    "version": "1.5.0"
+  },
+  "plugins": [
+    {
+      "name": "autonomous-claude-agent-team",
+      "source": "./"
+    }
+  ],
+  "version": "1.9.6"
+}
