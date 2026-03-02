@@ -749,7 +749,7 @@ describe('Workflow', () => {
   })
 
   describe('BLOCKED state', () => {
-    it('allows transition TO BLOCKED from any state and sets preBlockedState', () => {
+    it('allows transition TO BLOCKED from any state and records prior state in event log', () => {
       const state = stateWith({
         state: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
@@ -758,33 +758,34 @@ describe('Workflow', () => {
       const result = wf.transitionTo('BLOCKED')
       expect(result).toStrictEqual({ pass: true })
       expect(wf.getState().state).toBe('BLOCKED')
-      expect(wf.getState().preBlockedState).toBe('DEVELOPING')
+      expect(wf.getState().eventLog).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ op: 'transition', detail: { from: 'DEVELOPING', to: 'BLOCKED' } })])
+      )
     })
 
-    it('allows transition FROM BLOCKED back to preBlockedState', () => {
+    it('allows transition FROM BLOCKED back to pre-blocked state', () => {
       const state = stateWith({
         state: 'BLOCKED',
-        preBlockedState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
+        eventLog: [{ op: 'transition', at: '2026-01-01T00:00:00Z', detail: { from: 'DEVELOPING', to: 'BLOCKED' } }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('DEVELOPING')
       expect(result).toStrictEqual({ pass: true })
       expect(wf.getState().state).toBe('DEVELOPING')
-      expect(wf.getState().preBlockedState).toBeUndefined()
     })
 
     it('fails transition FROM BLOCKED to wrong state', () => {
       const state = stateWith({
         state: 'BLOCKED',
-        preBlockedState: 'DEVELOPING',
+        eventLog: [{ op: 'transition', at: '2026-01-01T00:00:00Z', detail: { from: 'DEVELOPING', to: 'BLOCKED' } }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('PLANNING')
       expect(result.pass).toBe(false)
     })
 
-    it('includes unknown in error when preBlockedState not set', () => {
+    it('includes unknown in error when not set', () => {
       const state = stateWith({ state: 'BLOCKED' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('PLANNING')
@@ -913,7 +914,7 @@ describe('Workflow', () => {
     it('appends event for unblock transition', () => {
       const state = stateWith({
         state: 'BLOCKED',
-        preBlockedState: 'PLANNING',
+        eventLog: [{ op: 'transition', at: '2026-01-01T00:00:00Z', detail: { from: 'PLANNING', to: 'BLOCKED' } }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.transitionTo('PLANNING')

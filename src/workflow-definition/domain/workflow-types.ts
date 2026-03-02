@@ -23,11 +23,6 @@ export const StateNameSchema = z.enum(STATE_NAMES)
 
 export const WorkflowStateSchema = createWorkflowStateSchema(STATE_NAMES)
 
-export type ConcreteWorkflowState = Omit<WorkflowState, 'state' | 'preBlockedState'> & {
-  state: StateName
-  preBlockedState?: StateName | undefined
-}
-
 export type WorkflowOperation =
   | 'record-issue'
   | 'record-branch'

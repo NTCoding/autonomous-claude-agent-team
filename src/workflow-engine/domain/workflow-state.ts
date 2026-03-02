@@ -40,7 +40,6 @@ export function createWorkflowStateSchema(stateNames: readonly [string, ...strin
     prNumber: z.number().int().positive().optional(),
     userApprovedPlan: z.boolean(),
     activeAgents: z.array(z.string()),
-    preBlockedState: stateNameSchema.optional(),
     transcriptPath: z.string().optional(),
     eventLog: z.array(EventLogEntry),
   })
@@ -55,7 +54,6 @@ export type WorkflowState = {
   prNumber?: number | undefined
   userApprovedPlan: boolean
   activeAgents: string[]
-  preBlockedState?: string | undefined
   transcriptPath?: string | undefined
   eventLog: EventLogEntry[]
 }

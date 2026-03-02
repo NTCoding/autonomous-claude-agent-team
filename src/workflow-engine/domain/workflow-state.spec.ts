@@ -65,7 +65,6 @@ describe('createWorkflowStateSchema — WorkflowState', () => {
       eventLog: [],
       githubIssue: 42, featureBranch: 'feature/foo',
       prNumber: 7,
-      preBlockedState: 'DEVELOPING' as const,
     }
     const parsed = WorkflowState.parse(raw)
     expect(parsed.githubIssue).toStrictEqual(42)

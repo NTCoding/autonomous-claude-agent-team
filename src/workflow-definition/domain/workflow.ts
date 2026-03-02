@@ -3,7 +3,7 @@ import { pass, fail } from '../../workflow-dsl/index.js'
 import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
 import { WorkflowStateError, createEventEntry } from '../../workflow-engine/index.js'
 import { WORKFLOW_REGISTRY, GLOBAL_FORBIDDEN, getStateDefinition } from './registry.js'
-import type { StateName, WorkflowOperation, ConcreteWorkflowState } from './workflow-types.js'
+import type { StateName, WorkflowOperation } from './workflow-types.js'
 import { parseStateName, WorkflowStateSchema } from './workflow-types.js'
 
 export type WorkflowDeps = {
@@ -19,25 +19,20 @@ export type WorkflowDeps = {
 }
 
 export class Workflow {
-  private state: ConcreteWorkflowState
+  private state: WorkflowState
   private readonly deps: WorkflowDeps
 
-  private constructor(state: ConcreteWorkflowState, deps: WorkflowDeps) {
+  private constructor(state: WorkflowState, deps: WorkflowDeps) {
     this.state = state
     this.deps = deps
   }
 
   static rehydrate(state: WorkflowState, deps: WorkflowDeps): Workflow {
-    const parsed = WorkflowStateSchema.parse(state)
-    return new Workflow({
-      ...parsed,
-      state: parseStateName(parsed.state),
-      preBlockedState: parsed.preBlockedState === undefined ? undefined : parseStateName(parsed.preBlockedState),
-    }, deps)
+    return new Workflow(WorkflowStateSchema.parse(state), deps)
   }
 
   static procedurePath(state: string, pluginRoot: string): string {
-    return `${pluginRoot}/${getStateDefinition(parseStateName(state)).agentInstructions}`
+    return `${pluginRoot}/${getStateDefinition(state).agentInstructions}`
   }
 
   getState(): WorkflowState {
@@ -333,13 +328,13 @@ export class Workflow {
 
       if (currentDef.forbidden?.write) {
         return fail(
-          'git commit/push blocked during RESPAWN.\n\nNo commits during RESPAWN. Wait for the lead to transition to DEVELOPING.',
+          `git commit/push blocked during ${this.state.state}.\n\nNo commits during ${this.state.state}. Wait for the lead to transition out of ${this.state.state}.`,
         )
       }
 
       if (COMMIT_BLOCKED_STATES.has(this.state.state)) {
         return fail(
-          'Cannot commit during DEVELOPING or REVIEWING.\n\nCommits are blocked until the reviewer approves changes. Developer must signal completion first, then lead transitions to REVIEWING.\n\nDeveloper runs:\n  node "${PLUGIN_ROOT}/dist/workflow.js" signal-done\n\nThen lead transitions:\n  node "${PLUGIN_ROOT}/dist/workflow.js" transition REVIEWING',
+          `Cannot commit during ${this.state.state}.\n\nCommits are blocked until the reviewer approves changes. Developer must signal completion first, then lead transitions to REVIEWING.\n\nDeveloper runs:\n  node "\${PLUGIN_ROOT}/dist/workflow.js" signal-done\n\nThen lead transitions:\n  node "\${PLUGIN_ROOT}/dist/workflow.js" transition REVIEWING`,
         )
       }
     }
@@ -402,7 +397,7 @@ export class Workflow {
   }
 
   transitionTo(target: string): PreconditionResult {
-    const from = this.state.state
+    const from = parseStateName(this.state.state)
     const targetState = parseStateName(target)
 
     const currentDef = WORKFLOW_REGISTRY[from]
@@ -418,13 +413,10 @@ export class Workflow {
 
     const targetDef = WORKFLOW_REGISTRY[targetState]
     const base = targetDef.onEntry ? targetDef.onEntry(this.state, this.buildTransitionContext(from, targetState)) : this.state
-    const nextPreBlockedState =
-      from === 'BLOCKED' ? undefined : base.preBlockedState === undefined ? undefined : parseStateName(base.preBlockedState)
 
     this.state = {
       ...base,
       state: targetState,
-      preBlockedState: nextPreBlockedState,
       eventLog: [...base.eventLog, createEventEntry('transition', this.deps.now(), { from, to: targetState })],
     }
 
@@ -436,7 +428,8 @@ export class Workflow {
     if (LEAD_IDLE_ALLOWED.has(this.state.state)) {
       return pass()
     }
-    return fail(`Lead cannot go idle in ${this.state.state} state. Transition to BLOCKED or COMPLETE before stopping, or continue working.`)
+    const allowedStates = [...LEAD_IDLE_ALLOWED].join(' or ')
+    return fail(`Lead cannot go idle in ${this.state.state} state. Transition to ${allowedStates} before stopping, or continue working.`)
   }
 
   private checkDeveloperIdle(): PreconditionResult {
@@ -448,7 +441,7 @@ export class Workflow {
       return pass()
     }
     return fail(
-      'Developer cannot go idle in DEVELOPING without signalling done.\n\n1. Run lint: node "${PLUGIN_ROOT}/dist/workflow.js" run-lint <changed-files>\n2. Fix all violations.\n3. Signal done: node "${PLUGIN_ROOT}/dist/workflow.js" signal-done',
+      `Developer cannot go idle in ${this.state.state} without signalling done.\n\n1. Run lint: node "\${PLUGIN_ROOT}/dist/workflow.js" run-lint <changed-files>\n2. Fix all violations.\n3. Signal done: node "\${PLUGIN_ROOT}/dist/workflow.js" signal-done`,
     )
   }
 
