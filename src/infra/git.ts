@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import type { GitInfo } from '../domain/preconditions.js'
+import type { GitInfo } from '../workflow-dsl/index.js'
 
 export function getGitInfo(): GitInfo {
   const defaultBranch = detectDefaultBranch()

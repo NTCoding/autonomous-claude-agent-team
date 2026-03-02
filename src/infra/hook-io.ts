@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { WorkflowError } from './workflow-error.js'
 
-export const HookCommonInput = z.object({
+const HookCommonInput = z.object({
   session_id: z.string(),
   transcript_path: z.string(),
   cwd: z.string(),
@@ -9,25 +9,25 @@ export const HookCommonInput = z.object({
   hook_event_name: z.string(),
 })
 
-export const PreToolUseInput = HookCommonInput.extend({
+const PreToolUseInput = HookCommonInput.extend({
   tool_name: z.string(),
   tool_input: z.record(z.unknown()),
   tool_use_id: z.string(),
 })
 
-export const SubagentStartInput = HookCommonInput.extend({
+const SubagentStartInput = HookCommonInput.extend({
   agent_id: z.string(),
   agent_type: z.string(),
 })
 
-export const TeammateIdleInput = HookCommonInput.extend({
+const TeammateIdleInput = HookCommonInput.extend({
   teammate_name: z.string().optional(),
 })
 
-export type HookCommonInput = z.infer<typeof HookCommonInput>
-export type PreToolUseInput = z.infer<typeof PreToolUseInput>
-export type SubagentStartInput = z.infer<typeof SubagentStartInput>
-export type TeammateIdleInput = z.infer<typeof TeammateIdleInput>
+type HookCommonInput = z.infer<typeof HookCommonInput>
+type PreToolUseInput = z.infer<typeof PreToolUseInput>
+type SubagentStartInput = z.infer<typeof SubagentStartInput>
+type TeammateIdleInput = z.infer<typeof TeammateIdleInput>
 
 export const EXIT_ALLOW = 0
 export const EXIT_BLOCK = 2

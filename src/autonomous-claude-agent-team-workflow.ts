@@ -1,9 +1,10 @@
 import { readFileSync, existsSync, appendFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import type { WorkflowState } from './domain/workflow-state.js'
-import { StateName } from './domain/workflow-state.js'
-import type { GitInfo } from './domain/preconditions.js'
-import type { AssistantMessage } from './domain/identity-rules.js'
+import type { EngineResult } from './workflow-engine/index.js'
+import { WorkflowEngine } from './workflow-engine/index.js'
+import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/index.js'
+import { WorkflowAdapter, StateNameSchema } from './workflow-definition/index.js'
+import { Workflow } from './workflow-definition/index.js'
 import { readState, writeState, stateFileExists } from './infra/state-store.js'
 import { getSessionId, getPluginRoot, getEnvFilePath, getStateFilePath } from './infra/environment.js'
 import { getGitInfo } from './infra/git.js'
@@ -16,56 +17,23 @@ import {
   parseSubagentStartInput,
   parseTeammateIdleInput,
   parseCommonInput,
+  formatDenyDecision,
+  formatContextInjection,
   EXIT_ALLOW,
   EXIT_ERROR,
   EXIT_BLOCK,
 } from './infra/hook-io.js'
-import { runInit } from './operations/init.js'
-import { runTransition } from './operations/transition.js'
-import { runRecordIssue } from './operations/record-issue.js'
-import { runRecordBranch } from './operations/record-branch.js'
-import { runRecordPlanApproval } from './operations/record-plan-approval.js'
-import { runAssignIterationTask } from './operations/assign-iteration-task.js'
-import { runSignalDone } from './operations/signal-done.js'
-import { runRecordPr } from './operations/record-pr.js'
-import { runCreatePr } from './operations/create-pr.js'
-import { runAppendIssueChecklist } from './operations/append-issue-checklist.js'
-import { runTickIteration } from './operations/tick-iteration.js'
-import { runLint } from './operations/run-lint.js'
-import { runBlockWrites } from './operations/block-writes.js'
-import { runBlockCommits } from './operations/block-commits.js'
-import { runBlockPluginReads } from './operations/block-plugin-reads.js'
-import { runVerifyIdentity } from './operations/verify-identity.js'
-import { runInjectSubagentContext } from './operations/inject-subagent-context.js'
-import { runEvaluateIdle } from './operations/evaluate-idle.js'
-import { runShutDown } from './operations/shut-down.js'
-import { runPersistSessionId } from './operations/persist-session-id.js'
 
 type OperationResult = { readonly output: string; readonly exitCode: number }
 
-export type WorkflowDeps = {
-  readonly readState: (path: string) => WorkflowState
-  readonly writeState: (path: string, state: WorkflowState) => void
-  readonly stateFileExists: (path: string) => boolean
-  readonly getStateFilePath: (sessionId: string) => string
+export type AdapterDeps = {
   readonly getSessionId: () => string
-  readonly getPluginRoot: () => string
-  readonly getEnvFilePath: () => string
-  readonly getGitInfo: () => GitInfo
-  readonly checkPrChecks: (prNumber: number) => boolean
-  readonly createDraftPr: (title: string, body: string) => number
-  readonly appendIssueChecklist: (issueNumber: number, checklist: string) => void
-  readonly tickFirstUncheckedIteration: (issueNumber: number) => void
-  readonly now: () => string
-  readonly readFile: (path: string) => string
-  readonly readTranscriptMessages: (path: string) => readonly AssistantMessage[]
-  readonly fileExists: (path: string) => boolean
-  readonly runEslintOnFiles: (configPath: string, files: readonly string[]) => boolean
-  readonly appendToFile: (filePath: string, content: string) => void
   readonly readStdin: () => string
+  readonly engineDeps: WorkflowEngineDeps
+  readonly workflowDeps: WorkflowRuntimeDeps
 }
 
-type CommandHandler = (args: readonly string[], deps: WorkflowDeps) => OperationResult
+type CommandHandler = (args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult
 
 const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   init: handleInit,
@@ -80,94 +48,61 @@ const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   'append-issue-checklist': handleAppendIssueChecklist,
   'tick-iteration': handleTickIteration,
   'run-lint': handleRunLint,
+  'review-approved': handleReviewApproved,
+  'review-rejected': handleReviewRejected,
+  'coderabbit-feedback-addressed': handleCoderabbitFeedbackAddressed,
+  'coderabbit-feedback-ignored': handleCoderabbitFeedbackIgnored,
   'shut-down': handleShutDown,
 }
 
-const HOOK_HANDLERS: Readonly<Record<string, (deps: WorkflowDeps) => OperationResult>> = {
-  SessionStart: (deps) => handlePersistSessionId([], deps),
-  PreToolUse: (deps) => runPreToolUseHooks(deps),
-  SubagentStart: (deps) => handleSubagentStart([], deps),
-  TeammateIdle: (deps) => handleTeammateIdle([], deps),
+const HOOK_HANDLERS: Readonly<Record<string, (engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult>> = {
+  SessionStart: handleSessionStart,
+  PreToolUse: handlePreToolUse,
+  SubagentStart: handleSubagentStart,
+  TeammateIdle: handleTeammateIdle,
 }
 
-export function runWorkflow(args: readonly string[], deps: WorkflowDeps): OperationResult {
+export function runWorkflow(args: readonly string[], deps: AdapterDeps): OperationResult {
+  const engine = new WorkflowEngine(WorkflowAdapter, deps.engineDeps, deps.workflowDeps)
   const command = args[0]
   if (!command) {
-    return runHookMode(deps)
+    return runHookMode(engine, deps)
   }
   const handler = COMMAND_HANDLERS[command]
   if (!handler) {
     return { output: `Unknown command: ${command}`, exitCode: EXIT_ERROR }
   }
-  return handler(args, deps)
+  return handler(args, engine, deps)
 }
 
-function runHookMode(deps: WorkflowDeps): OperationResult {
+function runHookMode(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const stdin = deps.readStdin()
-  const cachedDeps: WorkflowDeps = { ...deps, readStdin: () => stdin }
+  const cachedDeps: AdapterDeps = { ...deps, readStdin: () => stdin }
   const common = parseCommonInput(stdin)
   const handler = HOOK_HANDLERS[common.hook_event_name]
   if (!handler) {
     return { output: `Unknown hook event: ${common.hook_event_name}`, exitCode: EXIT_ERROR }
   }
-  return handler(cachedDeps)
+  return handler(engine, cachedDeps)
 }
 
-function runPreToolUseHooks(deps: WorkflowDeps): OperationResult {
-  for (const handler of [handleBlockPluginReads, handleBlockWrites, handleBlockCommits, handleVerifyIdentity]) {
-    const result = handler([], deps)
-    if (result.exitCode === EXIT_BLOCK) {
-      return result
-    }
-    if (result.output) {
-      return result
-    }
-  }
-  return { output: '', exitCode: EXIT_ALLOW }
+function handleInit(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  return mapResult(engine.startSession(deps.getSessionId()))
 }
 
-function stateDeps(deps: WorkflowDeps) {
-  return {
-    readState: deps.readState,
-    writeState: deps.writeState,
-    getStateFilePath: deps.getStateFilePath,
-    now: deps.now,
-  }
-}
-
-function handleInit(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  return runInit(deps.getSessionId(), {
-    stateFileExists: deps.stateFileExists,
-    writeState: deps.writeState,
-    getStateFilePath: deps.getStateFilePath,
-    readFile: deps.readFile,
-    getPluginRoot: deps.getPluginRoot,
-    now: deps.now,
-  })
-}
-
-function handleTransition(args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleTransition(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const rawState = args[1]
   if (!rawState) {
     return { output: 'transition: missing required argument <STATE>', exitCode: EXIT_ERROR }
   }
-  const parseResult = StateName.safeParse(rawState)
+  const parseResult = StateNameSchema.safeParse(rawState)
   if (!parseResult.success) {
     return { output: `transition: invalid state '${rawState}'`, exitCode: EXIT_ERROR }
   }
-  return runTransition(deps.getSessionId(), parseResult.data, {
-    readState: deps.readState,
-    writeState: deps.writeState,
-    getStateFilePath: deps.getStateFilePath,
-    getGitInfo: deps.getGitInfo,
-    checkPrChecks: deps.checkPrChecks,
-    readFile: deps.readFile,
-    getPluginRoot: deps.getPluginRoot,
-    now: deps.now,
-  })
+  return mapResult(engine.transition(deps.getSessionId(), parseResult.data))
 }
 
-function handleRecordIssue(args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleRecordIssue(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const rawNumber = args[1]
   if (!rawNumber) {
     return { output: 'record-issue: missing required argument <number>', exitCode: EXIT_ERROR }
@@ -176,37 +111,34 @@ function handleRecordIssue(args: readonly string[], deps: WorkflowDeps): Operati
   if (Number.isNaN(issueNumber)) {
     return { output: `record-issue: not a valid number: '${rawNumber}'`, exitCode: EXIT_ERROR }
   }
-  return runRecordIssue(deps.getSessionId(), issueNumber, stateDeps(deps))
+  return mapResult(engine.transaction(deps.getSessionId(), 'record-issue', (w) => w.recordIssue(issueNumber)))
 }
 
-function handleRecordBranch(args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleRecordBranch(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const branch = args[1]
   if (!branch) {
     return { output: 'record-branch: missing required argument <branch>', exitCode: EXIT_ERROR }
   }
-  return runRecordBranch(deps.getSessionId(), branch, stateDeps(deps))
+  return mapResult(engine.transaction(deps.getSessionId(), 'record-branch', (w) => w.recordBranch(branch)))
 }
 
-function handleRecordPlanApproval(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  return runRecordPlanApproval(deps.getSessionId(), stateDeps(deps))
+function handleRecordPlanApproval(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  return mapResult(engine.transaction(deps.getSessionId(), 'record-plan-approval', (w) => w.recordPlanApproval()))
 }
 
-function handleAssignIterationTask(args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleAssignIterationTask(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const task = args[1]
   if (!task) {
-    return {
-      output: 'assign-iteration-task: missing required argument <task>',
-      exitCode: EXIT_ERROR,
-    }
+    return { output: 'assign-iteration-task: missing required argument <task>', exitCode: EXIT_ERROR }
   }
-  return runAssignIterationTask(deps.getSessionId(), task, stateDeps(deps))
+  return mapResult(engine.transaction(deps.getSessionId(), 'assign-iteration-task', (w) => w.assignIterationTask(task)))
 }
 
-function handleSignalDone(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  return runSignalDone(deps.getSessionId(), stateDeps(deps))
+function handleSignalDone(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  return mapResult(engine.transaction(deps.getSessionId(), 'signal-done', (w) => w.signalDone()))
 }
 
-function handleRecordPr(args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleRecordPr(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const rawNumber = args[1]
   if (!rawNumber) {
     return { output: 'record-pr: missing required argument <number>', exitCode: EXIT_ERROR }
@@ -215,10 +147,10 @@ function handleRecordPr(args: readonly string[], deps: WorkflowDeps): OperationR
   if (Number.isNaN(prNumber)) {
     return { output: `record-pr: not a valid number: '${rawNumber}'`, exitCode: EXIT_ERROR }
   }
-  return runRecordPr(deps.getSessionId(), prNumber, stateDeps(deps))
+  return mapResult(engine.transaction(deps.getSessionId(), 'record-pr', (w) => w.recordPr(prNumber)))
 }
 
-function handleCreatePr(args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleCreatePr(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const title = args[1]
   const body = args[2]
   if (!title) {
@@ -227,177 +159,168 @@ function handleCreatePr(args: readonly string[], deps: WorkflowDeps): OperationR
   if (!body) {
     return { output: 'create-pr: missing required argument <body>', exitCode: EXIT_ERROR }
   }
-  return runCreatePr(deps.getSessionId(), title, body, {
-    ...stateDeps(deps),
-    createDraftPr: deps.createDraftPr,
-  })
+  return mapResult(engine.transaction(deps.getSessionId(), 'create-pr', (w) => w.createPr(title, body)))
 }
 
-function handleAppendIssueChecklist(args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleAppendIssueChecklist(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const rawNumber = args[1]
   const checklist = args[2]
   if (!rawNumber) {
-    return {
-      output: 'append-issue-checklist: missing required argument <issue-number>',
-      exitCode: EXIT_ERROR,
-    }
+    return { output: 'append-issue-checklist: missing required argument <issue-number>', exitCode: EXIT_ERROR }
   }
   const issueNumber = Number.parseInt(rawNumber, 10)
   if (Number.isNaN(issueNumber)) {
-    return {
-      output: `append-issue-checklist: not a valid number: '${rawNumber}'`,
-      exitCode: EXIT_ERROR,
-    }
+    return { output: `append-issue-checklist: not a valid number: '${rawNumber}'`, exitCode: EXIT_ERROR }
   }
   if (!checklist) {
-    return {
-      output: 'append-issue-checklist: missing required argument <checklist>',
-      exitCode: EXIT_ERROR,
-    }
+    return { output: 'append-issue-checklist: missing required argument <checklist>', exitCode: EXIT_ERROR }
   }
-  return runAppendIssueChecklist(deps.getSessionId(), issueNumber, checklist, {
-    ...stateDeps(deps),
-    appendIssueChecklist: deps.appendIssueChecklist,
-  })
+  return mapResult(engine.transaction(deps.getSessionId(), 'append-issue-checklist', (w) => w.appendIssueChecklist(issueNumber, checklist)))
 }
 
-function handleTickIteration(args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleTickIteration(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const rawNumber = args[1]
   if (!rawNumber) {
-    return {
-      output: 'tick-iteration: missing required argument <issue-number>',
-      exitCode: EXIT_ERROR,
-    }
+    return { output: 'tick-iteration: missing required argument <issue-number>', exitCode: EXIT_ERROR }
   }
   const issueNumber = Number.parseInt(rawNumber, 10)
   if (Number.isNaN(issueNumber)) {
-    return {
-      output: `tick-iteration: not a valid number: '${rawNumber}'`,
-      exitCode: EXIT_ERROR,
-    }
+    return { output: `tick-iteration: not a valid number: '${rawNumber}'`, exitCode: EXIT_ERROR }
   }
-  return runTickIteration(deps.getSessionId(), issueNumber, {
-    ...stateDeps(deps),
-    tickFirstUncheckedIteration: deps.tickFirstUncheckedIteration,
-  })
+  return mapResult(engine.transaction(deps.getSessionId(), 'tick-iteration', (w) => w.tickIteration(issueNumber)))
 }
 
-function handleRunLint(args: readonly string[], deps: WorkflowDeps): OperationResult {
-  return runLint(deps.getSessionId(), args.slice(1), {
-    readState: deps.readState,
-    writeState: deps.writeState,
-    stateFileExists: deps.stateFileExists,
-    getStateFilePath: deps.getStateFilePath,
-    now: deps.now,
-    runEslintOnFiles: deps.runEslintOnFiles,
-    fileExists: deps.fileExists,
-    getPluginRoot: deps.getPluginRoot,
-  })
+function handleRunLint(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  return mapResult(engine.runLint(deps.getSessionId(), args.slice(1)))
 }
 
-function handleBlockPluginReads(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  const hookInput = parsePreToolUseInput(deps.readStdin())
-  return runBlockPluginReads(hookInput, {
-    getPluginRoot: deps.getPluginRoot,
-    stateFileExists: deps.stateFileExists,
-    getStateFilePath: deps.getStateFilePath,
-  })
+function handleReviewApproved(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  return mapResult(engine.transaction(deps.getSessionId(), 'review-approved', (w) => w.reviewApproved()))
 }
 
-function handleBlockWrites(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  const hookInput = parsePreToolUseInput(deps.readStdin())
-  return runBlockWrites(hookInput.session_id, hookInput, {
-    readState: deps.readState,
-    stateFileExists: deps.stateFileExists,
-    getStateFilePath: deps.getStateFilePath,
-  })
+function handleReviewRejected(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  return mapResult(engine.transaction(deps.getSessionId(), 'review-rejected', (w) => w.reviewRejected()))
 }
 
-function handleBlockCommits(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  const hookInput = parsePreToolUseInput(deps.readStdin())
-  return runBlockCommits(hookInput.session_id, hookInput, {
-    readState: deps.readState,
-    stateFileExists: deps.stateFileExists,
-    getStateFilePath: deps.getStateFilePath,
-  })
+function handleCoderabbitFeedbackAddressed(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  return mapResult(engine.transaction(deps.getSessionId(), 'coderabbit-feedback-addressed', (w) => w.coderabbitFeedbackAddressed()))
 }
 
-function handleVerifyIdentity(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  const hookInput = parsePreToolUseInput(deps.readStdin())
-  return runVerifyIdentity(hookInput.session_id, hookInput, {
-    readState: deps.readState,
-    stateFileExists: deps.stateFileExists,
-    getStateFilePath: deps.getStateFilePath,
-    readTranscriptMessages: deps.readTranscriptMessages,
-    readFile: deps.readFile,
-    getPluginRoot: deps.getPluginRoot,
-  })
+function handleCoderabbitFeedbackIgnored(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  return mapResult(engine.transaction(deps.getSessionId(), 'coderabbit-feedback-ignored', (w) => w.coderabbitFeedbackIgnored()))
 }
 
-function handleSubagentStart(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  const hookInput = parseSubagentStartInput(deps.readStdin())
-  return runInjectSubagentContext(hookInput.session_id, hookInput, {
-    readState: deps.readState,
-    writeState: deps.writeState,
-    stateFileExists: deps.stateFileExists,
-    getStateFilePath: deps.getStateFilePath,
-    now: deps.now,
-  })
-}
-
-function handleTeammateIdle(_args: readonly string[], deps: WorkflowDeps): OperationResult {
-  const hookInput = parseTeammateIdleInput(deps.readStdin())
-  return runEvaluateIdle(hookInput.session_id, hookInput, {
-    readState: deps.readState,
-    stateFileExists: deps.stateFileExists,
-    getStateFilePath: deps.getStateFilePath,
-  })
-}
-
-function handleShutDown(args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleShutDown(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const agentName = args[1]
   if (!agentName) {
     return { output: 'shut-down: missing required argument <agent-name>', exitCode: EXIT_ERROR }
   }
-  return runShutDown(deps.getSessionId(), agentName, {
-    readState: deps.readState,
-    writeState: deps.writeState,
-    stateFileExists: deps.stateFileExists,
-    getStateFilePath: deps.getStateFilePath,
-    now: deps.now,
-  })
+  return mapResult(engine.shutDown(deps.getSessionId(), agentName))
 }
 
-function handlePersistSessionId(_args: readonly string[], deps: WorkflowDeps): OperationResult {
+function handleSessionStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const hookInput = parseCommonInput(deps.readStdin())
-  return runPersistSessionId(hookInput.session_id, {
-    getEnvFilePath: deps.getEnvFilePath,
-    appendToFile: deps.appendToFile,
+  engine.persistSessionId(hookInput.session_id)
+  return { output: '', exitCode: EXIT_ALLOW }
+}
+
+function handlePreToolUse(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const hookInput = parsePreToolUseInput(deps.readStdin())
+
+  if (!engine.hasSession(hookInput.session_id)) {
+    return { output: '', exitCode: EXIT_ALLOW }
+  }
+
+  const filePath = resolveStringField(hookInput.tool_input['file_path'])
+    || resolveStringField(hookInput.tool_input['path'])
+    || resolveStringField(hookInput.tool_input['pattern'])
+  const command = resolveStringField(hookInput.tool_input['command'])
+
+  const hookCheck = engine.transaction(hookInput.session_id, 'hook-check', (w) => {
+    const pluginCheck = w.checkPluginSourceRead(hookInput.tool_name, filePath, command)
+    if (!pluginCheck.pass) return pluginCheck
+    const writeCheck = w.checkWriteAllowed(hookInput.tool_name, filePath)
+    if (!writeCheck.pass) return writeCheck
+    return w.checkBashAllowed(hookInput.tool_name, command)
   })
+  if (hookCheck.type === 'blocked') return { output: formatDenyDecision(hookCheck.output), exitCode: EXIT_BLOCK }
+
+  const identityResult = engine.verifyIdentity(hookInput.session_id, hookInput.transcript_path)
+  if (identityResult.output) {
+    return { output: formatContextInjection(identityResult.output), exitCode: EXIT_ALLOW }
+  }
+
+  return { output: '', exitCode: EXIT_ALLOW }
+}
+
+function handleSubagentStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const hookInput = parseSubagentStartInput(deps.readStdin())
+
+  if (!engine.hasSession(hookInput.session_id)) {
+    return { output: '', exitCode: EXIT_ALLOW }
+  }
+
+  const result = engine.registerAgent(hookInput.session_id, hookInput.agent_type, hookInput.agent_id)
+  return { output: formatContextInjection(result.output), exitCode: EXIT_ALLOW }
+}
+
+function handleTeammateIdle(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const hookInput = parseTeammateIdleInput(deps.readStdin())
+
+  if (!engine.hasSession(hookInput.session_id)) {
+    return { output: '', exitCode: EXIT_ALLOW }
+  }
+
+  const agentName = hookInput.teammate_name ?? ''
+  const result = engine.checkIdleAllowed(hookInput.session_id, agentName)
+  if (result.type === 'blocked') {
+    return { output: result.output, exitCode: EXIT_BLOCK }
+  }
+
+  return { output: '', exitCode: EXIT_ALLOW }
+}
+
+function resolveStringField(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function mapResult(result: EngineResult): OperationResult {
+  const exitCode = result.type === 'success' ? EXIT_ALLOW : result.type === 'blocked' ? EXIT_BLOCK : EXIT_ERROR
+  return { output: result.output, exitCode }
 }
 
 /* v8 ignore start */
-function buildRealDeps(): WorkflowDeps {
-  return {
+function buildRealDeps(): AdapterDeps {
+  const engineDeps: WorkflowEngineDeps = {
     readState,
     writeState,
     stateFileExists,
     getStateFilePath,
-    getSessionId,
     getPluginRoot,
     getEnvFilePath,
+    readFile: (path) => readFileSync(path, 'utf8'),
+    readTranscriptMessages,
+    appendToFile: (path, content) => appendFileSync(path, content),
+    now: () => new Date().toISOString(),
+  }
+
+  const workflowDeps: WorkflowRuntimeDeps = {
     getGitInfo,
     checkPrChecks,
     createDraftPr,
     appendIssueChecklist,
     tickFirstUncheckedIteration,
-    now: () => new Date().toISOString(),
-    readFile: (path) => readFileSync(path, 'utf8'),
-    readTranscriptMessages,
-    fileExists: existsSync,
     runEslintOnFiles,
-    appendToFile: (path, content) => appendFileSync(path, content),
+    fileExists: existsSync,
+    getPluginRoot,
+    now: () => new Date().toISOString(),
+  }
+
+  return {
+    getSessionId,
     readStdin: readStdinSync,
+    engineDeps,
+    workflowDeps,
   }
 }
 

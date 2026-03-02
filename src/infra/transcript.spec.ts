@@ -72,8 +72,10 @@ describe('readTranscriptMessages — message parsing', () => {
     ].join('\n')
     writeFileSync(TEST_FILE, content, 'utf-8')
     const messages = readTranscriptMessages(TEST_FILE)
-    expect(messages).toHaveLength(2)
-    expect(messages[1]?.startsWithLeadPrefix).toStrictEqual(true)
+    expect(messages).toStrictEqual([
+      expect.objectContaining({ startsWithLeadPrefix: false }),
+      expect.objectContaining({ startsWithLeadPrefix: true }),
+    ])
   })
 
   it('marks message with only tool-use content as not having text content', () => {

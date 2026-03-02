@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs'
-import { WorkflowState } from '../domain/workflow-state.js'
-import type { WorkflowState as WorkflowStateType } from '../domain/workflow-state.js'
+import type { WorkflowState as WorkflowStateType } from '../workflow-engine/index.js'
+import { WorkflowStateSchema } from '../workflow-definition/index.js'
 import { WorkflowError } from './workflow-error.js'
 
 export function readState(stateFilePath: string): WorkflowStateType {
@@ -28,7 +28,7 @@ function readFileSafe(stateFilePath: string): string {
 
 function parseStateSafe(stateFilePath: string, raw: string): WorkflowStateType {
   const json = tryParseJson(stateFilePath, raw)
-  const result = WorkflowState.safeParse(json)
+  const result = WorkflowStateSchema.safeParse(json)
   if (!result.success) {
     throw new WorkflowError(`Invalid state file at ${stateFilePath}: ${result.error.message}`)
   }

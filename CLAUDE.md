@@ -15,11 +15,14 @@ pnpm test          # vitest run --coverage (100% required)
 
 ```plaintext
 src/
-├── autonomous-claude-agent-team-workflow.ts  ← CLI entrypoint (public)
-├── operations/   ← one file per CLI subcommand
-├── domain/       ← pure business logic, no I/O
-└── infra/        ← all I/O isolated here
+├── autonomous-claude-agent-team-workflow.ts  ← Thin CLI/hook adapter (public)
+├── workflow-dsl/          ← Generic DSL types (PreconditionResult, state definitions)
+├── workflow-engine/       ← WorkflowEngine<T>, state schema, event log, identity rules, output formatting
+├── workflow-definition/   ← Workflow aggregate root, state registry, state definitions, engine adapter
+└── infra/                 ← All I/O: filesystem, git, GitHub, stdin, linter
 ```
+
+See [docs/architecture.md](docs/architecture.md) for dependency rules and module privacy.
 
 ## Design Principles
 
@@ -73,3 +76,5 @@ Every requirement in a state procedure file (`states/*.md`) MUST be a `- [ ]` ch
 - [docs/conventions/anti-patterns.md](docs/conventions/anti-patterns.md)
 - [docs/conventions/standard-patterns.md](docs/conventions/standard-patterns.md)
 - [docs/conventions/review-feedback-checks.md](docs/conventions/review-feedback-checks.md)
+- [docs/architecture.md](docs/architecture.md)
+- [docs/testing-strategy.md](docs/testing-strategy.md)
