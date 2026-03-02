@@ -55,13 +55,13 @@ External code accesses `workflow-engine` and `workflow-definition` only through 
 - **`startSession()`**: Creates initial state if absent
 - **`transaction()`**: Rehydrate → execute operation → persist → format output
 - **`transition()`**: Rehydrate → validate transition → persist → format with procedure
-- **`query()`**: Execute a read-only check against a rehydrated workflow (no persist)
 - **`registerAgent()`**: Register a subagent and return context
 - **`checkIdleAllowed()`**: Check if an agent can go idle
 - **`shutDown()`**: Deregister an agent
 - **`runLint()`**: Execute lint through the workflow
 - **`verifyIdentity()`**: Check lead identity from transcript
 - **`persistSessionId()`**: Write session ID to env file
+- **`hasSession()`**: Check whether a state file exists for a session
 
 The engine is parameterized by `RehydratableWorkflow` and `WorkflowFactory` interfaces, implemented by `WorkflowAdapter` in `workflow-definition/`.
 

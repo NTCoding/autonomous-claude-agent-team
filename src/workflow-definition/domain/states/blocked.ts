@@ -1,6 +1,6 @@
-import type { ConcreteStateDefinition } from '../../workflow-types.js'
-import { StateNameSchema } from '../../workflow-types.js'
-import { fail, pass } from '../../../../workflow-dsl/index.js'
+import type { ConcreteStateDefinition } from '../workflow-types.js'
+import { StateNameSchema } from '../workflow-types.js'
+import { fail, pass } from '../../../workflow-dsl/index.js'
 
 export const blockedState: ConcreteStateDefinition = {
   emoji: '⚠️',

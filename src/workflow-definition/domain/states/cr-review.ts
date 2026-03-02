@@ -1,5 +1,5 @@
-import type { ConcreteStateDefinition } from '../../workflow-types.js'
-import { pass, fail } from '../../../../workflow-dsl/index.js'
+import type { ConcreteStateDefinition } from '../workflow-types.js'
+import { pass, fail } from '../../../workflow-dsl/index.js'
 
 export const crReviewState: ConcreteStateDefinition = {
   emoji: '🐰',
