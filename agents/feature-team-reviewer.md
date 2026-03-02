@@ -64,9 +64,10 @@ When reviewing the developer's work:
 
 - [ ] Run `git diff` to see uncommitted local changes — this is the ONLY valid source of the diff. Do NOT fetch remote branches, do NOT run `git diff main`, do NOT run `git log`.
 - [ ] Run typecheck, build, and tests
-- [ ] Run strict lint on all changed `.ts`/`.tsx` files:
-  ```bash
-  node "${CLAUDE_PLUGIN_ROOT}/dist/workflow.js" run-lint $(git status --porcelain | awk '{print $2}' | grep -E '\.tsx?$')
+- [ ] Run strict lint on all changed `.ts`/`.tsx` files using the Skill tool:
+  ```
+  skill: "autonomous-claude-agent-team:workflow"
+  args: "run-lint $(git status --porcelain | awk '{print $2}' | grep -E '\.tsx?$')"
   ```
 - [ ] If lint violations found — REJECT immediately with lint output, do not proceed
 - [ ] Review each line of changed code against all principles

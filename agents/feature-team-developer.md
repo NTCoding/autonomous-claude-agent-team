@@ -74,16 +74,17 @@ When asked by the team lead to implement work, follow TDD:
 Before signalling completion, work through this checklist:
 
 - [ ] Never checked out or switched branches — work on the branch you started on (lead pre-creates it)
-- [ ] Run strict lint on ALL changed `.ts`/`.tsx` files:
-  ```bash
-  node "${CLAUDE_PLUGIN_ROOT}/dist/workflow.js" run-lint <changed-files>
+- [ ] Run strict lint on ALL changed `.ts`/`.tsx` files using the Skill tool:
+  ```
+  skill: "autonomous-claude-agent-team:workflow"
+  args: "run-lint <changed-files>"
   ```
   This also records lint metadata to the state file — required for the lead to transition to COMMITTING.
 - [ ] All lint violations fixed
 - [ ] Typecheck passes
 - [ ] Tests pass
 - [ ] Run signal-done FIRST, then message the lead — in that exact order:
-  1. Run: `node "${CLAUDE_PLUGIN_ROOT}/dist/workflow.js" signal-done`
+  1. Invoke the Skill tool: `skill: "autonomous-claude-agent-team:workflow"`, `args: "signal-done"`
   2. Confirm it printed success output
   3. Only then message the lead: "Implementation complete — signal-done confirmed"
   Do NOT message the lead before signal-done has printed success.
@@ -93,10 +94,11 @@ Before signalling completion, work through this checklist:
 
 When the lead asks you to create the draft PR:
 
-1. Create the draft PR through the workflow engine:
+1. Create the draft PR through the workflow engine using the Skill tool:
 
-   ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/dist/workflow.js" create-pr "<short description> (#<github_issue>)" "<body>"
+   ```
+   skill: "autonomous-claude-agent-team:workflow"
+   args: "create-pr \"<short description> (#<github_issue>)\" \"<body>\""
    ```
 
    PR body must include:
