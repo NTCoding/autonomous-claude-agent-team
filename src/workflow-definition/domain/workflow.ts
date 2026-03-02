@@ -334,7 +334,7 @@ export class Workflow {
 
       if (COMMIT_BLOCKED_STATES.has(this.state.state)) {
         return fail(
-          `Cannot commit during ${this.state.state}.\n\nCommits are blocked until the reviewer approves changes. Developer must signal completion first, then lead transitions to REVIEWING.\n\nDeveloper runs:\n  node "\${PLUGIN_ROOT}/dist/workflow.js" signal-done\n\nThen lead transitions:\n  node "\${PLUGIN_ROOT}/dist/workflow.js" transition REVIEWING`,
+          `Cannot commit during ${this.state.state}.\n\nCommits are blocked until the reviewer approves changes. Developer must signal completion first, then the lead transitions to REVIEWING.`,
         )
       }
     }
@@ -441,7 +441,7 @@ export class Workflow {
       return pass()
     }
     return fail(
-      `Developer cannot go idle in ${this.state.state} without signalling done.\n\n1. Run lint: node "\${PLUGIN_ROOT}/dist/workflow.js" run-lint <changed-files>\n2. Fix all violations.\n3. Signal done: node "\${PLUGIN_ROOT}/dist/workflow.js" signal-done`,
+      `Developer cannot go idle in ${this.state.state} without signalling done. Run lint on all changed files, fix all violations, then run signal-done. Follow the workflow checklist in your agent instructions.`,
     )
   }
 
