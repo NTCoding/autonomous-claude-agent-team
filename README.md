@@ -32,6 +32,7 @@ flowchart LR
     COMMITTING -->|done| CR_REVIEW
     CR_REVIEW --> PR_CREATION
     PR_CREATION --> FEEDBACK
+    FEEDBACK -->|iterate| RESPAWN
     FEEDBACK --> COMPLETE
 ```
 
@@ -42,33 +43,52 @@ RESPAWN happens at the start of **every** iteration. It shuts down the existing 
 ```json
 {
   "state": "DEVELOPING",
-  "iteration": 2,
+  "iteration": 1,
+  "iterations": [
+    {
+      "task": "Add PDF rendering for line items",
+      "developerDone": false,
+      "developingHeadCommit": "abc123",
+      "reviewApproved": false,
+      "reviewRejected": false,
+      "coderabbitFeedbackAddressed": false,
+      "coderabbitFeedbackIgnored": false,
+      "lintedFiles": ["src/invoice/pdf-renderer.ts"],
+      "lintRanIteration": true
+    }
+  ],
   "githubIssue": 42,
   "featureBranch": "feature/my-feature",
-  "developerDone": false,
-  "lintRanIteration": 1,
-  "developingHeadCommit": "abc123",
-  "prNumber": 17,
+  "prNumber": null,
   "userApprovedPlan": true,
-  "currentIterationTask": "Iteration 2: Add PDF rendering for line items",
   "activeAgents": ["feature-team-developer", "feature-team-reviewer"],
-  "lintedFiles": ["src/invoice/pdf-renderer.ts"],
-  "commitsBlocked": true,
-  "preBlockedState": null,
   "eventLog": [
     { "op": "transition", "at": "2024-01-15T10:00:00Z", "detail": { "from": "PLANNING", "to": "RESPAWN" } }
   ]
 }
 ```
 
-**`/autonomous-claude-agent-team:workflow transition <STATE>`** is the only way the lead changes state. Pre-conditions enforced:
+**`/autonomous-claude-agent-team:workflow transition <STATE>`** is the only way the lead changes state. Each state's transitions and guards are defined in [`src/workflow-definition/domain/states/`](src/workflow-definition/domain/states/). Example — `committing.ts`:
 
-| Transition                       | Pre-condition                                                                             |
-| -------------------------------- | ----------------------------------------------------------------------------------------- |
-| Any → DEVELOPING                 | Feature branch (not main/master), `githubIssue` set in state file                        |
-| DEVELOPING → REVIEWING           | `developer_done: true`, unstaged changes exist, no commits added since DEVELOPING started |
-| COMMITTING → RESPAWN / CR_REVIEW | Working tree clean, lint ran this iteration, commits exist beyond default branch          |
-| FEEDBACK → COMPLETE              | `prNumber` set in state file, all PR checks passing (`gh pr checks`)                     |
+```typescript
+// committing.ts (abbreviated)
+export const committingState: ConcreteStateDefinition = {
+  emoji: '💾',
+  canTransitionTo: ['RESPAWN', 'CR_REVIEW', 'BLOCKED'],
+  transitionGuard: (ctx) => {
+    if (!ctx.gitInfo.workingTreeClean)
+      return fail('Uncommitted changes detected.')
+    const currentIteration = ctx.state.iterations[ctx.state.iteration]
+    if (!currentIteration?.lintRanIteration)
+      return fail('Lint not run this iteration.')
+    if (!ctx.gitInfo.hasCommitsVsDefault)
+      return fail('No commits beyond default branch.')
+    return pass()
+  },
+}
+```
+
+Guards are pure functions that inspect git state and workflow state, returning `pass()` or `fail('reason')`. Every state follows this pattern.
 
 **Hooks:**
 
@@ -84,7 +104,7 @@ The state procedure is injected in three moments only: successful transition (ne
 **Starting a session:**
 
 ```
-/start-feature-team
+/autonomous-claude-agent-team:start-feature-team
 ```
 
 **What the lead will ask you for:**
@@ -155,7 +175,7 @@ npx tsx "${CLAUDE_PLUGIN_ROOT}/src/autonomous-claude-agent-team-workflow.ts"
 
 **4. Verify**
 
-Start a new Claude Code session and run `/start-feature-team`. The lead should
+Start a new Claude Code session and run `/autonomous-claude-agent-team:start-feature-team`. The lead should
 initialise the state file and announce `🟣 LEAD: SPAWN`.
 
 ---
@@ -175,21 +195,25 @@ autonomous-claude-agent-team/
 │   └── blocked.md, complete.md
 │
 ├── commands/
-│   └── start-feature-team.md  # Entry point slash command
+│   ├── start-feature-team.md  # Entry point slash command
+│   └── workflow.md            # Transition + workflow operations
 │
 ├── hooks/
 │   └── hooks.json             # 4 hook events → npx tsx src/autonomous-claude-agent-team-workflow.ts
 │
 ├── src/                  # TypeScript workflow engine
 │   ├── autonomous-claude-agent-team-workflow.ts  ← CLI + hook entry point
-│   ├── operations/       ← one file per command/hook operation
-│   ├── domain/           ← pure business logic, no I/O
-│   └── infra/            ← all I/O isolated here
+│   ├── workflow-dsl/          ← Generic DSL types (PreconditionResult, state definitions)
+│   ├── workflow-engine/       ← WorkflowEngine, state schema, event log, identity rules
+│   ├── workflow-definition/   ← Workflow aggregate root, state registry, state definitions
+│   └── infra/                 ← All I/O: filesystem, git, GitHub, stdin, linter
 │
 └── lint/
     ├── eslint.config.mjs
     └── no-generic-names.js
 ```
+
+See [`docs/architecture.md`](docs/architecture.md) for dependency rules, module privacy, and execution flow.
 
 **Why state procedures are separate files:** The lead agent definition stays ~150 lines. Full procedure for all 11 states would be 1000+ lines loaded into every tool call. The `PreToolUse` hook reads only the current state's file and injects it as `additionalContext`. The lead gets the right instructions at the right time without carrying irrelevant baggage.
 
