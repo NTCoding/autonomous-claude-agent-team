@@ -302,7 +302,7 @@ export class Workflow {
       return pass()
     }
 
-    if (!WRITE_BLOCKING_TOOLS.has(toolName)) {
+    if (!FILE_WRITING_TOOLS.has(toolName)) {
       return pass()
     }
 
@@ -479,7 +479,7 @@ export class Workflow {
 }
 
 const COMMIT_BLOCKED_STATES: ReadonlySet<string> = new Set(['DEVELOPING', 'REVIEWING'])
-const WRITE_BLOCKING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'NotebookEdit'])
+const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'NotebookEdit'])
 const READ_TOOLS: ReadonlySet<string> = new Set(['Read', 'Glob', 'Grep'])
 const BASH_READ_PATTERN = /\b(?:cat|head|tail|less|more|grep|rg|find|ls)\b/
 
