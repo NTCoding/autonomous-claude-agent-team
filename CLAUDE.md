@@ -66,6 +66,10 @@ Every change requires a version bump in both `.claude-plugin/plugin.json` AND `.
 
 Every requirement in a state procedure file (`states/*.md`) MUST be a `- [ ]` checklist item. The lead agent creates a TaskCreate entry for each checklist item when entering a state. Prose paragraphs are ignored — if it's not a checklist item, it won't be tracked.
 
+## Vitest Configuration
+
+Claude may **not** modify `vitest.config.mts` coverage exclusion rules without explicit user permission.
+
 ## Coding Standards
 
 - 100% test coverage enforced — thresholds set to 100% for all metrics (P3)
