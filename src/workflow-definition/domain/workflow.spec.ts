@@ -1016,11 +1016,14 @@ describe('Workflow', () => {
       expect(wf.checkWriteAllowed('Write', '/some/file.ts')).toStrictEqual({ pass: true })
     })
 
-    it('blocks Write tool in RESPAWN', () => {
+    it('blocks Write tool in RESPAWN with generic message', () => {
       const state = stateWith({ state: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.checkWriteAllowed('Write', '/some/file.ts')
       expect(result.pass).toBe(false)
+      if (!result.pass) {
+        expect(result.reason).toBe("Write operation 'Write' is forbidden in state: RESPAWN")
+      }
     })
 
     it('blocks Edit tool in RESPAWN', () => {

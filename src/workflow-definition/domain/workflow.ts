@@ -3,8 +3,8 @@ import { pass, fail } from '../../workflow-dsl/index.js'
 import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
 import { WorkflowStateError, createEventEntry } from '../../workflow-engine/index.js'
 import { WORKFLOW_REGISTRY, GLOBAL_FORBIDDEN, getStateDefinition } from './registry.js'
-import type { StateName, WorkflowOperation } from './workflow-types.js'
-import { parseStateName } from './workflow-types.js'
+import type { StateName, WorkflowOperation, ConcreteWorkflowState } from './workflow-types.js'
+import { parseStateName, WorkflowStateSchema } from './workflow-types.js'
 
 export type WorkflowDeps = {
   readonly getGitInfo: () => GitInfo
@@ -19,20 +19,25 @@ export type WorkflowDeps = {
 }
 
 export class Workflow {
-  private state: WorkflowState
+  private state: ConcreteWorkflowState
   private readonly deps: WorkflowDeps
 
-  private constructor(state: WorkflowState, deps: WorkflowDeps) {
+  private constructor(state: ConcreteWorkflowState, deps: WorkflowDeps) {
     this.state = state
     this.deps = deps
   }
 
   static rehydrate(state: WorkflowState, deps: WorkflowDeps): Workflow {
-    return new Workflow({ ...state }, deps)
+    const parsed = WorkflowStateSchema.parse(state)
+    return new Workflow({
+      ...parsed,
+      state: parseStateName(parsed.state),
+      preBlockedState: parsed.preBlockedState === undefined ? undefined : parseStateName(parsed.preBlockedState),
+    }, deps)
   }
 
   static procedurePath(state: string, pluginRoot: string): string {
-    return `${pluginRoot}/${getStateDefinition(state).agentInstructions}`
+    return `${pluginRoot}/${getStateDefinition(parseStateName(state)).agentInstructions}`
   }
 
   getState(): WorkflowState {
@@ -305,9 +310,7 @@ export class Workflow {
       return pass()
     }
 
-    return fail(
-      'File writes are blocked during RESPAWN.\n\nNo implementation work happens during RESPAWN. Wait for the lead to transition to DEVELOPING.\n\nLead runs:\n  node "${PLUGIN_ROOT}/dist/workflow.js" transition DEVELOPING',
-    )
+    return fail(`Write operation '${toolName}' is forbidden in state: ${this.state.state}`)
   }
 
   checkBashAllowed(toolName: string, command: string): PreconditionResult {
@@ -399,7 +402,7 @@ export class Workflow {
   }
 
   transitionTo(target: string): PreconditionResult {
-    const from = parseStateName(this.state.state)
+    const from = this.state.state
     const targetState = parseStateName(target)
 
     const currentDef = WORKFLOW_REGISTRY[from]
@@ -414,16 +417,15 @@ export class Workflow {
     }
 
     const targetDef = WORKFLOW_REGISTRY[targetState]
-    if (targetDef.onEntry) {
-      const ctx = this.buildTransitionContext(from, targetState)
-      this.state = targetDef.onEntry(this.state, ctx)
-    }
+    const base = targetDef.onEntry ? targetDef.onEntry(this.state, this.buildTransitionContext(from, targetState)) : this.state
+    const nextPreBlockedState =
+      from === 'BLOCKED' ? undefined : base.preBlockedState === undefined ? undefined : parseStateName(base.preBlockedState)
 
     this.state = {
-      ...this.state,
+      ...base,
       state: targetState,
-      preBlockedState: from === 'BLOCKED' ? undefined : this.state.preBlockedState,
-      eventLog: [...this.state.eventLog, createEventEntry('transition', this.deps.now(), { from, to: targetState })],
+      preBlockedState: nextPreBlockedState,
+      eventLog: [...base.eventLog, createEventEntry('transition', this.deps.now(), { from, to: targetState })],
     }
 
     return pass()
