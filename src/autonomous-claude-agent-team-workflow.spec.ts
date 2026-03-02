@@ -1,6 +1,8 @@
 import { runWorkflow } from './autonomous-claude-agent-team-workflow.js'
-import type { WorkflowDeps } from './autonomous-claude-agent-team-workflow.js'
-import { INITIAL_STATE } from './domain/workflow-state.js'
+import type { AdapterDeps } from './autonomous-claude-agent-team-workflow.js'
+import type { WorkflowState } from './workflow-engine/index.js'
+import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/index.js'
+import { INITIAL_STATE } from './workflow-definition/index.js'
 import { EXIT_ERROR, EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
 
 function makeHookStdin(overrides: Record<string, unknown> = {}): string {
@@ -17,15 +19,40 @@ function makeHookStdin(overrides: Record<string, unknown> = {}): string {
   })
 }
 
-function makeDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
+function makeIterationState(): WorkflowState {
+  return {
+    ...INITIAL_STATE,
+    iterations: [{
+      task: 'Iteration 1',
+      developerDone: false,
+      reviewApproved: false,
+      reviewRejected: false,
+      coderabbitFeedbackAddressed: false,
+      coderabbitFeedbackIgnored: false,
+      lintedFiles: [],
+      lintRanIteration: false,
+    }],
+  }
+}
+
+function makeEngineDeps(overrides?: Partial<WorkflowEngineDeps>): WorkflowEngineDeps {
   return {
     readState: () => INITIAL_STATE,
     writeState: () => undefined,
     stateFileExists: () => false,
-    getStateFilePath: (id) => `/test/state-${id}.json`,
-    getSessionId: () => 'test-session',
+    getStateFilePath: (id: string) => `/test/state-${id}.json`,
     getPluginRoot: () => '/plugin',
     getEnvFilePath: () => '/test/claude.env',
+    readFile: () => '',
+    readTranscriptMessages: () => [],
+    appendToFile: () => undefined,
+    now: () => '2026-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRuntimeDeps {
+  return {
     getGitInfo: () => ({
       currentBranch: 'main',
       workingTreeClean: true,
@@ -37,14 +64,25 @@ function makeDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
     createDraftPr: () => 99,
     appendIssueChecklist: () => undefined,
     tickFirstUncheckedIteration: () => undefined,
-    now: () => '2026-01-01T00:00:00Z',
-    readFile: () => '',
-    readTranscriptMessages: () => [],
-    fileExists: () => false,
     runEslintOnFiles: () => true,
-    appendToFile: () => undefined,
-    readStdin: () => makeHookStdin(),
+    fileExists: () => false,
+    getPluginRoot: () => '/plugin',
+    now: () => '2026-01-01T00:00:00Z',
     ...overrides,
+  }
+}
+
+function makeDeps(overrides?: {
+  engineDeps?: Partial<WorkflowEngineDeps>
+  workflowDeps?: Partial<WorkflowRuntimeDeps>
+  getSessionId?: () => string
+  readStdin?: () => string
+}): AdapterDeps {
+  return {
+    getSessionId: overrides?.getSessionId ?? (() => 'test-session'),
+    readStdin: overrides?.readStdin ?? (() => makeHookStdin()),
+    engineDeps: makeEngineDeps(overrides?.engineDeps),
+    workflowDeps: makeWorkflowDeps(overrides?.workflowDeps),
   }
 }
 
@@ -168,15 +206,42 @@ describe('runWorkflow — CLI command routing', () => {
     expect(result.exitCode).toStrictEqual(0)
   })
 
-  it('dispatches run-lint with no files and returns success', () => {
+  it('dispatches run-lint with no files and returns success when no state file', () => {
     const result = runWorkflow(['run-lint'], makeDeps())
     expect(result.exitCode).toStrictEqual(0)
+  })
+
+  it('dispatches run-lint with no files and returns success when state file exists', () => {
+    const state = { ...makeIterationState(), state: 'DEVELOPING' as const }
+    const result = runWorkflow(['run-lint'], makeDeps({
+      engineDeps: {
+        stateFileExists: () => true,
+        readState: () => state,
+      },
+    }))
+    expect(result.exitCode).toStrictEqual(0)
+    expect(result.output).toContain('Lint passed')
+  })
+
+  it('dispatches run-lint and returns EXIT_BLOCK when lint fails', () => {
+    const state = { ...makeIterationState(), state: 'DEVELOPING' as const }
+    const result = runWorkflow(['run-lint', '/project/src/bad.ts'], makeDeps({
+      engineDeps: {
+        stateFileExists: () => true,
+        readState: () => state,
+      },
+      workflowDeps: {
+        fileExists: () => true,
+        runEslintOnFiles: () => false,
+      },
+    }))
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
   })
 
   it('dispatches create-pr and returns success when in PR_CREATION state', () => {
     const result = runWorkflow(
       ['create-pr', 'My PR title', 'My PR body'],
-      makeDeps({ readState: () => ({ ...INITIAL_STATE, state: 'PR_CREATION' }) }),
+      makeDeps({ engineDeps: { readState: () => ({ ...INITIAL_STATE, state: 'PR_CREATION' }) } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -184,7 +249,7 @@ describe('runWorkflow — CLI command routing', () => {
   it('dispatches append-issue-checklist and returns success when in PLANNING state', () => {
     const result = runWorkflow(
       ['append-issue-checklist', '10', '- [ ] Iteration 1: task'],
-      makeDeps({ readState: () => ({ ...INITIAL_STATE, state: 'PLANNING' }) }),
+      makeDeps({ engineDeps: { readState: () => ({ ...INITIAL_STATE, state: 'PLANNING' }) } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -192,7 +257,7 @@ describe('runWorkflow — CLI command routing', () => {
   it('dispatches tick-iteration and returns success when in COMMITTING state', () => {
     const result = runWorkflow(
       ['tick-iteration', '10'],
-      makeDeps({ readState: () => ({ ...INITIAL_STATE, state: 'COMMITTING' }) }),
+      makeDeps({ engineDeps: { readState: () => ({ ...INITIAL_STATE, state: 'COMMITTING' }) } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -205,7 +270,7 @@ describe('runWorkflow — hook mode routing', () => {
       [],
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'SessionStart' }),
-        appendToFile: (_, content) => appended.push(content),
+        engineDeps: { appendToFile: (_: string, content: string) => appended.push(content) },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
@@ -220,7 +285,7 @@ describe('runWorkflow — hook mode routing', () => {
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
 
-  it('returns EXIT_BLOCK from PreToolUse when a handler blocks the tool use', () => {
+  it('returns EXIT_BLOCK from PreToolUse when write is blocked', () => {
     const result = runWorkflow(
       [],
       makeDeps({
@@ -230,11 +295,72 @@ describe('runWorkflow — hook mode routing', () => {
             tool_name: 'Write',
             tool_input: { file_path: '/project/src/foo.ts' },
           }),
-        stateFileExists: () => true,
-        readState: () => ({ ...INITIAL_STATE, state: 'RESPAWN' }),
+        engineDeps: {
+          stateFileExists: () => true,
+          readState: () => ({ ...INITIAL_STATE, state: 'RESPAWN' }),
+        },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+
+  it('returns EXIT_BLOCK from PreToolUse when plugin source read is blocked', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () =>
+          makeHookStdin({
+            hook_event_name: 'PreToolUse',
+            tool_name: 'Read',
+            tool_input: { file_path: '/home/.claude/plugins/cache/myplugin/src/index.ts' },
+          }),
+        engineDeps: {
+          stateFileExists: () => true,
+          readState: () => INITIAL_STATE,
+        },
+        workflowDeps: {
+          getPluginRoot: () => '/home/.claude/plugins/cache/myplugin',
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+
+  it('returns EXIT_BLOCK from PreToolUse when bash commit is blocked', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () =>
+          makeHookStdin({
+            hook_event_name: 'PreToolUse',
+            tool_name: 'Bash',
+            tool_input: { command: 'git commit -m "test"' },
+          }),
+        engineDeps: {
+          stateFileExists: () => true,
+          readState: () => ({ ...INITIAL_STATE, state: 'DEVELOPING' }),
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+
+  it('returns empty output from PreToolUse when all checks pass and identity is verified', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
+        engineDeps: {
+          stateFileExists: () => true,
+          readState: () => ({ ...INITIAL_STATE, state: 'PLANNING' }),
+          readTranscriptMessages: () => [
+            { id: '1', hasTextContent: true, startsWithLeadPrefix: true },
+          ],
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toStrictEqual('')
   })
 
   it('returns additionalContext from PreToolUse when verify-identity detects identity loss', () => {
@@ -242,12 +368,14 @@ describe('runWorkflow — hook mode routing', () => {
       [],
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
-        stateFileExists: () => true,
-        readState: () => ({ ...INITIAL_STATE, state: 'PLANNING' }),
-        readTranscriptMessages: () => [
-          { id: '1', hasTextContent: true, startsWithLeadPrefix: true },
-          { id: '2', hasTextContent: true, startsWithLeadPrefix: false },
-        ],
+        engineDeps: {
+          stateFileExists: () => true,
+          readState: () => ({ ...INITIAL_STATE, state: 'PLANNING' }),
+          readTranscriptMessages: () => [
+            { id: '1', hasTextContent: true, startsWithLeadPrefix: true },
+            { id: '2', hasTextContent: true, startsWithLeadPrefix: false },
+          ],
+        },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
@@ -273,10 +401,12 @@ describe('runWorkflow — hook mode routing', () => {
           agent_id: 'agt-1',
           agent_type: 'developer-1',
         }),
-        stateFileExists: (path) => path.includes('parent-session'),
-        readState: () => INITIAL_STATE,
-        writeState: (path) => { written.push({ path }) },
-        getStateFilePath: (id) => `/test/state-${id}.json`,
+        engineDeps: {
+          stateFileExists: (path: string) => path.includes('parent-session'),
+          readState: () => INITIAL_STATE,
+          writeState: (path: string) => { written.push({ path }) },
+          getStateFilePath: (id: string) => `/test/state-${id}.json`,
+        },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
@@ -289,6 +419,49 @@ describe('runWorkflow — hook mode routing', () => {
       makeDeps({ readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle' }) }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+  })
+
+  it('TeammateIdle allows unnamed agent', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle' }),
+        engineDeps: {
+          stateFileExists: () => true,
+          readState: () => ({ ...INITIAL_STATE, state: 'DEVELOPING' }),
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+  })
+
+  it('TeammateIdle allows non-lead agent in DEVELOPING state', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle', teammate_name: 'reviewer-1' }),
+        engineDeps: {
+          stateFileExists: () => true,
+          readState: () => ({ ...INITIAL_STATE, state: 'DEVELOPING' }),
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+  })
+
+  it('TeammateIdle blocks lead agent in non-BLOCKED state', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle', teammate_name: 'lead-1' }),
+        engineDeps: {
+          stateFileExists: () => true,
+          readState: () => ({ ...INITIAL_STATE, state: 'DEVELOPING' }),
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+    expect(result.output).toContain('Lead cannot go idle')
   })
 
   it('returns EXIT_ERROR for unrecognised hook event', () => {
@@ -308,12 +481,23 @@ describe('runWorkflow — shut-down argument validation', () => {
     expect(result.output).toContain('missing required argument')
   })
 
+  it('returns EXIT_ERROR when no state file exists', () => {
+    const result = runWorkflow(
+      ['shut-down', 'developer-1'],
+      makeDeps({ engineDeps: { stateFileExists: () => false } }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
+    expect(result.output).toContain('no state file')
+  })
+
   it('dispatches shut-down and returns success when state file exists', () => {
     const result = runWorkflow(
       ['shut-down', 'developer-1'],
       makeDeps({
-        stateFileExists: () => true,
-        readState: () => ({ ...INITIAL_STATE, activeAgents: ['developer-1'] }),
+        engineDeps: {
+          stateFileExists: () => true,
+          readState: () => ({ ...INITIAL_STATE, activeAgents: ['developer-1'] }),
+        },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
@@ -322,6 +506,11 @@ describe('runWorkflow — shut-down argument validation', () => {
 })
 
 describe('runWorkflow — CLI command dispatch', () => {
+  it('dispatches transition and returns EXIT_BLOCK when guard fails', () => {
+    const result = runWorkflow(['transition', 'PLANNING'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+
   it('dispatches transition with valid state and returns success', () => {
     const spawnReady = {
       ...INITIAL_STATE,
@@ -329,7 +518,7 @@ describe('runWorkflow — CLI command dispatch', () => {
       activeAgents: ['developer-1', 'reviewer-1'],
     }
     const result = runWorkflow(['transition', 'PLANNING'], makeDeps({
-      readState: () => spawnReady,
+      engineDeps: { readState: () => spawnReady },
     }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -361,6 +550,56 @@ describe('runWorkflow — CLI command dispatch', () => {
 
   it('dispatches record-pr with valid number and returns gate error for SPAWN state', () => {
     const result = runWorkflow(['record-pr', '7'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+})
+
+describe('runWorkflow — new review and coderabbit commands', () => {
+  it('dispatches review-approved and returns success when in REVIEWING state', () => {
+    const state = { ...makeIterationState(), state: 'REVIEWING' as const }
+    const result = runWorkflow(['review-approved'], makeDeps({ engineDeps: { readState: () => state } }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('Review approved')
+  })
+
+  it('dispatches review-approved and returns gate error for SPAWN state', () => {
+    const result = runWorkflow(['review-approved'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+
+  it('dispatches review-rejected and returns success when in REVIEWING state', () => {
+    const state = { ...makeIterationState(), state: 'REVIEWING' as const }
+    const result = runWorkflow(['review-rejected'], makeDeps({ engineDeps: { readState: () => state } }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('Review rejected')
+  })
+
+  it('dispatches review-rejected and returns gate error for SPAWN state', () => {
+    const result = runWorkflow(['review-rejected'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+
+  it('dispatches coderabbit-feedback-addressed and returns success when in CR_REVIEW state', () => {
+    const state = { ...makeIterationState(), state: 'CR_REVIEW' as const }
+    const result = runWorkflow(['coderabbit-feedback-addressed'], makeDeps({ engineDeps: { readState: () => state } }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('CodeRabbit feedback marked as addressed')
+  })
+
+  it('dispatches coderabbit-feedback-addressed and returns gate error for SPAWN state', () => {
+    const result = runWorkflow(['coderabbit-feedback-addressed'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+
+  it('dispatches coderabbit-feedback-ignored and returns success when in CR_REVIEW state', () => {
+    const state = { ...makeIterationState(), state: 'CR_REVIEW' as const }
+    const result = runWorkflow(['coderabbit-feedback-ignored'], makeDeps({ engineDeps: { readState: () => state } }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('CodeRabbit feedback marked as ignored')
+  })
+
+  it('dispatches coderabbit-feedback-ignored and returns gate error for SPAWN state', () => {
+    const result = runWorkflow(['coderabbit-feedback-ignored'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
   })
 })

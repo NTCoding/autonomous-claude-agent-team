@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readState, writeState, stateFileExists } from './state-store.js'
-import { INITIAL_STATE } from '../domain/workflow-state.js'
+import { INITIAL_STATE } from '../workflow-definition/index.js'
 
 const PLUGIN_TEST_DIR = join(import.meta.dirname, '../../.claude/plugins/autonomous-claude-agent-team')
 const testPath = join(PLUGIN_TEST_DIR, 'test-state-store-spec.json')

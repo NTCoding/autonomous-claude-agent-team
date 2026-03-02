@@ -1,7 +1,7 @@
 import { openSync, readSync, statSync, closeSync } from 'node:fs'
 import { z } from 'zod'
-import type { AssistantMessage } from '../domain/identity-rules.js'
-import { LEAD_PREFIX_PATTERN } from '../domain/identity-rules.js'
+import type { AssistantMessage } from '../workflow-engine/index.js'
+import { LEAD_PREFIX_PATTERN } from '../workflow-engine/index.js'
 
 const READ_TAIL_BYTES = 50_000
 

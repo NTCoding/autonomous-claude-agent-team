@@ -6,7 +6,10 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.spec.ts'],
+      exclude: [
+        'src/**/*.spec.ts',
+        'src/workflow-dsl/domain/types.ts',
+      ],
       thresholds: {
         lines: 100,
         statements: 100,

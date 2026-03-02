@@ -15,11 +15,14 @@ pnpm test          # vitest run --coverage (100% required)
 
 ```plaintext
 src/
-├── autonomous-claude-agent-team-workflow.ts  ← CLI entrypoint (public)
-├── operations/   ← one file per CLI subcommand
-├── domain/       ← pure business logic, no I/O
-└── infra/        ← all I/O isolated here
+├── autonomous-claude-agent-team-workflow.ts  ← Thin CLI/hook adapter (public)
+├── workflow-dsl/          ← Generic DSL types (PreconditionResult, state definitions)
+├── workflow-engine/       ← WorkflowEngine<T>, state schema, event log, identity rules, output formatting
+├── workflow-definition/   ← Workflow aggregate root, state registry, state definitions, engine adapter
+└── infra/                 ← All I/O: filesystem, git, GitHub, stdin, linter
 ```
+
+See [docs/architecture.md](docs/architecture.md) for dependency rules and module privacy.
 
 ## Design Principles
 
@@ -63,6 +66,10 @@ Every change requires a version bump in both `.claude-plugin/plugin.json` AND `.
 
 Every requirement in a state procedure file (`states/*.md`) MUST be a `- [ ]` checklist item. The lead agent creates a TaskCreate entry for each checklist item when entering a state. Prose paragraphs are ignored — if it's not a checklist item, it won't be tracked.
 
+## Vitest Configuration
+
+Claude may **not** modify `vitest.config.mts` coverage exclusion rules without explicit user permission.
+
 ## Coding Standards
 
 - 100% test coverage enforced — thresholds set to 100% for all metrics (P3)
@@ -73,3 +80,5 @@ Every requirement in a state procedure file (`states/*.md`) MUST be a `- [ ]` ch
 - [docs/conventions/anti-patterns.md](docs/conventions/anti-patterns.md)
 - [docs/conventions/standard-patterns.md](docs/conventions/standard-patterns.md)
 - [docs/conventions/review-feedback-checks.md](docs/conventions/review-feedback-checks.md)
+- [docs/architecture.md](docs/architecture.md)
+- [docs/testing-strategy.md](docs/testing-strategy.md)
