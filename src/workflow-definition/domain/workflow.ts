@@ -206,22 +206,28 @@ export class Workflow {
   checkWriteAllowed(toolName: string, filePath: string): PreconditionResult {
     const currentDef = getStateDefinition(this.state.state)
     if (!currentDef.forbidden?.write) {
+      this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: true })
       return pass()
     }
 
     if (!FILE_WRITING_TOOLS.has(toolName)) {
+      this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: true })
       return pass()
     }
 
     if (isStateFile(filePath)) {
+      this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: true })
       return pass()
     }
 
-    return fail(`Write operation '${toolName}' is forbidden in state: ${this.state.state}`)
+    const reason = `Write operation '${toolName}' is forbidden in state: ${this.state.state}`
+    this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: false, reason })
+    return fail(reason)
   }
 
   checkBashAllowed(toolName: string, command: string): PreconditionResult {
     if (toolName !== 'Bash') {
+      this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: true })
       return pass()
     }
 
@@ -239,18 +245,19 @@ export class Workflow {
       }
 
       if (currentDef.forbidden?.write) {
-        return fail(
-          `git commit/push blocked during ${this.state.state}.\n\nNo commits during ${this.state.state}. Wait for the lead to transition out of ${this.state.state}.`,
-        )
+        const reason = `git commit/push blocked during ${this.state.state}.\n\nNo commits during ${this.state.state}. Wait for the lead to transition out of ${this.state.state}.`
+        this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: false, reason })
+        return fail(reason)
       }
 
       if (COMMIT_BLOCKED_STATES.has(this.state.state)) {
-        return fail(
-          `Cannot commit during ${this.state.state}.\n\nCommits are blocked until the reviewer approves changes. Developer must signal completion first, then the lead transitions to REVIEWING.`,
-        )
+        const reason = `Cannot commit during ${this.state.state}.\n\nCommits are blocked until the reviewer approves changes. Developer must signal completion first, then the lead transitions to REVIEWING.`
+        this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: false, reason })
+        return fail(reason)
       }
     }
 
+    this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: true })
     return pass()
   }
 
@@ -258,25 +265,40 @@ export class Workflow {
     const pluginRoot = this.deps.getPluginRoot()
 
     if (READ_TOOLS.has(toolName) && isPluginSourcePath(filePath, pluginRoot)) {
-      return fail('Reading plugin source code is not allowed. The plugin is a black box. Follow the checklist from the last command output.')
+      const reason = 'Reading plugin source code is not allowed. The plugin is a black box. Follow the checklist from the last command output.'
+      this.append({ type: 'plugin-read-checked', at: this.deps.now(), tool: toolName, path: filePath, allowed: false, reason })
+      return fail(reason)
     }
 
     if (toolName === 'Bash' && BASH_READ_PATTERN.test(command) && isPluginSourcePath(command, pluginRoot)) {
-      return fail('Reading plugin source code is not allowed. The plugin is a black box. Follow the checklist from the last command output.')
+      const reason = 'Reading plugin source code is not allowed. The plugin is a black box. Follow the checklist from the last command output.'
+      this.append({ type: 'plugin-read-checked', at: this.deps.now(), tool: toolName, path: command, allowed: false, reason })
+      return fail(reason)
     }
 
+    this.append({ type: 'plugin-read-checked', at: this.deps.now(), tool: toolName, path: filePath || command, allowed: true })
     return pass()
   }
 
   checkIdleAllowed(agentName: string): PreconditionResult {
+    const result = this.resolveIdleResult(agentName)
+    this.append({
+      type: 'idle-checked',
+      at: this.deps.now(),
+      agentName,
+      allowed: result.pass,
+      reason: result.pass ? undefined : result.reason,
+    })
+    return result
+  }
+
+  private resolveIdleResult(agentName: string): PreconditionResult {
     if (agentName.includes('lead')) {
       return this.checkLeadIdle()
     }
-
     if (agentName.includes('developer')) {
       return this.checkDeveloperIdle()
     }
-
     return pass()
   }
 
