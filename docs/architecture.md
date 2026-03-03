@@ -100,11 +100,12 @@ engine.transaction(sessionId, 'record-issue', (w) => w.recordIssue(42))
 
 ### workflow-event-store
 
-`src/workflow-event-store/` provides the SQLite event persistence layer:
-- `createStore(dbPath)` — opens/creates the DB with WAL mode
-- `appendEvents(store, sessionId, events[])` — transactional insert
-- `readEvents(store, sessionId)` — ordered by `seq`, Zod-validated on read
-- `hasSession(store, sessionId)` / `listSessions(store)` — session queries
+`src/workflow-event-store/` provides the SQLite event persistence layer. `createStore(dbPath)` returns a `SqliteEventStore` object with methods:
+- `appendEvents(sessionId, events[])` — transactional insert
+- `readEvents(sessionId)` — ordered by `seq`, Zod-validated on read
+- `sessionExists(sessionId)` / `listSessions()` — session queries
+
+The returned store structurally satisfies the engine's `WorkflowEventStore` interface — no manual wiring needed.
 
 ### workflow-analysis
 

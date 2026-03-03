@@ -1,8 +1,7 @@
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createStore, appendEvents } from '../workflow-event-store/sqlite-event-store.js'
-import type { EventStore } from '../workflow-event-store/sqlite-event-store.js'
+import { createStore } from '../workflow-event-store/sqlite-event-store.js'
 import type { BaseEvent } from '../workflow-engine/index.js'
 import {
   renderBar,

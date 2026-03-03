@@ -2,7 +2,7 @@ import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { z } from 'zod'
-import { createStore, appendEvents } from '../workflow-event-store/sqlite-event-store.js'
+import { createStore } from '../workflow-event-store/sqlite-event-store.js'
 import { startViewerServer, routeRequest, extractRequestUrl, extractServerPort, extractCaptureGroup } from './workflow-viewer-server.js'
 import type { ViewerServerDeps, TimerId, HttpResponse } from './workflow-viewer-server.js'
 import { WorkflowError } from '../infra/workflow-error.js'
@@ -68,8 +68,8 @@ describe('GET /api/sessions', () => {
 
   it('returns a valid JSON array of session list items', async () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'session-a', [{ type: 'ev.start', at: T0 }, { type: 'ev.end', at: T1 }])
-    appendEvents(store, 'session-b', [{ type: 'ev.start', at: T0 }])
+    store.appendEvents( 'session-a', [{ type: 'ev.start', at: T0 }, { type: 'ev.end', at: T1 }])
+    store.appendEvents( 'session-b', [{ type: 'ev.start', at: T0 }])
 
     const deps = makeDeps()
     const server = startViewerServer(store, deps)
@@ -84,7 +84,7 @@ describe('GET /api/sessions', () => {
 
   it('returns session list items with correct sessionId fields', async () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'unique-sess', [{ type: 'ev', at: T0 }])
+    store.appendEvents( 'unique-sess', [{ type: 'ev', at: T0 }])
 
     const deps = makeDeps()
     const server = startViewerServer(store, deps)
@@ -104,7 +104,7 @@ describe('GET /api/sessions/:id/events', () => {
 
   it('returns a valid JSON session view data object', async () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'detail-sess', [{ type: 'ev.start', at: T0 }, { type: 'ev.done', at: T1 }])
+    store.appendEvents( 'detail-sess', [{ type: 'ev.start', at: T0 }, { type: 'ev.done', at: T1 }])
 
     const deps = makeDeps()
     const server = startViewerServer(store, deps)
@@ -119,7 +119,7 @@ describe('GET /api/sessions/:id/events', () => {
 
   it('returns view data with recentEvents array', async () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'detail-sess2', [{ type: 'ev.a', at: T0 }])
+    store.appendEvents( 'detail-sess2', [{ type: 'ev.a', at: T0 }])
 
     const deps = makeDeps()
     const server = startViewerServer(store, deps)
@@ -223,7 +223,7 @@ describe('auto-close after inactivity', () => {
 
   it('resets the inactivity timer on each request', async () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'timer-sess2', [{ type: 'ev', at: T0 }])
+    store.appendEvents( 'timer-sess2', [{ type: 'ev', at: T0 }])
 
     const cancelCalls: number[] = []
     const deps: ViewerServerDeps = {
@@ -322,7 +322,7 @@ describe('routeRequest', () => {
 
   it('returns 200 for /api/sessions/:id/events', () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'route-sess', [{ type: 'ev', at: T0 }])
+    store.appendEvents( 'route-sess', [{ type: 'ev', at: T0 }])
     const res = makeMockRes()
     routeRequest('/api/sessions/route-sess/events', res, store)
     expect(res.statusCode).toStrictEqual(200)

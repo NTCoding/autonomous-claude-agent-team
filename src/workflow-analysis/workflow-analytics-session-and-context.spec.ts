@@ -1,8 +1,8 @@
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createStore, appendEvents } from '../workflow-event-store/sqlite-event-store.js'
-import type { EventStore } from '../workflow-event-store/sqlite-event-store.js'
+import { createStore } from '../workflow-event-store/sqlite-event-store.js'
+import type { SqliteEventStore } from '../workflow-event-store/sqlite-event-store.js'
 import type { BaseEvent } from '../workflow-engine/index.js'
 import {
   renderBar,
@@ -57,7 +57,7 @@ describe('computeSessionSummary — in-progress detection', () => {
   it('returns in-progress when last event is recent and no terminal event', () => {
     const store = createStore(dbPath)
     const recentAt = new Date(Date.now() - 10_000).toISOString()
-    appendEvents(store, 'recent-session', [
+    store.appendEvents( 'recent-session', [
       ev('session-started', recentAt),
     ])
     const summary = computeSessionSummary(store, 'recent-session')
@@ -68,7 +68,7 @@ describe('computeSessionSummary — in-progress detection', () => {
     const store = createStore(dbPath)
     const startAt = '2026-01-01T10:00:00.000Z'
     const endAt = '2026-01-01T10:05:32.000Z'
-    appendEvents(store, 'complete-session', [
+    store.appendEvents( 'complete-session', [
       ev('session-started', startAt),
       ev('agent-shut-down', endAt, { agentName: 'lead' }),
     ])
@@ -78,13 +78,13 @@ describe('computeSessionSummary — in-progress detection', () => {
 })
 
 // Set up a counted-session store at describe time (SQLite ops are synchronous).
-function makeCountedStore(): EventStore {
+function makeCountedStore(): SqliteEventStore {
   const dbPath = tmpDb('counts')
   cleanup(dbPath)
   const store = createStore(dbPath)
   const base = new Date('2026-01-01T10:00:00.000Z').getTime()
   const t = (offsetMs: number): string => new Date(base + offsetMs).toISOString()
-  appendEvents(store, 'counted', [
+  store.appendEvents( 'counted', [
     ev('session-started', t(0)),
     ev('transitioned', t(1_000), { from: 'SPAWN', to: 'PLANNING' }),
     ev('iteration-task-assigned', t(2_000), { task: 'Task 1' }),
@@ -140,13 +140,13 @@ describe('computeSessionSummary — event counts', () => {
 })
 
 // Set up a state-durations store at describe time.
-function makeStateDurationsStore(): EventStore {
+function makeStateDurationsStore(): SqliteEventStore {
   const dbPath = tmpDb('state-durations')
   cleanup(dbPath)
   const store = createStore(dbPath)
   const base = new Date('2026-01-01T10:00:00.000Z').getTime()
   const t = (offsetMs: number): string => new Date(base + offsetMs).toISOString()
-  appendEvents(store, 'states', [
+  store.appendEvents( 'states', [
     ev('session-started', t(0)),
     ev('transitioned', t(60_000), { from: 'SPAWN', to: 'PLANNING' }),
     ev('transitioned', t(180_000), { from: 'PLANNING', to: 'DEVELOPING' }),
@@ -183,7 +183,7 @@ describe('computeSessionSummary — no hook denials', () => {
     const store = createStore(dbPath)
     const at = '2026-01-01T10:00:00.000Z'
     const endAt = '2026-01-01T10:05:00.000Z'
-    appendEvents(store, 'allowed-session', [
+    store.appendEvents( 'allowed-session', [
       ev('write-checked', at, { tool: 'Write', filePath: 'a.ts', allowed: true }),
       ev('bash-checked', at, { tool: 'Bash', command: 'npm test', allowed: true }),
       ev('plugin-read-checked', at, { tool: 'Read', path: 'x.md', allowed: true }),
@@ -206,7 +206,7 @@ describe('computeCrossSessionSummary — session with no events in duration calc
     // in the completed average, but verifies the path is exercised.
     const store = createStore(dbPath)
     const recentAt = new Date(Date.now() - 10_000).toISOString()
-    appendEvents(store, 'recent', [ev('session-started', recentAt)])
+    store.appendEvents( 'recent', [ev('session-started', recentAt)])
     const summary = computeCrossSessionSummary(store)
     expect(summary.averageDuration).toStrictEqual('(in progress)')
   })
@@ -234,7 +234,7 @@ describe('computeCrossSessionSummary — empty store', () => {
 })
 
 // Set up a two-session store at describe time.
-function makeTwoSessionStore(): EventStore {
+function makeTwoSessionStore(): SqliteEventStore {
   const dbPath = tmpDb('cross-two')
   cleanup(dbPath)
   const store = createStore(dbPath)
@@ -242,7 +242,7 @@ function makeTwoSessionStore(): EventStore {
   // Session A: 2 minutes, 1 iteration
   const baseA = new Date('2026-01-01T10:00:00.000Z').getTime()
   const tA = (ms: number): string => new Date(baseA + ms).toISOString()
-  appendEvents(store, 'session-A', [
+  store.appendEvents( 'session-A', [
     ev('session-started', tA(0)),
     ev('iteration-task-assigned', tA(30_000), { task: 'Task 1' }),
     ev('agent-shut-down', tA(120_000), { agentName: 'lead' }),
@@ -251,7 +251,7 @@ function makeTwoSessionStore(): EventStore {
   // Session B: 4 minutes, 3 iterations
   const baseB = new Date('2026-01-01T11:00:00.000Z').getTime()
   const tB = (ms: number): string => new Date(baseB + ms).toISOString()
-  appendEvents(store, 'session-B', [
+  store.appendEvents( 'session-B', [
     ev('session-started', tB(0)),
     ev('iteration-task-assigned', tB(30_000), { task: 'Task 1' }),
     ev('iteration-task-assigned', tB(120_000), { task: 'Task 2' }),
@@ -296,7 +296,7 @@ describe('computeCrossSessionSummary — hook hotspots sorted by count', () => {
     const store = createStore(dbPath)
     const at = '2026-01-01T12:00:00.000Z'
     const endAt = '2026-01-01T12:10:00.000Z'
-    appendEvents(store, 'hotspot-session', [
+    store.appendEvents( 'hotspot-session', [
       ev('write-checked', at, { tool: 'Write', filePath: 'a.ts', allowed: false }),
       ev('write-checked', at, { tool: 'Write', filePath: 'b.ts', allowed: false }),
       ev('write-checked', at, { tool: 'Write', filePath: 'c.ts', allowed: false }),
@@ -318,7 +318,7 @@ describe('computeCrossSessionSummary — all in-progress sessions', () => {
   it('returns in-progress average duration when no sessions are complete', () => {
     const store = createStore(dbPath)
     const recentAt = new Date(Date.now() - 5_000).toISOString()
-    appendEvents(store, 'ongoing-session', [
+    store.appendEvents( 'ongoing-session', [
       ev('session-started', recentAt),
     ])
     const summary = computeCrossSessionSummary(store)
@@ -334,7 +334,7 @@ describe('computeEventContext', () => {
 
   it('returns session and state info for an empty session', () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'ctx-session', [])
+    store.appendEvents( 'ctx-session', [])
     const output = computeEventContext(store, 'ctx-session')
     expect(output).toContain('Session: ctx-session')
     expect(output).toContain('SPAWN')
@@ -342,7 +342,7 @@ describe('computeEventContext', () => {
 
   it('shows current state after transitions', () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'ctx-session', [
+    store.appendEvents( 'ctx-session', [
       ev('session-started', '2026-01-01T00:00:00Z', { sessionId: 'ctx-session' }),
       ev('transitioned', '2026-01-01T00:01:00Z', { from: 'SPAWN', to: 'PLANNING' }),
     ])
@@ -352,7 +352,7 @@ describe('computeEventContext', () => {
 
   it('shows iterations when present', () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'ctx-session', [
+    store.appendEvents( 'ctx-session', [
       ev('iteration-task-assigned', '2026-01-01T00:01:00Z', { task: 'Build the thing' }),
     ])
     const output = computeEventContext(store, 'ctx-session')
@@ -362,7 +362,7 @@ describe('computeEventContext', () => {
 
   it('shows active agents when present', () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'ctx-session', [
+    store.appendEvents( 'ctx-session', [
       ev('agent-registered', '2026-01-01T00:01:00Z', { agentType: 'developer-1', agentId: 'agt-1' }),
     ])
     const output = computeEventContext(store, 'ctx-session')
@@ -372,7 +372,7 @@ describe('computeEventContext', () => {
 
   it('shows recent events', () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'ctx-session', [
+    store.appendEvents( 'ctx-session', [
       ev('session-started', '2026-01-01T00:00:00Z', { sessionId: 'ctx-session' }),
     ])
     const output = computeEventContext(store, 'ctx-session')
@@ -382,7 +382,7 @@ describe('computeEventContext', () => {
 
   it('throws WorkflowError on unknown event types', () => {
     const store = createStore(dbPath)
-    appendEvents(store, 'ctx-session', [
+    store.appendEvents( 'ctx-session', [
       ev('unknown-event-type', '2026-01-01T00:00:00Z'),
     ])
     expect(() => computeEventContext(store, 'ctx-session')).toThrow('Unknown event type in store')

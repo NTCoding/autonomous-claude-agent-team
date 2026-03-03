@@ -2,7 +2,7 @@ import { readFileSync, appendFileSync, existsSync } from 'node:fs'
 import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from '../workflow-engine/index.js'
 import type { ViewerServer } from '../workflow-analysis/index.js'
 import { startViewerServer } from '../workflow-analysis/index.js'
-import { createStore, readEvents, appendEvents, hasSession } from '../workflow-event-store/index.js'
+import { createStore } from '../workflow-event-store/index.js'
 import {
   computeSessionSummary,
   computeCrossSessionSummary,
@@ -41,11 +41,7 @@ export function buildRealDeps(): AdapterDeps {
   const store = createStore(getDbPath())
 
   const engineDeps: WorkflowEngineDeps = {
-    store: {
-      readEvents: (sessionId) => readEvents(store, sessionId),
-      appendEvents: (sessionId, events) => appendEvents(store, sessionId, events),
-      sessionExists: (sessionId) => hasSession(store, sessionId),
-    },
+    store,
     getPluginRoot,
     getEnvFilePath,
     readFile: (path) => readFileSync(path, 'utf8'),

@@ -2,8 +2,7 @@ import * as http from 'node:http'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
-import type { EventStore } from '../workflow-event-store/sqlite-event-store.js'
-import { readEvents, listSessions } from '../workflow-event-store/sqlite-event-store.js'
+import type { SqliteEventStore } from '../workflow-event-store/sqlite-event-store.js'
 import { buildSessionViewData, buildSessionListItem } from './session-view.js'
 
 export type TimerId = ReturnType<typeof globalThis.setTimeout>
@@ -58,11 +57,11 @@ function sendNotFound(res: HttpResponse): void {
 export function routeRequest(
   url: string,
   res: HttpResponse,
-  store: EventStore
+  store: SqliteEventStore
 ): void {
   if (url === '/api/sessions') {
-    const sessionIds = listSessions(store)
-    const items = sessionIds.map((id) => buildSessionListItem(id, readEvents(store, id)))
+    const sessionIds = store.listSessions()
+    const items = sessionIds.map((id) => buildSessionListItem(id, store.readEvents(id)))
     sendJson(res, items)
     return
   }
@@ -70,7 +69,7 @@ export function routeRequest(
   const eventsMatch = /^\/api\/sessions\/([^/]+)\/events$/.exec(url)
   if (eventsMatch) {
     const sessionId = extractCaptureGroup(eventsMatch, 1)
-    const events = readEvents(store, sessionId)
+    const events = store.readEvents(sessionId)
     const viewData = buildSessionViewData(sessionId, events)
     sendJson(res, viewData)
     return
@@ -101,7 +100,7 @@ export function extractRequestUrl(req: { url?: string | undefined }): string {
   return '/'
 }
 
-export function startViewerServer(store: EventStore, deps: ViewerServerDeps): ViewerServer {
+export function startViewerServer(store: SqliteEventStore, deps: ViewerServerDeps): ViewerServer {
   const timerRef: { id: TimerId | undefined } = { id: undefined }
 
   const resetTimer = (server: http.Server): void => {

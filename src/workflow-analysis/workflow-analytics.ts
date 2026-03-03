@@ -1,6 +1,5 @@
 import { z } from 'zod'
-import type { EventStore } from '../workflow-event-store/sqlite-event-store.js'
-import { readEvents, listSessions } from '../workflow-event-store/sqlite-event-store.js'
+import type { SqliteEventStore } from '../workflow-event-store/sqlite-event-store.js'
 import type { BaseEvent } from '../workflow-engine/index.js'
 import { fold, WorkflowEventSchema } from '../workflow-definition/index.js'
 import { WorkflowError } from '../infra/workflow-error.js'
@@ -163,8 +162,8 @@ function computeDuration(events: readonly BaseEvent[]): string {
   return formatDuration(range.max - range.min)
 }
 
-export function computeSessionSummary(store: EventStore, sessionId: string): SessionSummary {
-  const events = readEvents(store, sessionId)
+export function computeSessionSummary(store: SqliteEventStore, sessionId: string): SessionSummary {
+  const events = store.readEvents(sessionId)
 
   const duration = computeDuration(events)
   const iterationCount = events.filter((e) => e.type === 'iteration-task-assigned').length
@@ -209,13 +208,13 @@ export type CrossSessionSummary = {
   hookHotspots: Array<{ type: string; count: number }>
 }
 
-function computeSessionDurationMs(store: EventStore, sessionId: string): number {
-  const range = reduceToTimestampRange(readEvents(store, sessionId))
+function computeSessionDurationMs(store: SqliteEventStore, sessionId: string): number {
+  const range = reduceToTimestampRange(store.readEvents(sessionId))
   return range.max - range.min
 }
 
-export function computeCrossSessionSummary(store: EventStore): CrossSessionSummary {
-  const sessions = listSessions(store)
+export function computeCrossSessionSummary(store: SqliteEventStore): CrossSessionSummary {
+  const sessions = store.listSessions()
   const summaries = sessions.map((sessionId) => computeSessionSummary(store, sessionId))
 
   const totalSessions = summaries.length
@@ -302,8 +301,8 @@ export function formatSessionSummary(summary: SessionSummary): string {
   ].join('\n')
 }
 
-export function computeEventContext(store: EventStore, sessionId: string): string {
-  const events = readEvents(store, sessionId)
+export function computeEventContext(store: SqliteEventStore, sessionId: string): string {
+  const events = store.readEvents(sessionId)
   const workflowEvents = events.map((e) => {
     const result = WorkflowEventSchema.safeParse(e)
     if (!result.success) {
