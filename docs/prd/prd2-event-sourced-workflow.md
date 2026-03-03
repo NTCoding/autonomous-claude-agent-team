@@ -1,6 +1,6 @@
 # PRD: Event-Sourced Workflow Engine
 
-**Status:** Draft
+**Status:** Planning
 
 ## Context
 
@@ -707,12 +707,12 @@ This produces a `journal-entry { agentName, content }` observation event. It doe
 ## 5. Success Criteria
 
 1. **Single source of truth** — `WorkflowState` is derived by `fold(events)`. No state snapshot persisted. Test: persist events via the aggregate, call `fold()` independently, assert the result equals `workflow.getState()`.
-2. **Complete observability** — Every method on the `Workflow` aggregate produces at least one event. Commands produce state-changing events. Hook checks produce observation events (both passes and denials). Test: enumerate all public methods, call each in valid state, assert `getPendingEvents().length > 0`.
+2. **Complete observability** — Every public method on the `Workflow` aggregate produces at least one event. Commands produce state-changing events. Hook checks produce observation events (both passes and denials). Test: for each public method on the Workflow aggregate (`recordIssue`, `recordBranch`, `transitionTo`, `checkWriteAllowed`, `checkBashAllowed`, `checkIdleAllowed`, `checkPluginSourceRead`, `verifyIdentity`, etc.), call it in a valid precondition state and assert `getPendingEvents().length > 0`.
 3. **Engine is generic** — `WorkflowEngine` has no imports from `workflow-definition/`. Five methods only: `startSession`, `transaction`, `transition`, `persistSessionId`, `hasSession`. All domain operations go through `transaction()`. Test: `pnpm deps` passes with zero violations.
 4. **Cross-session persistence** — Sessions survive reboots. Test: write a session, close DB, reopen DB, query, assert all events present.
 5. **Analytics produces correct output** — Given a session with a known event sequence, `analyze` output contains: correct duration, correct iteration count, correct review rejection rate, correct hook denial counts. Test: insert known events into a test DB, run analyze, assert output matches expected values.
 6. **Viewer serves session data** — `GET /api/sessions` returns JSON array of session summaries. `GET /api/sessions/:id/events` returns JSON array of events. Test: start server against a test DB, assert HTTP response shapes match Zod schemas.
-7. **Behavioral regression safety** — All 94 existing workflow aggregate tests pass unchanged (via preserved `Workflow.rehydrate(WorkflowState)` entry point). No agent-visible behavior changes.
+7. **Behavioral regression safety** — All 94 existing workflow aggregate tests pass unchanged (via preserved `Workflow.rehydrate(WorkflowState)` entry point). Engine and infra tests updated for new interfaces (`getDbPath`, event-based persistence) — these are expected fixture changes, not regressions. Full suite (356+ tests) green after updates. No agent-visible behavior changes.
 8. **New code coverage** — All new code (fold function, event store, analytics queries, HTTP server) has 100% test coverage. The fold function has per-event-type unit tests and a property test (run aggregate → serialize events → fold → assert equals `getState()`).
 
 ## 6. Decisions
@@ -746,3 +746,254 @@ The `transitioned` event carries all onEntry-derived fields (`preBlockedState`, 
 ### D7: Viewer uses static HTML + vanilla JS
 
 Single HTML file with embedded CSS/JS. No build step, no framework. JSON API over SQLite. Zero dependencies, ships as a static asset inside the plugin.
+
+## 8. Milestones
+
+### M1: State derived from events in SQLite
+
+All existing behavior preserved. The only change is under the hood: state is stored as events in SQLite and derived by folding, instead of persisted as a JSON snapshot. No agent-visible changes.
+
+#### Deliverables
+
+- **D1.1: WorkflowEvent types and Zod schemas**
+  - Discriminated union type covering all 25 event types (18 commands + 7 observations) in `workflow-definition/domain/workflow-events.ts`
+  - `BaseEvent` type (`{ type: string, at: string }`) in `workflow-engine/domain/base-event.ts` — the engine's generic event handle
+  - Zod schema validates every event type; rejects unknown types
+  - Key scenarios: valid event parses correctly; missing required field rejects; unknown event type rejects; payload types enforced (e.g., `issueNumber` must be number)
+  - Acceptance: `WorkflowEvent` is a compile-time exhaustive union; Zod schema matches TypeScript type
+  - Verification: Unit tests for schema validation — valid events pass, invalid reject; exhaustiveness check in fold switch statement
+
+- **D1.2: fold() pure reducer**
+  - `applyEvent()` and `fold()` functions in `workflow-definition/domain/fold.ts`
+  - One switch case per event type; exhaustive (compiler error on missing case)
+  - Fat transition events carry onEntry-derived fields (per D6): `preBlockedState`, `iteration`, `developingHeadCommit`, `developerDone` reset, `lintedFiles` reset
+  - `EMPTY_STATE` as the fold identity value — the state before any events
+  - Key scenarios: session-started produces INITIAL_STATE; issue-recorded sets githubIssue; transitioned to BLOCKED sets preBlockedState from `from` field; transitioned to DEVELOPING increments iteration and resets flags (both from RESPAWN and REVIEWING paths); agent-registered is idempotent; observation events return state unchanged
+  - Edge cases: fold of empty array returns EMPTY_STATE; duplicate events handled (idempotent where possible); events in wrong order (fold is order-dependent — document this)
+  - BLOCKED guard migration: The current BLOCKED `transitionGuard` scans `ctx.state.eventLog` to find `preBlockedState`. After event sourcing, `eventLog` no longer exists on `WorkflowState`. The fold function for `transitioned { to: 'BLOCKED' }` populates `state.preBlockedState` from the event's `from` field. The BLOCKED guard must be rewritten to use `ctx.state.preBlockedState` instead of scanning eventLog. This is a concrete code change gated by this deliverable.
+  - Acceptance: For every public Workflow method called in a valid state, `fold(workflow.getPendingEvents())` applied to the pre-call state equals `workflow.getState()` post-call. This is verified by a round-trip property test, not just individual event tests.
+  - Verification: Per-event-type unit tests (25 minimum, with multiple scenarios for `transitioned` covering each onEntry path — BLOCKED, DEVELOPING from RESPAWN, DEVELOPING from REVIEWING); round-trip property test: run aggregate methods → get pending events → fold → assert equals getState(); BLOCKED guard test: fold events to BLOCKED state → assert `state.preBlockedState` populated → guard permits return to pre-blocked state
+
+- **D1.3: SQLite event store**
+  - `infra/sqlite-event-store.ts` (or similar) wrapping `better-sqlite3`
+  - Operations: `createStore(dbPath)`, `appendEvents(sessionId, events[])`, `readEvents(sessionId)`, `hasSession(sessionId)`, `listSessions()`
+  - Schema: `events` table with `seq`, `session_id`, `type`, `at`, `payload` columns; WAL mode; idempotent `CREATE TABLE IF NOT EXISTS`
+  - Storage location: `~/.claude/workflow-events.db`
+  - Payload serialized as JSON string; deserialized and Zod-validated on read
+  - Key scenarios: append single event; append batch in transaction; read events in seq order; empty session returns empty array; multiple sessions isolated by session_id
+  - Edge cases: DB file doesn't exist (created on first access); corrupt JSON payload (fail fast with WorkflowError); concurrent access via WAL mode
+  - Acceptance: Events round-trip correctly (write → read → identical); `better-sqlite3` synchronous API used throughout
+  - Verification: Integration tests against real SQLite (temp file, cleaned up after test)
+
+- **D1.4: Storage layer swap**
+  - Internal change to `infra/state-store.ts`: `readState()` → load events from SQLite → fold → return WorkflowState; `writeState()` → extract pending events from workflow → append to SQLite
+  - **Two-phase approach:** In M1, the infra layer folds internally and returns `WorkflowState` to the engine. The engine interface (`WorkflowEngineDeps`) keeps its `readState`/`writeState` shape — signatures accommodate events internally but the engine sees `WorkflowState`. In M2 (D2.3), the boundary shifts: the engine receives events directly and calls `rehydrate(events)`. This makes M1 a self-consistent state where events are persisted and fold works, but the engine interface hasn't changed yet.
+  - `getStateFilePath` replaced with `getDbPath`; state file path logic removed
+  - Key scenarios: fresh session (no events) → fold returns EMPTY_STATE → startSession appends session-started; existing session → fold produces correct state; multiple transactions in same session accumulate events
+  - Edge cases: session with 0 events after session-started (immediate read after init); very first use (DB doesn't exist yet)
+  - Acceptance: 94 workflow aggregate tests pass unchanged (via preserved `Workflow.rehydrate(WorkflowState)` entry point). Engine and infra test fixtures updated for new `getDbPath` and internal event storage — these are expected interface changes, not regressions. Full test suite green after fixture updates.
+  - Verification: `pnpm test` green; 100% coverage maintained; aggregate test files have zero diff
+
+- ~~D1.5~~ — Merged into D2.5. Architecture doc update deferred to M2 completion because updating docs after D1.4 alone would describe a transitional state (infra folds internally) that is immediately invalidated by D2.2/D2.3 (engine receives events directly). One doc update after both tracks complete.
+
+### M2: Every interaction observable, engine at 5 methods
+
+Every method on the workflow aggregate produces at least one event. The engine is stripped to 5 generic methods. All domain operations go through `transaction()`.
+
+#### Deliverables
+
+- **D2.1: Observation events on all hook checks**
+  - `checkWriteAllowed`, `checkBashAllowed`, `checkIdleAllowed`, `checkPluginSourceRead` each append a `*-checked` event with `{ allowed, reason? }`
+  - `verifyIdentity` appends `identity-verified { passed, recovery? }`
+  - Both passes and denials recorded (per D2)
+  - Key scenarios: write allowed in DEVELOPING → write-checked { allowed: true }; write denied in RESPAWN → write-checked { allowed: false, reason: "..." }; git commit denied in DEVELOPING → bash-checked { allowed: false }; idle allowed → idle-checked { allowed: true }
+  - Edge cases: checkBashAllowed called with non-bash tool (pass-through, still produces event); checkPluginSourceRead with non-matching path (still produces event); DB write failure during hook check → fail closed (deny operation, return non-zero exit code, log error to stderr) — this is a security property; PreToolUse hook fires before startSession → handle gracefully (return pass without writing event)
+  - Acceptance: Every hook check method produces exactly one observation event; observation events don't change state when folded
+  - Verification: Unit test per hook check: call method, assert getPendingEvents() contains correct event type and payload; test DB write failure path returns denial
+
+- **D2.2: Engine slimmed to 5 methods**
+  - Remove from `WorkflowEngine`: `registerAgent()`, `shutDown()`, `checkIdleAllowed()`, `runLint()`, `verifyIdentity()`
+  - Remaining methods: `startSession()`, `transaction()`, `transition()`, `persistSessionId()`, `hasSession()`
+  - `transaction()` handles all domain operations: load events → fold → execute lambda → persist new events
+  - Key scenarios: registerAgent routed through transaction; shutDown routed through transaction; runLint routed through transaction; hook checks routed through transaction
+  - Acceptance: `WorkflowEngine` has exactly 5 public methods; zero imports from `workflow-definition/`
+  - Verification: `pnpm deps` passes; engine tests with fake workflow verify 5-method surface
+
+- **D2.3: RehydratableWorkflow interface updated**
+  - Add `getPendingEvents(): readonly BaseEvent[]` — flush uncommitted events after execution
+  - Change `WorkflowFactory.rehydrate` signature: `rehydrate(events: readonly BaseEvent[], deps): TWorkflow`
+  - Remove from `RehydratableWorkflow`: `registerAgent()`, `checkIdleAllowed()`, `shutDown()`, `runLint()`
+  - Concrete `WorkflowAdapter.rehydrate` calls `fold(events as WorkflowEvent[])` → constructs Workflow with derived state
+  - Key scenarios: engine calls rehydrate with event array; engine calls getPendingEvents after lambda execution; engine persists returned events
+  - Acceptance: Engine never calls fold directly; engine handles BaseEvent[] generically
+  - Verification: Engine tests verify rehydrate → execute → getPendingEvents → persist cycle
+
+- **D2.4: Entrypoint updated for transaction-only routing**
+  - All CLI command handlers route through `engine.transaction()`
+  - All hook handlers (PreToolUse, SubagentStart, TeammateIdle) route through `engine.transaction()`
+  - No direct calls to workflow methods outside of transaction lambdas
+  - Key scenarios: `SubagentStart` hook → engine.transaction('register-agent', w => w.registerAgent(...)); `TeammateIdle` hook → engine.transaction('check-idle', w => w.checkIdleAllowed(...)); `PreToolUse` hook → engine.transaction('hook-check', w => { w.checkWriteAllowed(...); w.checkBashAllowed(...); ... })
+  - Acceptance: Entrypoint imports only from `workflow-definition/index.ts` and `infra/`
+  - Verification: Entrypoint tests verify delegation; `pnpm deps` passes
+
+- **D2.5: Architecture documentation (covers M1 + M2)**
+  - Single update to `docs/architecture.md` after both M1 and M2 are complete: new files (fold.ts, workflow-events.ts, base-event.ts, sqlite-event-store.ts), storage flow diagram (load events → fold → WorkflowState → execute → append events), SQLite schema, engine 5-method surface, transaction flow diagram, observation event model
+  - Replaces the earlier D1.5 — one doc update after both tracks complete avoids describing a transitional state
+  - Verification: Doc matches actual code structure; human review (no automated check for doc accuracy)
+
+### M3: Agents read context and write journals
+
+Spawned agents can read the full session history for context. Agents write journal summaries before shutdown, creating a handoff record for the next agent.
+
+#### Deliverables
+
+- **D3.1: write-journal command**
+  - CLI command: `workflow.js write-journal <agent-name> <content>`
+  - Produces `journal-entry { agentName, content }` observation event
+  - Doesn't mutate workflow state — journal lives in event stream only
+  - Key scenarios: developer writes journal → event stored → next agent sees it in context; multiple journals per agent per session; journal with multi-line content
+  - Edge cases: empty content (reject — fail fast); agent name not in activeAgents (allow — agent may already be shut down when journaling)
+  - Acceptance: journal-entry event appears in event stream; fold returns state unchanged
+  - Verification: Unit test: write-journal → verify event → verify fold unchanged
+
+- **D3.2: event-context command**
+  - CLI command: `workflow.js event-context`
+  - Reads event stream, produces formatted summary matching section 3.6 output format
+  - Produces `context-requested { agentName }` observation event
+  - Output sections: session header, current state, iteration history with journal entries, active agents, recent events (last 15)
+  - Key scenarios: fresh session (only session-started) → minimal output; mid-session with 2 iterations and journals → full output; session with blocked episodes → blocked state shown
+  - Edge cases: no journal entries (iteration history shows no journals); 0 iterations (pre-RESPAWN session); more than 15 recent events → show most recent 15, ordered newest-first (highest seq first); `context-requested` event is excluded from its own "Recent Events" output (it's self-referential noise)
+  - Iteration grouping: Iteration N starts at the timestamp of the Nth `iteration-task-assigned` event and ends at the timestamp of the (N+1)th `iteration-task-assigned` event, or MAX(at) for the last iteration. This is a projection computed by scanning events for `iteration-task-assigned` boundaries, separate from the fold result.
+  - Acceptance: Output contains all sections from PRD section 3.6; journal entries appear under correct iteration; recent events ordered newest-first
+  - Verification: Unit test with known event fixture; assert output sections match expected content; assert iteration grouping correct across multiple iterations
+
+- **D3.3: Agent procedure files updated**
+  - Update shut-down related procedure files to instruct agents to call `write-journal` before shutting down
+  - Guidance, not a gate — workflow does NOT enforce journaling as a precondition for shutdown
+  - **Format requirement:** Per CLAUDE.md convention, all procedure items must be `- [ ]` checklist items — prose paragraphs are silently ignored by the lead agent. The write-journal instruction must be a checklist item, not a prose note.
+  - Acceptance: Procedure files contain `- [ ]` checklist item referencing `write-journal` before the shutdown step
+  - Verification: Grep procedure files for `write-journal` in checklist item format; identify which specific procedure files need updating (developer/reviewer shutdown procedures)
+
+### M4: Process analytics reveals patterns
+
+A human can analyze single sessions and cross-session patterns from the CLI. Output is deterministic, fixed-format, plaintext.
+
+#### Deliverables
+
+- **D4.1: Single-session analyze command**
+  - CLI command: `workflow.js analyze <session_id>`
+  - Output sections (fixed — per PRD section 3.4): header (session ID, duration, iterations, event count), state duration breakdown with bar chart, iteration breakdown with state sequence, review outcomes, blocked episodes with duration and reason, hook blocks with counts
+  - Duration computed from `transitioned` event timestamps; iteration boundaries from `iteration-task-assigned` events; session start/end from MIN/MAX `at`
+  - Iteration boundary algorithm: Iteration N starts at the timestamp of the Nth `iteration-task-assigned` event and ends at the timestamp of the (N+1)th, or MAX(at) for the last iteration
+  - Bar chart rendering: fixed 40-character width; proportional to duration; minimum 1 character for any non-zero duration; bar width = floor(duration / maxDuration * 40). Bar rendering is a separate pure function (duration ratio → character count) tested independently.
+  - Key scenarios: completed session with 3 iterations → full output; session with review rejection → rejection shown in iteration breakdown; session with BLOCKED episodes → blocked section populated; session with many hook denials → hook blocks section shows counts
+  - Edge cases: incomplete session (no COMPLETE state) → duration shows "(in progress)"; session with 0 iterations (stuck in SPAWN/PLANNING) → "No iterations" message; session with 0 blocked episodes → section shows "None"
+  - Acceptance: Given known events, output values match expected duration, counts, rates; bar chart characters match expected widths for known durations
+  - Verification: Unit test with fixture events inserted into test DB; assert output matches expected values for every section; separate unit test for bar chart rendering function
+
+- **D4.2: Cross-session analyze --all command**
+  - CLI command: `workflow.js analyze --all`
+  - Output sections (fixed — per PRD section 3.4): header (session count, date range), averages (duration, iterations, events with min/max), time distribution with bar chart, aggregates (rejection rate, avg iterations, common block reasons, high-iteration sessions), hook block hotspots with per-session averages
+  - Aggregation: per-session metrics computed first, then averaged/summed across sessions
+  - Key scenarios: 5 completed sessions → averages computed correctly; mix of completed and in-progress sessions → in-progress excluded from duration average; sessions with varying iteration counts → correct average
+  - In-progress session handling: The "Sessions" count in the header includes all sessions (complete and in-progress). In-progress sessions are excluded from duration averages only; they are included in all other aggregate calculations (iteration counts, event counts, rejection rates).
+  - Edge cases: 0 sessions → "No sessions found"; 1 session → averages are that session's values; sessions with no blocked episodes → block reason section shows "None"
+  - Acceptance: Aggregates computed correctly across multiple sessions
+  - Verification: Unit test with events across 3+ sessions in test DB; assert averages and rates correct
+
+### M5: Session viewer renders event streams
+
+A human can visually inspect sessions in a browser. Read-only display, no interactivity beyond navigation.
+
+#### Deliverables
+
+- **D5.1: HTTP server with JSON API**
+  - `view` command starts `http.createServer()` on a random available port
+  - Two endpoints: `GET /api/sessions` → JSON array of session summaries (id, start, duration, iterations, current state); `GET /api/sessions/:id/events` → JSON array of events in seq order
+  - Zod schemas for both response shapes
+  - WAL mode ensures concurrent reads (viewer) don't block writes (hooks)
+  - Key scenarios: server starts on available port; GET /api/sessions returns all sessions; GET /api/sessions/:id/events returns events for one session; unknown session ID returns empty array
+  - Edge cases: port already in use (try next port); no sessions in DB (empty array)
+  - Acceptance: JSON responses match Zod schemas; server handles concurrent requests
+  - Verification: Integration test: start server against test DB, make HTTP requests, assert response shapes
+
+- **D5.2: Static HTML viewer**
+  - Single HTML file with embedded CSS/JS in plugin assets directory
+  - Session list view: table with session ID, start time, duration, iterations, current state
+  - Session detail view: state timeline (horizontal bar chart per state), event list grouped by iteration, summary table (state entries, total time, avg time)
+  - Renders all data from API on first load; no client-side filtering, search, sorting, or pagination
+  - Key scenarios: list view shows all sessions; clicking a session navigates to detail view; detail view shows state timeline and iteration-grouped events; journal entries visible in event list
+  - Edge cases: session with many events (500+) renders without performance issues; session with 0 iterations shows event list without iteration grouping
+  - **Coverage exclusion:** The embedded HTML/CSS/JS asset is not TypeScript and cannot be instrumented by Vitest. This file requires a `vitest.config.mts` coverage exclusion (which requires explicit user permission per CLAUDE.md). To minimize untested logic: extract all data transformation to a separately tested TypeScript module; keep the embedded JS to pure DOM rendering calls only.
+  - Acceptance: All mockup elements from PRD section 3.5 present in rendered page; state timeline uses proportional widths based on duration; data transformation module has 100% coverage
+  - Verification: Unit tests for the data transformation module (event grouping, duration calculation, timeline proportions); asset file exists and contains expected HTML structure; manual visual verification against PRD mockups
+
+- **D5.3: Server lifecycle**
+  - Server prints URL to stdout on start
+  - Opens default browser via injected `openBrowser: (url: string) => void` dependency. Production implementation: macOS only (`open` command). Cross-platform support (Linux, Windows) is not in scope.
+  - Auto-closes after 30 minutes of inactivity (no HTTP requests). Implementation: per-server `lastActivity` timestamp, reset on every HTTP request. Timer checks `Date.now() - lastActivity > 30 * 60 * 1000`. Timer reference injectable for testing.
+  - Ctrl+C shuts down cleanly (close DB connection, close server)
+  - Key scenarios: start → print URL → open browser; idle for 30m → auto-close; Ctrl+C → clean shutdown
+  - Edge cases: no browser available (print URL only, don't crash); browser open fails (log warning, continue serving)
+  - Acceptance: Server starts, prints URL, opens browser, auto-closes on timeout
+  - Verification: Unit test with fake timers (`vi.advanceTimersByTime`) for auto-close; browser opening mocked via dependency injection
+
+## 9. Parallelization
+
+```yaml
+tracks:
+  - id: A
+    name: Event Store Foundation
+    deliverables:
+      - D1.1
+      - D1.2
+      - D1.3
+      - D1.4
+
+  - id: B
+    name: Observability and Engine
+    deliverables:
+      - D2.1
+      - D2.2
+      - D2.3
+      - D2.4
+      - D2.5
+
+  - id: C
+    name: Agent Context and Journals
+    deliverables:
+      - D3.1
+      - D3.2
+      - D3.3
+
+  - id: D
+    name: Analytics
+    deliverables:
+      - D4.1
+      - D4.2
+
+  - id: E
+    name: Session Viewer
+    deliverables:
+      - D5.1
+      - D5.2
+      - D5.3
+```
+
+**Dependencies between tracks:**
+
+```
+A ──→ B ──→ D
+ │    │
+ │    └──→ E
+ │
+ └──→ C
+```
+
+- **Track A** (Event Store Foundation) is the critical path — everything depends on it
+- **Track B** (Observability and Engine) depends on A — needs event types and SQLite store to add observation events and slim the engine
+- **Track C** (Agent Context and Journals) depends on A — needs the event store to read/write events. Note: D3.2 (`event-context`) routes through `engine.transaction()`, so it also depends on D2.4 (entrypoint routing) from Track B. D3.1 (`write-journal`) and D3.3 (procedure files) can start after A.
+- **Track D** (Analytics) depends on B — the hook blocks section of the analytics output needs observation events from D2.1
+- **Track E** (Session Viewer) depends on B — the viewer displays the full event vocabulary including observation events. Built and tested with fixture data, then verified end-to-end after B completes.
+
+**Within Track A**, D1.1 (event types) and D1.3 (SQLite store) can be built in parallel. D1.2 (fold) depends on D1.1. D1.4 (storage swap) depends on both D1.2 and D1.3. D1.4 completion is the gate — Tracks B and C cannot be considered done until D1.4 is stable.
