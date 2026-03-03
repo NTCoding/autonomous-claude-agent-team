@@ -1,6 +1,10 @@
 // Types
 export type { WorkflowState, IterationState } from './domain/workflow-state.js'
 
+// Base event
+export type { BaseEvent } from './domain/base-event.js'
+export { BaseEventSchema } from './domain/base-event.js'
+
 // Values — schema factory, error class
 export {
   createWorkflowStateSchema,

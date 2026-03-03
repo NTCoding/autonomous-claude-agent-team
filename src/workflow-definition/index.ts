@@ -8,3 +8,7 @@ export {
   WorkflowStateSchema,
   INITIAL_STATE,
 } from './domain/workflow-types.js'
+
+// Workflow events
+export type { WorkflowEvent } from './domain/workflow-events.js'
+export { WorkflowEventSchema } from './domain/workflow-events.js'
