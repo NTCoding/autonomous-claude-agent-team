@@ -1,14 +1,26 @@
 import type { PreconditionResult, TransitionContext, GitInfo } from '../../workflow-dsl/index.js'
 import { pass, fail } from '../../workflow-dsl/index.js'
-import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
+import type { WorkflowState } from '../../workflow-engine/index.js'
 import { WorkflowStateError } from '../../workflow-engine/index.js'
 import type { AssistantMessage } from '../../workflow-engine/index.js'
 import { checkLeadIdentity } from '../../workflow-engine/index.js'
-import { WORKFLOW_REGISTRY, GLOBAL_FORBIDDEN, getStateDefinition } from './registry.js'
-import type { StateName, WorkflowOperation } from './workflow-types.js'
+import { WORKFLOW_REGISTRY, getStateDefinition } from './registry.js'
+import type { StateName } from './workflow-types.js'
 import { parseStateName, WorkflowStateSchema, STATE_EMOJI_MAP } from './workflow-types.js'
 import type { WorkflowEvent } from './workflow-events.js'
 import { applyEvent } from './fold.js'
+import {
+  COMMIT_BLOCKED_STATES,
+  FILE_WRITING_TOOLS,
+  READ_TOOLS,
+  BASH_READ_PATTERN,
+  GLOBAL_FORBIDDEN,
+  isStateFile,
+  isPluginSourcePath,
+  checkLeadIdle,
+  checkDeveloperIdle,
+  checkOperationGate,
+} from './workflow-predicates.js'
 
 export type WorkflowDeps = {
   readonly getGitInfo: () => GitInfo
@@ -59,35 +71,35 @@ export class Workflow {
   }
 
   recordIssue(issueNumber: number): PreconditionResult {
-    const gate = this.checkOperationGate('record-issue')
+    const gate = checkOperationGate('record-issue', this.state)
     if (!gate.pass) return gate
     this.append({ type: 'issue-recorded', at: this.deps.now(), issueNumber })
     return pass()
   }
 
   recordBranch(branch: string): PreconditionResult {
-    const gate = this.checkOperationGate('record-branch')
+    const gate = checkOperationGate('record-branch', this.state)
     if (!gate.pass) return gate
     this.append({ type: 'branch-recorded', at: this.deps.now(), branch })
     return pass()
   }
 
   recordPlanApproval(): PreconditionResult {
-    const gate = this.checkOperationGate('record-plan-approval')
+    const gate = checkOperationGate('record-plan-approval', this.state)
     if (!gate.pass) return gate
     this.append({ type: 'plan-approval-recorded', at: this.deps.now() })
     return pass()
   }
 
   assignIterationTask(task: string): PreconditionResult {
-    const gate = this.checkOperationGate('assign-iteration-task')
+    const gate = checkOperationGate('assign-iteration-task', this.state)
     if (!gate.pass) return gate
     this.append({ type: 'iteration-task-assigned', at: this.deps.now(), task })
     return pass()
   }
 
   signalDone(): PreconditionResult {
-    const gate = this.checkOperationGate('signal-done')
+    const gate = checkOperationGate('signal-done', this.state)
     if (!gate.pass) return gate
 
     const currentIteration = this.state.iterations[this.state.iteration]
@@ -100,14 +112,14 @@ export class Workflow {
   }
 
   recordPr(prNumber: number): PreconditionResult {
-    const gate = this.checkOperationGate('record-pr')
+    const gate = checkOperationGate('record-pr', this.state)
     if (!gate.pass) return gate
     this.append({ type: 'pr-recorded', at: this.deps.now(), prNumber })
     return pass()
   }
 
   createPr(title: string, body: string): PreconditionResult {
-    const gate = this.checkOperationGate('create-pr')
+    const gate = checkOperationGate('create-pr', this.state)
     if (!gate.pass) return gate
     const prNumber = this.deps.createDraftPr(title, body)
     this.append({ type: 'pr-created', at: this.deps.now(), prNumber })
@@ -115,7 +127,7 @@ export class Workflow {
   }
 
   appendIssueChecklist(issueNumber: number, checklist: string): PreconditionResult {
-    const gate = this.checkOperationGate('append-issue-checklist')
+    const gate = checkOperationGate('append-issue-checklist', this.state)
     if (!gate.pass) return gate
     this.deps.appendIssueChecklist(issueNumber, checklist)
     this.append({ type: 'issue-checklist-appended', at: this.deps.now(), issueNumber })
@@ -123,7 +135,7 @@ export class Workflow {
   }
 
   tickIteration(issueNumber: number): PreconditionResult {
-    const gate = this.checkOperationGate('tick-iteration')
+    const gate = checkOperationGate('tick-iteration', this.state)
     if (!gate.pass) return gate
     this.deps.tickFirstUncheckedIteration(issueNumber)
     this.append({ type: 'iteration-ticked', at: this.deps.now(), issueNumber })
@@ -131,7 +143,7 @@ export class Workflow {
   }
 
   reviewApproved(): PreconditionResult {
-    const gate = this.checkOperationGate('review-approved')
+    const gate = checkOperationGate('review-approved', this.state)
     if (!gate.pass) return gate
 
     const currentIteration = this.state.iterations[this.state.iteration]
@@ -144,7 +156,7 @@ export class Workflow {
   }
 
   reviewRejected(): PreconditionResult {
-    const gate = this.checkOperationGate('review-rejected')
+    const gate = checkOperationGate('review-rejected', this.state)
     if (!gate.pass) return gate
 
     const currentIteration = this.state.iterations[this.state.iteration]
@@ -157,7 +169,7 @@ export class Workflow {
   }
 
   coderabbitFeedbackAddressed(): PreconditionResult {
-    const gate = this.checkOperationGate('coderabbit-feedback-addressed')
+    const gate = checkOperationGate('coderabbit-feedback-addressed', this.state)
     if (!gate.pass) return gate
 
     const currentIteration = this.state.iterations[this.state.iteration]
@@ -170,7 +182,7 @@ export class Workflow {
   }
 
   coderabbitFeedbackIgnored(): PreconditionResult {
-    const gate = this.checkOperationGate('coderabbit-feedback-ignored')
+    const gate = checkOperationGate('coderabbit-feedback-ignored', this.state)
     if (!gate.pass) return gate
 
     const currentIteration = this.state.iterations[this.state.iteration]
@@ -297,10 +309,10 @@ export class Workflow {
 
   private resolveIdleResult(agentName: string): PreconditionResult {
     if (agentName.includes('lead')) {
-      return this.checkLeadIdle()
+      return checkLeadIdle(this.state)
     }
     if (agentName.includes('developer')) {
-      return this.checkDeveloperIdle()
+      return checkDeveloperIdle(this.state)
     }
     return pass()
   }
@@ -372,74 +384,11 @@ export class Workflow {
     return pass()
   }
 
-  private checkLeadIdle(): PreconditionResult {
-    const LEAD_IDLE_ALLOWED: ReadonlySet<string> = new Set(['BLOCKED', 'COMPLETE'])
-    if (LEAD_IDLE_ALLOWED.has(this.state.state)) {
-      return pass()
-    }
-    const allowedStates = [...LEAD_IDLE_ALLOWED].join(' or ')
-    return fail(`Lead cannot go idle in ${this.state.state} state. Transition to ${allowedStates} before stopping, or continue working.`)
-  }
-
-  private checkDeveloperIdle(): PreconditionResult {
-    if (this.state.state !== 'DEVELOPING') {
-      return pass()
-    }
-    const currentIteration = this.state.iterations[this.state.iteration]
-    if (currentIteration?.developerDone) {
-      return pass()
-    }
-    return fail(
-      `Developer cannot go idle in ${this.state.state} without signalling done. Run lint on all changed files, fix all violations, then run signal-done. Follow the workflow checklist in your agent instructions.`,
-    )
-  }
-
-  private checkOperationGate(op: WorkflowOperation): PreconditionResult {
-    const currentDef = getStateDefinition(this.state.state)
-    if (currentDef.allowedWorkflowOperations.includes(op)) {
-      return pass()
-    }
-    return fail(`${op} is not allowed in state ${this.state.state}.`)
-  }
-
   private buildTransitionContext(from: StateName, to: StateName): TransitionContext<WorkflowState, StateName> {
-    return {
-      state: this.state,
-      gitInfo: this.deps.getGitInfo(),
-      prChecksPass: this.determinePrChecksPass(to),
-      from,
-      to,
-    }
-  }
-
-  private determinePrChecksPass(target: StateName): boolean {
-    if ((target === 'COMPLETE' || target === 'FEEDBACK') && this.state.prNumber !== undefined) {
-      return this.deps.checkPrChecks(this.state.prNumber)
-    }
-    return false
+    const prChecksPass = (to === 'COMPLETE' || to === 'FEEDBACK') && this.state.prNumber !== undefined
+      ? this.deps.checkPrChecks(this.state.prNumber)
+      : false
+    return { state: this.state, gitInfo: this.deps.getGitInfo(), prChecksPass, from, to }
   }
 }
 
-const COMMIT_BLOCKED_STATES: ReadonlySet<string> = new Set(['DEVELOPING', 'REVIEWING'])
-const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'NotebookEdit'])
-const READ_TOOLS: ReadonlySet<string> = new Set(['Read', 'Glob', 'Grep'])
-const BASH_READ_PATTERN = /\b(?:cat|head|tail|less|more|grep|rg|find|ls)\b/
-
-function isStateFile(filePath: string): boolean {
-  return filePath.includes('feature-team-state-') && filePath.endsWith('.json')
-}
-
-function isPluginSourcePath(text: string, pluginRoot: string): boolean {
-  if (!GLOBAL_FORBIDDEN.pluginSourcePattern.test(text)) {
-    return false
-  }
-  const agentsMdPattern = new RegExp(`${escapeRegExp(pluginRoot)}/agents/`)
-  if (agentsMdPattern.test(text)) {
-    return false
-  }
-  return true
-}
-
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}

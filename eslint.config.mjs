@@ -37,6 +37,7 @@ export default tseslint.config(
         },
       ],
       'prefer-const': 'error',
+      'max-lines': ['error', 400],
       'max-depth': ['error', 3],
       complexity: ['error', 12],
       'no-inline-comments': 'error',
