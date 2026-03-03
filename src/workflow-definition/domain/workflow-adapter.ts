@@ -1,9 +1,9 @@
 import type { WorkflowFactory, WorkflowRuntimeDeps, BaseEvent } from '../../workflow-engine/index.js'
 import { WorkflowStateError } from '../../workflow-engine/index.js'
 import { Workflow } from './workflow.js'
-import { INITIAL_STATE, STATE_EMOJI_MAP } from './workflow-types.js'
+import { INITIAL_STATE, STATE_EMOJI_MAP, parseStateName } from './workflow-types.js'
 import { getOperationBody, getTransitionTitle } from './output-messages.js'
-import { fold } from './fold.js'
+import { applyEvents } from './fold.js'
 import { WorkflowEventSchema } from './workflow-events.js'
 
 export const WorkflowAdapter: WorkflowFactory<Workflow> = {
@@ -15,7 +15,7 @@ export const WorkflowAdapter: WorkflowFactory<Workflow> = {
       }
       return result.data
     })
-    const state = fold(workflowEvents)
+    const state = applyEvents(workflowEvents)
     return Workflow.rehydrate(state, deps)
   },
   procedurePath(state: string, pluginRoot: string): string {
@@ -25,7 +25,7 @@ export const WorkflowAdapter: WorkflowFactory<Workflow> = {
     return INITIAL_STATE
   },
   getEmojiForState(state: string): string {
-    return STATE_EMOJI_MAP[state] ?? ''
+    return STATE_EMOJI_MAP[parseStateName(state)]
   },
   getOperationBody,
   getTransitionTitle,

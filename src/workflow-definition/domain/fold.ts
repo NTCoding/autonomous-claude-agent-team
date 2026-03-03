@@ -138,6 +138,6 @@ export function applyEvent(state: WorkflowState, event: WorkflowEvent): Workflow
   }
 }
 
-export function fold(events: readonly WorkflowEvent[]): WorkflowState {
+export function applyEvents(events: readonly WorkflowEvent[]): WorkflowState {
   return events.reduce(applyEvent, EMPTY_STATE)
 }

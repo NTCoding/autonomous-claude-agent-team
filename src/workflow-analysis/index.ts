@@ -1,8 +1,7 @@
 export type { SessionViewData, SessionListItem, StatePeriod, IterationGroup } from './session-view.js'
 export { buildSessionViewData, buildSessionListItem } from './session-view.js'
 
-export type { ViewerServer, ViewerServerDeps, TimerId } from './workflow-viewer-server.js'
-export { startViewerServer, routeRequest, extractRequestUrl, extractServerPort, extractCaptureGroup } from './workflow-viewer-server.js'
+export { generateViewerHtml } from './workflow-viewer-html.js'
 
 export type { SessionSummary, CrossSessionSummary } from './workflow-analytics.js'
 export {

@@ -48,8 +48,12 @@ describe('WorkflowAdapter', () => {
     expect(typeof emoji).toStrictEqual('string')
   })
 
-  it('returns empty string for unknown state', () => {
-    const emoji = WorkflowAdapter.getEmojiForState('UNKNOWN_STATE')
-    expect(emoji).toStrictEqual('')
+  it('throws on unknown state', () => {
+    expect(() => WorkflowAdapter.getEmojiForState('UNKNOWN_STATE')).toThrow('invalid_enum_value')
+  })
+
+  it('returns initial state with SPAWN', () => {
+    const initial = WorkflowAdapter.initialState()
+    expect(initial.state).toStrictEqual('SPAWN')
   })
 })

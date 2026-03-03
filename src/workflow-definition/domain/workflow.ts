@@ -329,8 +329,7 @@ export class Workflow {
 
   verifyIdentity(transcriptPath: string): PreconditionResult {
     const messages = this.deps.readTranscriptMessages(transcriptPath)
-    /* v8 ignore next */
-    const emoji = STATE_EMOJI_MAP[this.state.state] ?? ''
+    const emoji = STATE_EMOJI_MAP[parseStateName(this.state.state)]
     const result = checkLeadIdentity(messages, this.state.state, emoji)
     this.append({ type: 'identity-verified', at: this.deps.now(), status: result.status, transcriptPath })
     if (result.status === 'lost') return fail(result.recoveryMessage)
@@ -366,7 +365,6 @@ export class Workflow {
     const targetDef = WORKFLOW_REGISTRY[targetState]
     const base = targetDef.onEntry ? targetDef.onEntry(this.state, this.buildTransitionContext(from, targetState)) : this.state
 
-    // Build fat event fields from onEntry result
     const iterationChanged = base.iteration !== this.state.iteration
     const developingHeadCommit = targetState === 'DEVELOPING'
       ? base.iterations[base.iteration]?.developingHeadCommit
@@ -385,9 +383,9 @@ export class Workflow {
   }
 
   private buildTransitionContext(from: StateName, to: StateName): TransitionContext<WorkflowState, StateName> {
-    const prChecksPass = (to === 'COMPLETE' || to === 'FEEDBACK') && this.state.prNumber !== undefined
-      ? this.deps.checkPrChecks(this.state.prNumber)
-      : false
+    const prChecksPass = this.state.prNumber === undefined
+      ? false
+      : this.deps.checkPrChecks(this.state.prNumber)
     return { state: this.state, gitInfo: this.deps.getGitInfo(), prChecksPass, from, to }
   }
 }

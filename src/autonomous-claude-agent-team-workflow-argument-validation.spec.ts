@@ -82,7 +82,7 @@ function makeStore(overrides?: Partial<WorkflowEventStore>): WorkflowEventStore 
   return {
     readEvents: () => [],
     appendEvents: () => undefined,
-    sessionExists: () => false,
+    sessionExists: () => true,
     ...overrides,
   }
 }
@@ -124,10 +124,7 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
 
 function makeViewerDeps(overrides?: Partial<ViewerDeps>): ViewerDeps {
   return {
-    startViewer: () => ({
-      url: 'http://localhost:9999',
-      close: () => undefined,
-    }),
+    openViewer: () => '/tmp/workflow-viewer.html',
     ...overrides,
   }
 }
@@ -280,13 +277,11 @@ describe('runWorkflow - shut-down argument validation', () => {
     expect(result.output).toContain('missing required argument')
   })
 
-  it('returns EXIT_ERROR when no session exists', () => {
-    const result = runWorkflow(
+  it('throws when no session exists', () => {
+    expect(() => runWorkflow(
       ['shut-down', 'developer-1'],
       makeDeps({ engineDeps: { store: { sessionExists: () => false } } }),
-    )
-    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
-    expect(result.output).toContain('no state file')
+    )).toThrow("No session found for 'test-session'. Run init first.")
   })
 
   it('dispatches shut-down and returns success when session exists', () => {

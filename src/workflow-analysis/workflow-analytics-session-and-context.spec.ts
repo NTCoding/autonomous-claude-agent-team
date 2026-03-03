@@ -20,15 +20,10 @@ function cleanup(path: string): void {
   if (existsSync(path)) unlinkSync(path)
 }
 
-// Helper: build a BaseEvent with optional extra payload fields.
-// Extra properties are stored in the SQLite payload JSON and read back by
-// the analytics module when it inspects concrete event fields (e.g. `allowed`).
 function ev(type: string, at: string, extra: Record<string, unknown> = {}): BaseEvent {
   const base: BaseEvent = { type, at }
   return Object.assign(base, extra)
 }
-
-// --- computeSessionSummary ---
 
 describe('computeSessionSummary — empty session', () => {
   const dbPath = tmpDb('empty-session')
@@ -77,7 +72,6 @@ describe('computeSessionSummary — in-progress detection', () => {
   })
 })
 
-// Set up a counted-session store at describe time (SQLite ops are synchronous).
 function makeCountedStore(): SqliteEventStore {
   const dbPath = tmpDb('counts')
   cleanup(dbPath)
@@ -139,7 +133,6 @@ describe('computeSessionSummary — event counts', () => {
   })
 })
 
-// Set up a state-durations store at describe time.
 function makeStateDurationsStore(): SqliteEventStore {
   const dbPath = tmpDb('state-durations')
   cleanup(dbPath)
@@ -195,15 +188,11 @@ describe('computeSessionSummary — no hook denials', () => {
   })
 })
 
-// Test that computeCrossSessionSummary handles sessions with no events
-// (covers the empty-events branch in computeSessionDurationMs).
 describe('computeCrossSessionSummary — session with no events in duration calc', () => {
   const dbPath = tmpDb('cross-duration-empty')
   afterAll(() => { cleanup(dbPath) })
 
   it('handles completed sessions that have no events for duration calculation', () => {
-    // This creates a session that reports "(in progress)" so it won't be included
-    // in the completed average, but verifies the path is exercised.
     const store = createStore(dbPath)
     const recentAt = new Date(Date.now() - 10_000).toISOString()
     store.appendEvents( 'recent', [ev('session-started', recentAt)])
@@ -211,8 +200,6 @@ describe('computeCrossSessionSummary — session with no events in duration calc
     expect(summary.averageDuration).toStrictEqual('(in progress)')
   })
 })
-
-// --- computeCrossSessionSummary ---
 
 describe('computeCrossSessionSummary — empty store', () => {
   const dbPath = tmpDb('cross-empty')
@@ -233,13 +220,11 @@ describe('computeCrossSessionSummary — empty store', () => {
   })
 })
 
-// Set up a two-session store at describe time.
 function makeTwoSessionStore(): SqliteEventStore {
   const dbPath = tmpDb('cross-two')
   cleanup(dbPath)
   const store = createStore(dbPath)
 
-  // Session A: 2 minutes, 1 iteration
   const baseA = new Date('2026-01-01T10:00:00.000Z').getTime()
   const tA = (ms: number): string => new Date(baseA + ms).toISOString()
   store.appendEvents( 'session-A', [
@@ -248,7 +233,6 @@ function makeTwoSessionStore(): SqliteEventStore {
     ev('agent-shut-down', tA(120_000), { agentName: 'lead' }),
   ])
 
-  // Session B: 4 minutes, 3 iterations
   const baseB = new Date('2026-01-01T11:00:00.000Z').getTime()
   const tB = (ms: number): string => new Date(baseB + ms).toISOString()
   store.appendEvents( 'session-B', [
@@ -283,7 +267,6 @@ describe('computeCrossSessionSummary — two sessions', () => {
 
   it('averages duration across completed sessions', () => {
     const summary = computeCrossSessionSummary(store)
-    // Session A: 2m 0s (120s), Session B: 4m 0s (240s), avg = 180s = 3m 0s
     expect(summary.averageDuration).toStrictEqual('3m 0s')
   })
 })

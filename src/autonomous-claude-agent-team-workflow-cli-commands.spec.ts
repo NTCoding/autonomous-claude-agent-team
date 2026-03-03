@@ -82,7 +82,7 @@ function makeStore(overrides?: Partial<WorkflowEventStore>): WorkflowEventStore 
   return {
     readEvents: () => [],
     appendEvents: () => undefined,
-    sessionExists: () => false,
+    sessionExists: () => true,
     ...overrides,
   }
 }
@@ -124,10 +124,7 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
 
 function makeViewerDeps(overrides?: Partial<ViewerDeps>): ViewerDeps {
   return {
-    startViewer: () => ({
-      url: 'http://localhost:9999',
-      close: () => undefined,
-    }),
+    openViewer: () => '/tmp/workflow-viewer.html',
     ...overrides,
   }
 }
@@ -166,7 +163,9 @@ describe('runWorkflow - CLI command routing', () => {
   })
 
   it('dispatches run-lint with no files and returns success when no session', () => {
-    const result = runWorkflow(['run-lint'], makeDeps())
+    const result = runWorkflow(['run-lint'], makeDeps({
+      engineDeps: { store: { sessionExists: () => false } },
+    }))
     expect(result.exitCode).toStrictEqual(0)
   })
 
@@ -296,32 +295,32 @@ describe('runWorkflow - new review and coderabbit commands', () => {
 })
 
 describe('runWorkflow - view command', () => {
-  it('returns EXIT_ALLOW and outputs the server URL', () => {
+  it('returns EXIT_ALLOW and outputs the file path', () => {
     const result = runWorkflow(['view'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(result.output).toStrictEqual('http://localhost:9999')
+    expect(result.output).toStrictEqual('/tmp/workflow-viewer.html')
   })
 
-  it('calls startViewer', () => {
+  it('calls openViewer', () => {
     const calls: string[] = []
     runWorkflow(['view'], makeDeps({
       viewerDeps: {
-        startViewer: () => {
+        openViewer: () => {
           calls.push('called')
-          return { url: 'http://localhost:9999', close: () => undefined }
+          return '/tmp/workflow-viewer.html'
         },
       },
     }))
     expect(calls).toHaveLength(1)
   })
 
-  it('returns the URL from the viewer server', () => {
+  it('returns the path from openViewer', () => {
     const result = runWorkflow(['view'], makeDeps({
       viewerDeps: {
-        startViewer: () => ({ url: 'http://localhost:5678', close: () => undefined }),
+        openViewer: () => '/tmp/custom-viewer.html',
       },
     }))
-    expect(result.output).toStrictEqual('http://localhost:5678')
+    expect(result.output).toStrictEqual('/tmp/custom-viewer.html')
   })
 })
 

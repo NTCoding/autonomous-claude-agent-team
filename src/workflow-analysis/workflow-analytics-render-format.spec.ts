@@ -19,15 +19,10 @@ function cleanup(path: string): void {
   if (existsSync(path)) unlinkSync(path)
 }
 
-// Helper: build a BaseEvent with optional extra payload fields.
-// Extra properties are stored in the SQLite payload JSON and read back by
-// the analytics module when it inspects concrete event fields (e.g. `allowed`).
 function ev(type: string, at: string, extra: Record<string, unknown> = {}): BaseEvent {
   const base: BaseEvent = { type, at }
   return Object.assign(base, extra)
 }
-
-// --- renderBar ---
 
 describe('renderBar', () => {
   it('returns all fill characters when ratio is 0', () => {
@@ -59,8 +54,6 @@ describe('renderBar', () => {
   })
 })
 
-// --- formatDuration ---
-
 describe('formatDuration', () => {
   it('formats zero ms as 0m 0s', () => {
     expect(formatDuration(0)).toStrictEqual('0m 0s')
@@ -78,8 +71,6 @@ describe('formatDuration', () => {
     expect(formatDuration(332_000)).toStrictEqual('5m 32s')
   })
 })
-
-// --- formatSessionSummary ---
 
 describe('formatSessionSummary', () => {
   it('includes session id in output', () => {
@@ -211,8 +202,6 @@ describe('formatSessionSummary', () => {
     expect(output).toContain('░'.repeat(40))
   })
 })
-
-// --- formatCrossSessionSummary ---
 
 describe('formatCrossSessionSummary', () => {
   it('includes total sessions and events in output', () => {

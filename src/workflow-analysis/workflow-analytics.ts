@@ -1,17 +1,13 @@
-import { z } from 'zod'
 import type { SqliteEventStore } from '../workflow-event-store/sqlite-event-store.js'
 import type { BaseEvent } from '../workflow-engine/index.js'
-import { fold, WorkflowEventSchema } from '../workflow-definition/index.js'
+import type { WorkflowEvent } from '../workflow-definition/index.js'
+import { applyEvents, WorkflowEventSchema } from '../workflow-definition/index.js'
 import { WorkflowError } from '../infra/workflow-error.js'
-
-// --- Bar chart ---
 
 export function renderBar(ratio: number, width = 40): string {
   const filled = Math.round(Math.max(0, Math.min(1, ratio)) * width)
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
-
-// --- Duration formatting ---
 
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)
@@ -20,50 +16,14 @@ export function formatDuration(ms: number): string {
   return `${minutes}m ${seconds}s`
 }
 
-// --- Event schemas for parsing extra fields ---
-
-const TransitionedSchema = z.object({
-  type: z.literal('transitioned'),
-  from: z.string(),
-  to: z.string(),
-})
-
-const WriteCheckedSchema = z.object({
-  type: z.literal('write-checked'),
-  allowed: z.boolean(),
-})
-
-const BashCheckedSchema = z.object({
-  type: z.literal('bash-checked'),
-  allowed: z.boolean(),
-})
-
-const PluginReadCheckedSchema = z.object({
-  type: z.literal('plugin-read-checked'),
-  allowed: z.boolean(),
-})
-
-const IdleCheckedSchema = z.object({
-  type: z.literal('idle-checked'),
-  allowed: z.boolean(),
-})
-
-type TransitionedEvent = z.infer<typeof TransitionedSchema>
-
-function parseTransitioned(e: BaseEvent): TransitionedEvent | undefined {
-  const result = TransitionedSchema.safeParse(e)
-  return result.success ? result.data : undefined
+function parseEvents(rawEvents: readonly BaseEvent[]): readonly WorkflowEvent[] {
+  return rawEvents.flatMap((e) => {
+    const result = WorkflowEventSchema.safeParse(e)
+    return result.success ? [result.data] : []
+  })
 }
 
-function isDenied(
-  schema: z.ZodObject<{ type: z.ZodLiteral<string>; allowed: z.ZodBoolean }>,
-  e: BaseEvent,
-): boolean {
-  const result = schema.safeParse(e)
-  return result.success && !result.data.allowed
-}
-
-// --- Session summary ---
+type TransitionedEvent = Extract<WorkflowEvent, { type: 'transitioned' }>
 
 export type SessionSummary = {
   sessionId: string
@@ -115,16 +75,16 @@ function applyTransitionToDurations(
 }
 
 function computeStateDurations(events: readonly BaseEvent[]): Record<string, number> {
+  const parsed = parseEvents(events)
   const initial: StateDurationAccumulator = {
     durations: {},
     currentState: undefined,
     currentStateStart: undefined,
   }
 
-  const afterTransitions = events.reduce((acc, event) => {
-    const transitioned = parseTransitioned(event)
-    if (!transitioned) return acc
-    return applyTransitionToDurations(acc, transitioned, new Date(event.at).getTime())
+  const afterTransitions = parsed.reduce((acc, event) => {
+    if (event.type !== 'transitioned') return acc
+    return applyTransitionToDurations(acc, event, new Date(event.at).getTime())
   }, initial)
 
   const lastAt = events.at(-1)?.at
@@ -164,26 +124,24 @@ function computeDuration(events: readonly BaseEvent[]): string {
 
 export function computeSessionSummary(store: SqliteEventStore, sessionId: string): SessionSummary {
   const events = store.readEvents(sessionId)
+  const parsed = parseEvents(events)
 
   const duration = computeDuration(events)
-  const iterationCount = events.filter((e) => e.type === 'iteration-task-assigned').length
+  const iterationCount = parsed.filter((e) => e.type === 'iteration-task-assigned').length
   const stateDurations = computeStateDurations(events)
 
   const reviewOutcomes = {
-    approved: events.filter((e) => e.type === 'review-approved').length,
-    rejected: events.filter((e) => e.type === 'review-rejected').length,
+    approved: parsed.filter((e) => e.type === 'review-approved').length,
+    rejected: parsed.filter((e) => e.type === 'review-rejected').length,
   }
 
-  const blockedEpisodes = events.filter((e) => {
-    const t = parseTransitioned(e)
-    return t !== undefined && t.to === 'BLOCKED'
-  }).length
+  const blockedEpisodes = parsed.filter((e) => e.type === 'transitioned' && e.to === 'BLOCKED').length
 
   const hookDenials = {
-    write: events.filter((e) => isDenied(WriteCheckedSchema, e)).length,
-    bash: events.filter((e) => isDenied(BashCheckedSchema, e)).length,
-    pluginRead: events.filter((e) => isDenied(PluginReadCheckedSchema, e)).length,
-    idle: events.filter((e) => isDenied(IdleCheckedSchema, e)).length,
+    write: parsed.filter((e) => e.type === 'write-checked' && !e.allowed).length,
+    bash: parsed.filter((e) => e.type === 'bash-checked' && !e.allowed).length,
+    pluginRead: parsed.filter((e) => e.type === 'plugin-read-checked' && !e.allowed).length,
+    idle: parsed.filter((e) => e.type === 'idle-checked' && !e.allowed).length,
   }
 
   return {
@@ -197,8 +155,6 @@ export function computeSessionSummary(store: SqliteEventStore, sessionId: string
     hookDenials,
   }
 }
-
-// --- Cross-session summary ---
 
 export type CrossSessionSummary = {
   totalSessions: number
@@ -257,8 +213,6 @@ export function computeCrossSessionSummary(store: SqliteEventStore): CrossSessio
   }
 }
 
-// --- Output formatting ---
-
 export function formatSessionSummary(summary: SessionSummary): string {
   const stateDurationsEntries = Object.entries(summary.stateDurations)
   const totalMs = stateDurationsEntries.reduce((sum, [, ms]) => sum + ms, 0)
@@ -310,7 +264,7 @@ export function computeEventContext(store: SqliteEventStore, sessionId: string):
     }
     return result.data
   })
-  const state = fold(workflowEvents)
+  const state = applyEvents(workflowEvents)
   const lines: string[] = [
     `Session: ${sessionId}`,
     `State: ${state.state} (iteration: ${state.iteration})`,

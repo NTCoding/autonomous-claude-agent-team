@@ -1,7 +1,8 @@
-import { readFileSync, appendFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from '../workflow-engine/index.js'
-import type { ViewerServer } from '../workflow-analysis/index.js'
-import { startViewerServer } from '../workflow-analysis/index.js'
+import { generateViewerHtml } from '../workflow-analysis/index.js'
 import { createStore } from '../workflow-event-store/index.js'
 import {
   computeSessionSummary,
@@ -18,7 +19,7 @@ import { readTranscriptMessages } from './transcript.js'
 import { runEslintOnFiles } from './linter.js'
 
 export type ViewerDeps = {
-  readonly startViewer: () => ViewerServer
+  readonly openViewer: () => string
 }
 
 export type AnalyticsDeps = {
@@ -63,11 +64,13 @@ export function buildRealDeps(): AdapterDeps {
   }
 
   const viewerDeps: ViewerDeps = {
-    startViewer: () => startViewerServer(createStore(getDbPath()), {
-      openBrowser: (url) => { import('node:child_process').then(({ exec }) => { exec(`open ${url}`) }) },
-      scheduleTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
-      cancelTimeout: (id) => { globalThis.clearTimeout(id) },
-    }),
+    openViewer: () => {
+      const html = generateViewerHtml(createStore(getDbPath()))
+      const htmlPath = join(tmpdir(), `workflow-viewer-${Date.now()}.html`)
+      writeFileSync(htmlPath, html)
+      import('node:child_process').then(({ exec }) => { exec(`open ${htmlPath}`) })
+      return htmlPath
+    },
   }
 
   const analyticsDeps: AnalyticsDeps = {

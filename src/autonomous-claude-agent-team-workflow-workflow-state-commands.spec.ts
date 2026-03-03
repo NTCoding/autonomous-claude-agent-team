@@ -82,7 +82,7 @@ function makeStore(overrides?: Partial<WorkflowEventStore>): WorkflowEventStore 
   return {
     readEvents: () => [],
     appendEvents: () => undefined,
-    sessionExists: () => false,
+    sessionExists: () => true,
     ...overrides,
   }
 }
@@ -124,10 +124,7 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
 
 function makeViewerDeps(overrides?: Partial<ViewerDeps>): ViewerDeps {
   return {
-    startViewer: () => ({
-      url: 'http://localhost:9999',
-      close: () => undefined,
-    }),
+    openViewer: () => '/tmp/workflow-viewer.html',
     ...overrides,
   }
 }
@@ -210,13 +207,11 @@ describe('runWorkflow - write-journal command', () => {
     expect(result.output).toContain('missing required argument')
   })
 
-  it('returns EXIT_ERROR when no session exists', () => {
-    const result = runWorkflow(
+  it('throws when no session exists', () => {
+    expect(() => runWorkflow(
       ['write-journal', 'developer-1', 'My summary'],
       makeDeps({ engineDeps: { store: { sessionExists: () => false } } }),
-    )
-    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
-    expect(result.output).toContain('no session')
+    )).toThrow("No session found for 'test-session'. Run init first.")
   })
 
   it('returns EXIT_ALLOW and appends journal-entry event when session exists', () => {
@@ -239,13 +234,11 @@ describe('runWorkflow - write-journal command', () => {
 })
 
 describe('runWorkflow - event-context command', () => {
-  it('returns EXIT_ERROR when no session exists', () => {
-    const result = runWorkflow(
+  it('throws when no session exists', () => {
+    expect(() => runWorkflow(
       ['event-context'],
       makeDeps({ engineDeps: { store: { sessionExists: () => false } } }),
-    )
-    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
-    expect(result.output).toContain('no session')
+    )).toThrow("No session found for 'test-session'. Run init first.")
   })
 
   it('returns EXIT_ALLOW with output from computeEventContext when session exists', () => {

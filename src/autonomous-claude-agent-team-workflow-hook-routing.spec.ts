@@ -82,7 +82,7 @@ function makeStore(overrides?: Partial<WorkflowEventStore>): WorkflowEventStore 
   return {
     readEvents: () => [],
     appendEvents: () => undefined,
-    sessionExists: () => false,
+    sessionExists: () => true,
     ...overrides,
   }
 }
@@ -124,10 +124,7 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
 
 function makeViewerDeps(overrides?: Partial<ViewerDeps>): ViewerDeps {
   return {
-    startViewer: () => ({
-      url: 'http://localhost:9999',
-      close: () => undefined,
-    }),
+    openViewer: () => '/tmp/workflow-viewer.html',
     ...overrides,
   }
 }
@@ -176,7 +173,10 @@ describe('runWorkflow - hook mode routing', () => {
   it('routes PreToolUse and returns EXIT_ALLOW with no session', () => {
     const result = runWorkflow(
       [],
-      makeDeps({ readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }) }),
+      makeDeps({
+        readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
+        engineDeps: { store: { sessionExists: () => false } },
+      }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -257,7 +257,10 @@ describe('runWorkflow - hook mode routing', () => {
   it('routes SubagentStart and returns EXIT_ALLOW with no session', () => {
     const result = runWorkflow(
       [],
-      makeDeps({ readStdin: () => makeHookStdin({ hook_event_name: 'SubagentStart', agent_id: 'agt-1', agent_type: 'developer-1' }) }),
+      makeDeps({
+        readStdin: () => makeHookStdin({ hook_event_name: 'SubagentStart', agent_id: 'agt-1', agent_type: 'developer-1' }),
+        engineDeps: { store: { sessionExists: () => false } },
+      }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -289,7 +292,10 @@ describe('runWorkflow - hook mode routing', () => {
   it('routes TeammateIdle and returns EXIT_ALLOW with no session', () => {
     const result = runWorkflow(
       [],
-      makeDeps({ readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle' }) }),
+      makeDeps({
+        readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle' }),
+        engineDeps: { store: { sessionExists: () => false } },
+      }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -332,6 +338,19 @@ describe('runWorkflow - hook mode routing', () => {
     )
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
     expect(result.output).toContain('Lead cannot go idle')
+  })
+
+  it('throws when tool_input contains a non-string value', () => {
+    expect(() => runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({
+          hook_event_name: 'PreToolUse',
+          tool_name: 'Write',
+          tool_input: { file_path: 42 },
+        }),
+      }),
+    )).toThrow('Expected string or undefined')
   })
 
   it('returns EXIT_ERROR for unrecognised hook event', () => {

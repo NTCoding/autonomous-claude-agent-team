@@ -210,6 +210,12 @@ describe('WorkflowEngine.transaction', () => {
     expect(result.type).toStrictEqual('success')
     expect(appended).toHaveLength(0)
   })
+
+  it('throws WorkflowStateError when session does not exist', () => {
+    const engine = makeEngine({ store: { sessionExists: () => false } })
+    expect(() => engine.transaction('missing', 'record-issue', () => pass()))
+      .toThrow("No session found for 'missing'. Run init first.")
+  })
 })
 
 describe('WorkflowEngine.transition', () => {
@@ -230,6 +236,12 @@ describe('WorkflowEngine.transition', () => {
     expect(result.output).toContain('Cannot transition to PLANNING')
     expect(result.output).toContain('Guard failed')
     expect(result.output).toContain('Do the thing')
+  })
+
+  it('throws WorkflowStateError when session does not exist', () => {
+    const engine = makeEngine({ store: { sessionExists: () => false } })
+    expect(() => engine.transition('missing', 'PLANNING'))
+      .toThrow("No session found for 'missing'. Run init first.")
   })
 })
 
@@ -257,5 +269,4 @@ describe('WorkflowEngine.hasSession', () => {
   })
 })
 
-// Unused variable suppression
 void makeWorkflowState

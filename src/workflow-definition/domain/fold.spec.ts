@@ -1,4 +1,4 @@
-import { fold, applyEvent, EMPTY_STATE } from './fold.js'
+import { applyEvents, applyEvent, EMPTY_STATE } from './fold.js'
 import type { WorkflowEvent } from './workflow-events.js'
 import type { WorkflowState } from '../../workflow-engine/index.js'
 
@@ -171,7 +171,6 @@ describe('applyEvent — lint-ran', () => {
   })
 
   it('handles missing iteration entry gracefully', () => {
-    // state.iteration = 0 but iterations = [] — no iteration at index
     const state = makeState({ iteration: 0, iterations: [] })
     const result = applyEvent(state, { type: 'lint-ran', at: AT, files: 1, passed: true, lintedFiles: ['a.ts'] })
     expect(result.iterations).toHaveLength(0)
@@ -301,9 +300,9 @@ describe('applyEvent — observation events return unchanged state', () => {
   })
 })
 
-describe('fold', () => {
+describe('applyEvents', () => {
   it('returns EMPTY_STATE for empty event sequence', () => {
-    expect(fold([])).toStrictEqual(EMPTY_STATE)
+    expect(applyEvents([])).toStrictEqual(EMPTY_STATE)
   })
 
   it('reduces a full event sequence to correct state', () => {
@@ -317,20 +316,20 @@ describe('fold', () => {
       { type: 'iteration-task-assigned', at: AT, task: 'Build it' },
       { type: 'transitioned', at: AT, from: 'RESPAWN', to: 'DEVELOPING', iteration: 0, developingHeadCommit: 'abc' },
     ]
-    const state = fold(events)
+    const state = applyEvents(events)
     expect(state.state).toStrictEqual('DEVELOPING')
     expect(state.githubIssue).toStrictEqual(10)
     expect(state.featureBranch).toStrictEqual('feature/foo')
     expect(state.userApprovedPlan).toStrictEqual(true)
   })
 
-  it('fold: iteration and transcript path applied from event sequence', () => {
+  it('applies iteration and transcript path from event sequence', () => {
     const events: WorkflowEvent[] = [
       { type: 'session-started', at: AT, sessionId: 's1', transcriptPath: '/t.jsonl' },
       { type: 'iteration-task-assigned', at: AT, task: 'Build it' },
       { type: 'transitioned', at: AT, from: 'RESPAWN', to: 'DEVELOPING', iteration: 0, developingHeadCommit: 'abc' },
     ]
-    const state = fold(events)
+    const state = applyEvents(events)
     expect(state.iterations[0]?.task).toStrictEqual('Build it')
     expect(state.iterations[0]?.developingHeadCommit).toStrictEqual('abc')
     expect(state.transcriptPath).toStrictEqual('/t.jsonl')
@@ -341,7 +340,7 @@ describe('fold', () => {
       { type: 'transitioned', at: AT, from: 'DEVELOPING', to: 'BLOCKED' },
       { type: 'transitioned', at: AT, from: 'BLOCKED', to: 'DEVELOPING' },
     ]
-    const state = fold(events)
+    const state = applyEvents(events)
     expect(state.state).toStrictEqual('DEVELOPING')
     expect(state.preBlockedState).toBeUndefined()
   })
@@ -350,7 +349,7 @@ describe('fold', () => {
     const events: WorkflowEvent[] = [
       { type: 'transitioned', at: AT, from: 'PLANNING', to: 'BLOCKED' },
     ]
-    const state = fold(events)
+    const state = applyEvents(events)
     expect(state.preBlockedState).toStrictEqual('PLANNING')
   })
 })

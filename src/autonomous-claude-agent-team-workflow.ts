@@ -15,6 +15,7 @@ import {
   EXIT_ERROR,
   EXIT_BLOCK,
 } from './infra/hook-io.js'
+import { WorkflowError } from './infra/workflow-error.js'
 import { buildRealDeps } from './infra/composition-root.js'
 import type { ViewerDeps, AnalyticsDeps, AdapterDeps } from './infra/composition-root.js'
 export type { ViewerDeps, AnalyticsDeps, AdapterDeps }
@@ -75,12 +76,15 @@ function runHookMode(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): Opera
   if (!handler) {
     return { output: `Unknown hook event: ${common.hook_event_name}`, exitCode: EXIT_ERROR }
   }
+  if (common.hook_event_name !== 'SessionStart' && !engine.hasSession(common.session_id)) {
+    return { output: '', exitCode: EXIT_ALLOW }
+  }
   return handler(engine, cachedDeps)
 }
 
 function handleView(_args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
-  const server = deps.viewerDeps.startViewer()
-  return { output: server.url, exitCode: EXIT_ALLOW }
+  const path = deps.viewerDeps.openViewer()
+  return { output: path, exitCode: EXIT_ALLOW }
 }
 
 function handleAnalyze(args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -227,11 +231,7 @@ function handleShutDown(args: readonly string[], engine: WorkflowEngine<Workflow
   if (!agentName) {
     return { output: 'shut-down: missing required argument <agent-name>', exitCode: EXIT_ERROR }
   }
-  const sessionId = deps.getSessionId()
-  if (!engine.hasSession(sessionId)) {
-    return { output: `shut-down: no state file for session '${sessionId}'`, exitCode: EXIT_ERROR }
-  }
-  return mapResult(engine.transaction(sessionId, 'shut-down', (w) => w.shutDown(agentName)))
+  return mapResult(engine.transaction(deps.getSessionId(), 'shut-down', (w) => w.shutDown(agentName)))
 }
 
 function handleSessionStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -242,10 +242,6 @@ function handleSessionStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps)
 
 function handlePreToolUse(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const hookInput = parsePreToolUseInput(deps.readStdin())
-
-  if (!engine.hasSession(hookInput.session_id)) {
-    return { output: '', exitCode: EXIT_ALLOW }
-  }
 
   const filePath = resolveStringField(hookInput.tool_input['file_path'])
     || resolveStringField(hookInput.tool_input['path'])
@@ -267,10 +263,6 @@ function handlePreToolUse(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): 
 function handleSubagentStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const hookInput = parseSubagentStartInput(deps.readStdin())
 
-  if (!engine.hasSession(hookInput.session_id)) {
-    return { output: '', exitCode: EXIT_ALLOW }
-  }
-
   const result = engine.transaction(hookInput.session_id, 'register-agent', (w) => {
     return w.registerAgent(hookInput.agent_type, hookInput.agent_id)
   })
@@ -281,10 +273,6 @@ function handleSubagentStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps
 
 function handleTeammateIdle(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const hookInput = parseTeammateIdleInput(deps.readStdin())
-
-  if (!engine.hasSession(hookInput.session_id)) {
-    return { output: '', exitCode: EXIT_ALLOW }
-  }
 
   const agentName = hookInput.teammate_name ?? ''
   const result = engine.transaction(hookInput.session_id, 'check-idle', (w) => w.checkIdleAllowed(agentName))
@@ -304,25 +292,20 @@ function handleWriteJournal(args: readonly string[], engine: WorkflowEngine<Work
   if (!content) {
     return { output: 'write-journal: missing required argument <content>', exitCode: EXIT_ERROR }
   }
-  const sessionId = deps.getSessionId()
-  if (!engine.hasSession(sessionId)) {
-    return { output: 'write-journal: no session. Run init first.', exitCode: EXIT_ERROR }
-  }
-  return mapResult(engine.transaction(sessionId, 'write-journal', (w) => w.writeJournal(agentName, content)))
+  return mapResult(engine.transaction(deps.getSessionId(), 'write-journal', (w) => w.writeJournal(agentName, content)))
 }
 
 function handleEventContext(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const sessionId = deps.getSessionId()
-  if (!engine.hasSession(sessionId)) {
-    return { output: 'event-context: no session. Run init first.', exitCode: EXIT_ERROR }
-  }
   const agentName = _args[1] ?? ''
   engine.transaction(sessionId, 'event-context', (w) => w.requestContext(agentName))
   return { output: deps.analyticsDeps.computeEventContext(sessionId), exitCode: EXIT_ALLOW }
 }
 
 function resolveStringField(value: unknown): string {
-  return typeof value === 'string' ? value : ''
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  throw new WorkflowError(`Expected string or undefined. Got ${typeof value}: ${String(value)}`)
 }
 
 function mapResult(result: EngineResult): OperationResult {

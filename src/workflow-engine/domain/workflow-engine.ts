@@ -1,5 +1,6 @@
 import type { PreconditionResult } from '../../workflow-dsl/index.js'
 import type { WorkflowState } from './workflow-state.js'
+import { WorkflowStateError } from './workflow-state.js'
 import type { BaseEvent } from './base-event.js'
 import type { AssistantMessage } from './identity-rules.js'
 import {
@@ -98,6 +99,7 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     fn: (w: TWorkflow) => PreconditionResult,
     transcriptPath?: string,
   ): EngineResult {
+    this.requireSession(sessionId)
     const workflow = this.rehydrateFromEvents(sessionId)
     if (transcriptPath !== undefined) {
       const identityCheck = workflow.verifyIdentity(transcriptPath)
@@ -116,6 +118,7 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
   }
 
   transition(sessionId: string, target: string): EngineResult {
+    this.requireSession(sessionId)
     const workflow = this.rehydrateFromEvents(sessionId)
     const result = workflow.transitionTo(target)
     if (!result.pass) {
@@ -136,6 +139,12 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
 
   hasSession(sessionId: string): boolean {
     return this.engineDeps.store.sessionExists(sessionId)
+  }
+
+  private requireSession(sessionId: string): void {
+    if (!this.engineDeps.store.sessionExists(sessionId)) {
+      throw new WorkflowStateError(`No session found for '${sessionId}'. Run init first.`)
+    }
   }
 
   private rehydrateFromEvents(sessionId: string): TWorkflow {
