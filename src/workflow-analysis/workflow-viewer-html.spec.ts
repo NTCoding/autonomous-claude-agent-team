@@ -52,27 +52,34 @@ describe('generateViewerHtml — with sessions', () => {
 
   it('embeds session list data as JSON', () => {
     const store = createStore(dbPath)
-    store.appendEvents('test-session', [ev('ev.start', T0), ev('ev.end', T1)])
+    store.appendEvents('test-session', [
+      ev('session-started', T0, { sessionId: 'test-session' }),
+      ev('plan-approval-recorded', T1),
+    ])
     const html = generateViewerHtml(store)
     expect(html).toContain('"sessionId":"test-session"')
   })
 
-  it('embeds session detail data as JSON', () => {
+  it('embeds session detail data with current state', () => {
     const store = createStore(dbPath)
     store.appendEvents('detail-sess', [
-      ev('ev.start', T0),
-      ev('workflow.state.transitioned', T1, { toState: 'working' }),
-      ev('ev.end', T2),
+      ev('session-started', T0, { sessionId: 'detail-sess' }),
+      ev('transitioned', T1, { from: 'SPAWN', to: 'PLANNING' }),
+      ev('plan-approval-recorded', T2),
     ])
     const html = generateViewerHtml(store)
     expect(html).toContain('"detail-sess"')
-    expect(html).toContain('"currentState":"working"')
+    expect(html).toContain('"currentState":"PLANNING"')
   })
 
   it('includes multiple sessions', () => {
     const store = createStore(dbPath)
-    store.appendEvents('multi-a', [ev('ev.start', T0)])
-    store.appendEvents('multi-b', [ev('ev.start', T1)])
+    store.appendEvents('multi-a', [
+      ev('session-started', T0, { sessionId: 'multi-a' }),
+    ])
+    store.appendEvents('multi-b', [
+      ev('session-started', T1, { sessionId: 'multi-b' }),
+    ])
     const html = generateViewerHtml(store)
     expect(html).toContain('"multi-a"')
     expect(html).toContain('"multi-b"')
@@ -85,7 +92,9 @@ describe('generateViewerHtml — script injection safety', () => {
 
   it('escapes closing script tags in session data', () => {
     const store = createStore(dbPath)
-    store.appendEvents('safe</script>', [ev('ev', T0)])
+    store.appendEvents('safe</script>', [
+      ev('session-started', T0, { sessionId: 'safe</script>' }),
+    ])
     const html = generateViewerHtml(store)
     expect(html).not.toContain('"safe</script>"')
     expect(html).toContain('safe<\\/')

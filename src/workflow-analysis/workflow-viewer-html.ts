@@ -102,8 +102,8 @@ function fmtDur(ms){
 function fmtDate(iso){return iso?new Date(iso).toLocaleString():'-';}
 
 function showView(id){
-  document.getElementById('session-list-view').style.display=id==='list'?'':'none';
-  document.getElementById('session-detail-view').style.display=id==='detail'?'':'none';
+  document.getElementById('session-list-view').style.display=id==='list'?'block':'none';
+  document.getElementById('session-detail-view').style.display=id==='detail'?'block':'none';
 }
 
 function esc(str){

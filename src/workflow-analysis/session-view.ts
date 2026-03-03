@@ -1,9 +1,11 @@
 import type { BaseEvent } from '../workflow-engine/index.js'
+import type { WorkflowEvent } from '../workflow-definition/index.js'
+import { WorkflowEventSchema } from '../workflow-definition/index.js'
 
 export type IterationGroup = {
   iterationIndex: number
   task: string
-  events: readonly BaseEvent[]
+  events: readonly WorkflowEvent[]
   startedAt: string
   endedAt?: string | undefined
 }
@@ -24,7 +26,7 @@ export type SessionViewData = {
   totalDurationMs: number
   statePeriods: readonly StatePeriod[]
   iterationGroups: readonly IterationGroup[]
-  recentEvents: readonly BaseEvent[]
+  recentEvents: readonly WorkflowEvent[]
 }
 
 export type SessionListItem = {
@@ -36,43 +38,45 @@ export type SessionListItem = {
   currentState: string
 }
 
-const TRANSITION_TYPE = 'workflow.state.transitioned'
-const ITERATION_TASK_TYPE = 'workflow.iteration.task-assigned'
-const SESSION_ENDED_TYPE = 'workflow.session.ended'
+type Transitioned = Extract<WorkflowEvent, { type: 'transitioned' }>
+type IterationTaskAssigned = Extract<WorkflowEvent, { type: 'iteration-task-assigned' }>
+
 const DEFAULT_STATE = 'idle'
 const RECENT_EVENT_COUNT = 20
 
-type TransitionedEvent = BaseEvent & { toState: string }
-type IterationTaskEvent = BaseEvent & { task: string }
+function parseWorkflowEvents(events: readonly BaseEvent[]): readonly WorkflowEvent[] {
+  return events.flatMap((e) => {
+    const result = WorkflowEventSchema.safeParse(e)
+    return result.success ? [result.data] : []
+  })
+}
 
-function firstEventAt(events: readonly BaseEvent[]): string {
+function firstEventAt(events: readonly WorkflowEvent[]): string {
   return events.slice(0, 1).reduce((_acc, e) => e.at, '')
 }
 
-function lastEventAt(events: readonly BaseEvent[]): string {
+function lastEventAt(events: readonly WorkflowEvent[]): string {
   return events.reduce((_acc, e) => e.at, '')
 }
 
-function hasStringProp(obj: object, key: string): boolean {
-  return key in obj && typeof Reflect.get(obj, key) === 'string'
+function isTransitioned(e: WorkflowEvent): e is Transitioned {
+  return e.type === 'transitioned'
 }
 
-function isTransitionedEvent(e: BaseEvent): e is TransitionedEvent {
-  return e.type === TRANSITION_TYPE && hasStringProp(e, 'toState')
+function isIterationTaskAssigned(e: WorkflowEvent): e is IterationTaskAssigned {
+  return e.type === 'iteration-task-assigned'
 }
 
-function isIterationTaskEvent(e: BaseEvent): e is IterationTaskEvent {
-  return e.type === ITERATION_TASK_TYPE && hasStringProp(e, 'task')
+function extractCurrentState(events: readonly WorkflowEvent[]): string {
+  const transitions = events.filter(isTransitioned)
+  return transitions.reduce((_acc: string, e: Transitioned) => e.to, DEFAULT_STATE)
 }
 
-function extractCurrentState(events: readonly BaseEvent[]): string {
-  const transitions = events.filter(isTransitionedEvent)
-  return transitions.reduce((_acc: string, e: TransitionedEvent) => e.toState, DEFAULT_STATE)
-}
-
-function extractSessionEndedAt(events: readonly BaseEvent[]): string | undefined {
-  const ended = events.find((e) => e.type === SESSION_ENDED_TYPE)
-  return ended?.at
+function extractSessionEndedAt(events: readonly WorkflowEvent[]): string | undefined {
+  const completedTransition = events.find(
+    (e): e is Transitioned => isTransitioned(e) && e.to === 'COMPLETE'
+  )
+  return completedTransition?.at
 }
 
 function makePeriod(
@@ -95,13 +99,13 @@ type PeriodAccum = {
 
 function reduceTransitions(
   accum: PeriodAccum,
-  event: TransitionedEvent
+  event: Transitioned
 ): PeriodAccum {
   const durationMs = new Date(event.at).getTime() - new Date(accum.currentStartedAt).getTime()
   const period = makePeriod(accum.currentState, accum.currentStartedAt, event.at, durationMs)
   return {
     periods: [...accum.periods, period],
-    currentState: event.toState,
+    currentState: event.to,
     currentStartedAt: event.at,
   }
 }
@@ -111,9 +115,9 @@ function withProportions(periods: StatePeriod[], totalDurationMs: number): reado
   return periods.map((p) => ({ ...p, proportionOfTotal: p.durationMs / totalDurationMs }))
 }
 
-function computeStatePeriods(events: readonly BaseEvent[], totalDurationMs: number): readonly StatePeriod[] {
+function computeStatePeriods(events: readonly WorkflowEvent[], totalDurationMs: number): readonly StatePeriod[] {
   const start = firstEventAt(events)
-  const transitions = events.filter(isTransitionedEvent)
+  const transitions = events.filter(isTransitioned)
   const sessionEnd = extractSessionEndedAt(events)
 
   const initial: PeriodAccum = {
@@ -144,14 +148,14 @@ type GroupAccum = {
   groups: IterationGroup[]
   iterationIndex: number
   currentTask: string
-  currentEvents: BaseEvent[]
+  currentEvents: WorkflowEvent[]
   currentStartedAt: string
 }
 
 function makeIterationGroup(
   iterationIndex: number,
   task: string,
-  events: BaseEvent[],
+  events: WorkflowEvent[],
   startedAt: string,
   endedAt: string | undefined
 ): IterationGroup {
@@ -161,8 +165,8 @@ function makeIterationGroup(
   return { iterationIndex, task, events, startedAt }
 }
 
-function reduceToIterationGroups(accum: GroupAccum, event: BaseEvent): GroupAccum {
-  if (!isIterationTaskEvent(event)) {
+function reduceToIterationGroups(accum: GroupAccum, event: WorkflowEvent): GroupAccum {
+  if (!isIterationTaskAssigned(event)) {
     return { ...accum, currentEvents: [...accum.currentEvents, event] }
   }
 
@@ -193,7 +197,7 @@ function reduceToIterationGroups(accum: GroupAccum, event: BaseEvent): GroupAccu
   }
 }
 
-function groupEventsByIteration(events: readonly BaseEvent[]): readonly IterationGroup[] {
+function groupEventsByIteration(events: readonly WorkflowEvent[]): readonly IterationGroup[] {
   const start = firstEventAt(events)
 
   const initial: GroupAccum = {
@@ -225,7 +229,7 @@ function makeSessionViewData(
   totalDurationMs: number,
   statePeriods: readonly StatePeriod[],
   iterationGroups: readonly IterationGroup[],
-  recentEvents: readonly BaseEvent[]
+  recentEvents: readonly WorkflowEvent[]
 ): SessionViewData {
   if (endedAt !== undefined) {
     return { sessionId, startedAt, endedAt, currentState, totalDurationMs, statePeriods, iterationGroups, recentEvents }
@@ -234,7 +238,8 @@ function makeSessionViewData(
 }
 
 export function buildSessionViewData(sessionId: string, events: readonly BaseEvent[]): SessionViewData {
-  if (events.length === 0) {
+  const parsed = parseWorkflowEvents(events)
+  if (parsed.length === 0) {
     return {
       sessionId,
       startedAt: new Date(0).toISOString(),
@@ -246,21 +251,42 @@ export function buildSessionViewData(sessionId: string, events: readonly BaseEve
     }
   }
 
-  const firstAt = firstEventAt(events)
-  const endedAt = extractSessionEndedAt(events)
-  const lastAt = lastEventAt(events)
+  const firstAt = firstEventAt(parsed)
+  const endedAt = extractSessionEndedAt(parsed)
+  const lastAt = lastEventAt(parsed)
   const totalDurationMs = new Date(lastAt).getTime() - new Date(firstAt).getTime()
 
   return makeSessionViewData(
     sessionId,
     firstAt,
     endedAt,
-    extractCurrentState(events),
+    extractCurrentState(parsed),
     totalDurationMs,
-    computeStatePeriods(events, totalDurationMs),
-    groupEventsByIteration(events),
-    events.slice(-RECENT_EVENT_COUNT)
+    computeStatePeriods(parsed, totalDurationMs),
+    groupEventsByIteration(parsed),
+    parsed.slice(-RECENT_EVENT_COUNT)
   )
+}
+
+export function buildSessionListItem(sessionId: string, events: readonly BaseEvent[]): SessionListItem {
+  const parsed = parseWorkflowEvents(events)
+  if (parsed.length === 0) {
+    return {
+      sessionId,
+      startedAt: new Date(0).toISOString(),
+      durationMs: 0,
+      iterationCount: 0,
+      currentState: DEFAULT_STATE,
+    }
+  }
+
+  const firstAt = firstEventAt(parsed)
+  const endedAt = extractSessionEndedAt(parsed)
+  const lastAt = lastEventAt(parsed)
+  const durationMs = new Date(lastAt).getTime() - new Date(firstAt).getTime()
+  const iterationCount = parsed.filter(isIterationTaskAssigned).length
+
+  return makeSessionListItem(sessionId, firstAt, endedAt, durationMs, iterationCount, extractCurrentState(parsed))
 }
 
 function makeSessionListItem(
@@ -275,24 +301,4 @@ function makeSessionListItem(
     return { sessionId, startedAt, endedAt, durationMs, iterationCount, currentState }
   }
   return { sessionId, startedAt, durationMs, iterationCount, currentState }
-}
-
-export function buildSessionListItem(sessionId: string, events: readonly BaseEvent[]): SessionListItem {
-  if (events.length === 0) {
-    return {
-      sessionId,
-      startedAt: new Date(0).toISOString(),
-      durationMs: 0,
-      iterationCount: 0,
-      currentState: DEFAULT_STATE,
-    }
-  }
-
-  const firstAt = firstEventAt(events)
-  const endedAt = extractSessionEndedAt(events)
-  const lastAt = lastEventAt(events)
-  const durationMs = new Date(lastAt).getTime() - new Date(firstAt).getTime()
-  const iterationCount = events.filter(isIterationTaskEvent).length
-
-  return makeSessionListItem(sessionId, firstAt, endedAt, durationMs, iterationCount, extractCurrentState(events))
 }
