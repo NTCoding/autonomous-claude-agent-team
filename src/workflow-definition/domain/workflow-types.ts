@@ -50,7 +50,6 @@ export const INITIAL_STATE: WorkflowState = {
   iterations: [],
   userApprovedPlan: false,
   activeAgents: [],
-  eventLog: [],
 }
 
 export function parseStateName(value: string): StateName {

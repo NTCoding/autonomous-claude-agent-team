@@ -1,7 +1,6 @@
 import type { PreconditionResult } from '../../workflow-dsl/index.js'
 import type { WorkflowState } from './workflow-state.js'
 import type { AssistantMessage } from './identity-rules.js'
-import { createEventEntry } from './event-log.js'
 import { checkLeadIdentity } from './identity-rules.js'
 import {
   formatTransitionSuccess,
@@ -85,8 +84,7 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     const initial = this.factory.initialState()
     const state: WorkflowState = {
       ...initial,
-      transcriptPath,
-      eventLog: [createEventEntry('init', this.engineDeps.now())],
+      ...(transcriptPath === undefined ? {} : { transcriptPath }),
     }
     this.engineDeps.writeState(statePath, state)
     const procedurePath = this.factory.procedurePath(initial.state, this.engineDeps.getPluginRoot())

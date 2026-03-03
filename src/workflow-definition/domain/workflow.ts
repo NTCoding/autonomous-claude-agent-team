@@ -1,10 +1,12 @@
 import type { PreconditionResult, TransitionContext, GitInfo } from '../../workflow-dsl/index.js'
 import { pass, fail } from '../../workflow-dsl/index.js'
 import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
-import { WorkflowStateError, createEventEntry } from '../../workflow-engine/index.js'
+import { WorkflowStateError } from '../../workflow-engine/index.js'
 import { WORKFLOW_REGISTRY, GLOBAL_FORBIDDEN, getStateDefinition } from './registry.js'
 import type { StateName, WorkflowOperation } from './workflow-types.js'
 import { parseStateName, WorkflowStateSchema } from './workflow-types.js'
+import type { WorkflowEvent } from './workflow-events.js'
+import { applyEvent } from './fold.js'
 
 export type WorkflowDeps = {
   readonly getGitInfo: () => GitInfo
@@ -21,6 +23,7 @@ export type WorkflowDeps = {
 export class Workflow {
   private state: WorkflowState
   private readonly deps: WorkflowDeps
+  private pendingEvents: WorkflowEvent[] = []
 
   private constructor(state: WorkflowState, deps: WorkflowDeps) {
     this.state = state
@@ -35,6 +38,15 @@ export class Workflow {
     return `${pluginRoot}/${getStateDefinition(state).agentInstructions}`
   }
 
+  getPendingEvents(): readonly WorkflowEvent[] {
+    return this.pendingEvents
+  }
+
+  private append(event: WorkflowEvent): void {
+    this.pendingEvents = [...this.pendingEvents, event]
+    this.state = applyEvent(this.state, event)
+  }
+
   getState(): WorkflowState {
     return this.state
   }
@@ -46,59 +58,28 @@ export class Workflow {
   recordIssue(issueNumber: number): PreconditionResult {
     const gate = this.checkOperationGate('record-issue')
     if (!gate.pass) return gate
-
-    this.state = {
-      ...this.state,
-      githubIssue: issueNumber,
-      eventLog: [...this.state.eventLog, createEventEntry('record-issue', this.deps.now(), { issueNumber })],
-    }
+    this.append({ type: 'issue-recorded', at: this.deps.now(), issueNumber })
     return pass()
   }
 
   recordBranch(branch: string): PreconditionResult {
     const gate = this.checkOperationGate('record-branch')
     if (!gate.pass) return gate
-
-    this.state = {
-      ...this.state,
-      featureBranch: branch,
-      eventLog: [...this.state.eventLog, createEventEntry('record-branch', this.deps.now(), { branch })],
-    }
+    this.append({ type: 'branch-recorded', at: this.deps.now(), branch })
     return pass()
   }
 
   recordPlanApproval(): PreconditionResult {
     const gate = this.checkOperationGate('record-plan-approval')
     if (!gate.pass) return gate
-
-    this.state = {
-      ...this.state,
-      userApprovedPlan: true,
-      eventLog: [...this.state.eventLog, createEventEntry('record-plan-approval', this.deps.now())],
-    }
+    this.append({ type: 'plan-approval-recorded', at: this.deps.now() })
     return pass()
   }
 
   assignIterationTask(task: string): PreconditionResult {
     const gate = this.checkOperationGate('assign-iteration-task')
     if (!gate.pass) return gate
-
-    const newIteration: IterationState = {
-      task,
-      developerDone: false,
-      reviewApproved: false,
-      reviewRejected: false,
-      coderabbitFeedbackAddressed: false,
-      coderabbitFeedbackIgnored: false,
-      lintedFiles: [],
-      lintRanIteration: false,
-    }
-
-    this.state = {
-      ...this.state,
-      iterations: [...this.state.iterations, newIteration],
-      eventLog: [...this.state.eventLog, createEventEntry('assign-iteration-task', this.deps.now(), { task })],
-    }
+    this.append({ type: 'iteration-task-assigned', at: this.deps.now(), task })
     return pass()
   }
 
@@ -111,65 +92,38 @@ export class Workflow {
       throw new WorkflowStateError(`No iteration entry at index ${this.state.iteration}`)
     }
 
-    this.state = {
-      ...this.state,
-      iterations: this.state.iterations.map((iter, i) =>
-        i === this.state.iteration ? { ...iter, developerDone: true } : iter
-      ),
-      eventLog: [...this.state.eventLog, createEventEntry('signal-done', this.deps.now())],
-    }
+    this.append({ type: 'developer-done-signaled', at: this.deps.now() })
     return pass()
   }
 
   recordPr(prNumber: number): PreconditionResult {
     const gate = this.checkOperationGate('record-pr')
     if (!gate.pass) return gate
-
-    this.state = {
-      ...this.state,
-      prNumber,
-      eventLog: [...this.state.eventLog, createEventEntry('record-pr', this.deps.now(), { prNumber })],
-    }
+    this.append({ type: 'pr-recorded', at: this.deps.now(), prNumber })
     return pass()
   }
 
   createPr(title: string, body: string): PreconditionResult {
     const gate = this.checkOperationGate('create-pr')
     if (!gate.pass) return gate
-
     const prNumber = this.deps.createDraftPr(title, body)
-
-    this.state = {
-      ...this.state,
-      prNumber,
-      eventLog: [...this.state.eventLog, createEventEntry('create-pr', this.deps.now(), { prNumber })],
-    }
+    this.append({ type: 'pr-created', at: this.deps.now(), prNumber })
     return pass()
   }
 
   appendIssueChecklist(issueNumber: number, checklist: string): PreconditionResult {
     const gate = this.checkOperationGate('append-issue-checklist')
     if (!gate.pass) return gate
-
     this.deps.appendIssueChecklist(issueNumber, checklist)
-
-    this.state = {
-      ...this.state,
-      eventLog: [...this.state.eventLog, createEventEntry('append-issue-checklist', this.deps.now(), { issueNumber })],
-    }
+    this.append({ type: 'issue-checklist-appended', at: this.deps.now(), issueNumber })
     return pass()
   }
 
   tickIteration(issueNumber: number): PreconditionResult {
     const gate = this.checkOperationGate('tick-iteration')
     if (!gate.pass) return gate
-
     this.deps.tickFirstUncheckedIteration(issueNumber)
-
-    this.state = {
-      ...this.state,
-      eventLog: [...this.state.eventLog, createEventEntry('tick-iteration', this.deps.now(), { issueNumber })],
-    }
+    this.append({ type: 'iteration-ticked', at: this.deps.now(), issueNumber })
     return pass()
   }
 
@@ -182,13 +136,7 @@ export class Workflow {
       throw new WorkflowStateError(`No iteration at index ${this.state.iteration}`)
     }
 
-    this.state = {
-      ...this.state,
-      iterations: this.state.iterations.map((iter, i) =>
-        i === this.state.iteration ? { ...iter, reviewApproved: true } : iter
-      ),
-      eventLog: [...this.state.eventLog, createEventEntry('review-approved', this.deps.now())],
-    }
+    this.append({ type: 'review-approved', at: this.deps.now() })
     return pass()
   }
 
@@ -201,13 +149,7 @@ export class Workflow {
       throw new WorkflowStateError(`No iteration at index ${this.state.iteration}`)
     }
 
-    this.state = {
-      ...this.state,
-      iterations: this.state.iterations.map((iter, i) =>
-        i === this.state.iteration ? { ...iter, reviewRejected: true } : iter
-      ),
-      eventLog: [...this.state.eventLog, createEventEntry('review-rejected', this.deps.now())],
-    }
+    this.append({ type: 'review-rejected', at: this.deps.now() })
     return pass()
   }
 
@@ -220,13 +162,7 @@ export class Workflow {
       throw new WorkflowStateError(`No iteration at index ${this.state.iteration}`)
     }
 
-    this.state = {
-      ...this.state,
-      iterations: this.state.iterations.map((iter, i) =>
-        i === this.state.iteration ? { ...iter, coderabbitFeedbackAddressed: true } : iter
-      ),
-      eventLog: [...this.state.eventLog, createEventEntry('coderabbit-feedback-addressed', this.deps.now())],
-    }
+    this.append({ type: 'coderabbit-addressed', at: this.deps.now() })
     return pass()
   }
 
@@ -239,13 +175,7 @@ export class Workflow {
       throw new WorkflowStateError(`No iteration at index ${this.state.iteration}`)
     }
 
-    this.state = {
-      ...this.state,
-      iterations: this.state.iterations.map((iter, i) =>
-        i === this.state.iteration ? { ...iter, coderabbitFeedbackIgnored: true } : iter
-      ),
-      eventLog: [...this.state.eventLog, createEventEntry('coderabbit-feedback-ignored', this.deps.now())],
-    }
+    this.append({ type: 'coderabbit-ignored', at: this.deps.now() })
     return pass()
   }
 
@@ -258,13 +188,7 @@ export class Workflow {
     const tsFiles = files.filter((f) => (f.endsWith('.ts') || f.endsWith('.tsx')) && this.deps.fileExists(f))
 
     if (tsFiles.length === 0) {
-      this.state = {
-        ...this.state,
-        iterations: this.state.iterations.map((iter, i) =>
-          i === this.state.iteration ? { ...iter, lintRanIteration: true } : iter
-        ),
-        eventLog: [...this.state.eventLog, createEventEntry('run-lint', this.deps.now(), { files: 0, passed: true })],
-      }
+      this.append({ type: 'lint-ran', at: this.deps.now(), files: 0, passed: true })
       return pass()
     }
 
@@ -275,19 +199,7 @@ export class Workflow {
       return fail('Lint failed. Fix all violations before proceeding.')
     }
 
-    this.state = {
-      ...this.state,
-      iterations: this.state.iterations.map((iter, i) =>
-        i === this.state.iteration
-          ? {
-              ...iter,
-              lintRanIteration: true,
-              lintedFiles: [...new Set([...iter.lintedFiles, ...tsFiles])],
-            }
-          : iter
-      ),
-      eventLog: [...this.state.eventLog, createEventEntry('run-lint', this.deps.now(), { files: tsFiles.length, passed: true })],
-    }
+    this.append({ type: 'lint-ran', at: this.deps.now(), files: tsFiles.length, passed: true, lintedFiles: tsFiles })
     return pass()
   }
 
@@ -369,30 +281,12 @@ export class Workflow {
   }
 
   shutDown(agentName: string): PreconditionResult {
-    const idx = this.state.activeAgents.indexOf(agentName)
-    const updatedAgents =
-      idx === -1
-        ? this.state.activeAgents
-        : [...this.state.activeAgents.slice(0, idx), ...this.state.activeAgents.slice(idx + 1)]
-
-    this.state = {
-      ...this.state,
-      activeAgents: updatedAgents,
-      eventLog: [...this.state.eventLog, createEventEntry('shut-down', this.deps.now(), { agent: agentName })],
-    }
+    this.append({ type: 'agent-shut-down', at: this.deps.now(), agentName })
     return pass()
   }
 
   registerAgent(agentType: string, agentId: string): PreconditionResult {
-    const alreadyRegistered = this.state.activeAgents.includes(agentType)
-    this.state = {
-      ...this.state,
-      activeAgents: alreadyRegistered ? this.state.activeAgents : [...this.state.activeAgents, agentType],
-      eventLog: [
-        ...this.state.eventLog,
-        createEventEntry('subagent-start', this.deps.now(), { agent: agentType, agentId }),
-      ],
-    }
+    this.append({ type: 'agent-registered', at: this.deps.now(), agentType, agentId })
     return pass()
   }
 
@@ -414,11 +308,20 @@ export class Workflow {
     const targetDef = WORKFLOW_REGISTRY[targetState]
     const base = targetDef.onEntry ? targetDef.onEntry(this.state, this.buildTransitionContext(from, targetState)) : this.state
 
-    this.state = {
-      ...base,
-      state: targetState,
-      eventLog: [...base.eventLog, createEventEntry('transition', this.deps.now(), { from, to: targetState })],
-    }
+    // Build fat event fields from onEntry result
+    const iterationChanged = base.iteration !== this.state.iteration
+    const developingHeadCommit = targetState === 'DEVELOPING'
+      ? base.iterations[base.iteration]?.developingHeadCommit
+      : undefined
+
+    this.append({
+      type: 'transitioned',
+      at: this.deps.now(),
+      from,
+      to: targetState,
+      ...(iterationChanged ? { iteration: base.iteration } : {}),
+      ...(developingHeadCommit === undefined ? {} : { developingHeadCommit }),
+    })
 
     return pass()
   }

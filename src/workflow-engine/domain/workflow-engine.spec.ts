@@ -16,7 +16,6 @@ const INITIAL_STATE: WorkflowState = {
   iterations: [],
   userApprovedPlan: false,
   activeAgents: [],
-  eventLog: [],
 }
 
 function makeWorkflowState(overrides?: Partial<WorkflowState>): WorkflowState {
@@ -165,16 +164,16 @@ describe('WorkflowEngine.startSession', () => {
     expect(written[0]?.transcriptPath).toBeUndefined()
   })
 
-  it('includes init event in event log', () => {
+  it('persists state with SPAWN and no transcriptPath when omitted', () => {
     const written: WorkflowState[] = []
     const engine = makeEngine({
       stateFileExists: () => false,
       writeState: (_, s) => { written.push(s) },
       now: () => '2026-06-15T10:00:00.000Z',
     })
-    engine.startSession('sess1', '/t.jsonl')
-    expect(written[0]?.eventLog[0]?.op).toStrictEqual('init')
-    expect(written[0]?.eventLog[0]?.at).toStrictEqual('2026-06-15T10:00:00.000Z')
+    engine.startSession('sess1')
+    expect(written[0]?.state).toStrictEqual('SPAWN')
+    expect(written[0]?.transcriptPath).toBeUndefined()
   })
 
   it('returns empty output when state file already exists', () => {

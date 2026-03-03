@@ -11,9 +11,6 @@ export {
   WorkflowStateError,
 } from './domain/workflow-state.js'
 
-// Event log
-export { createEventEntry } from './domain/event-log.js'
-
 // Identity rules
 export type { AssistantMessage } from './domain/identity-rules.js'
 export { LEAD_PREFIX_PATTERN } from './domain/identity-rules.js'

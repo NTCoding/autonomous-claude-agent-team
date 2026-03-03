@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import { WorkflowError } from './workflow-error.js'
 
 export function getSessionId(): string {
@@ -26,4 +27,8 @@ export function getEnvFilePath(): string {
 
 export function getStateFilePath(sessionId: string): string {
   return `/tmp/feature-team-state-${sessionId}.json`
+}
+
+export function getDbPath(): string {
+  return `${homedir()}/.claude/workflow-events.db`
 }

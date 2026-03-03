@@ -106,13 +106,13 @@ describe('Workflow', () => {
       expect(result.pass).toBe(false)
     })
 
-    it('sets githubIssue and adds eventLog entry when recordIssue succeeds', () => {
+    it('sets githubIssue and emits event when recordIssue succeeds', () => {
       const wf = Workflow.rehydrate({ ...INITIAL_STATE }, makeDeps())
       const result = wf.recordIssue(42)
       expect(result).toStrictEqual({ pass: true })
       expect(wf.getState().githubIssue).toBe(42)
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'record-issue', detail: { issueNumber: 42 } })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'issue-recorded', issueNumber: 42 })])
       )
     })
 
@@ -159,8 +159,8 @@ describe('Workflow', () => {
       const result = wf.recordBranch('feature/x')
       expect(result).toStrictEqual({ pass: true })
       expect(wf.getState().featureBranch).toBe('feature/x')
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'record-branch', detail: { branch: 'feature/x' } })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'branch-recorded', branch: 'feature/x' })])
       )
     })
 
@@ -176,8 +176,8 @@ describe('Workflow', () => {
       const result = wf.recordPlanApproval()
       expect(result).toStrictEqual({ pass: true })
       expect(wf.getState().userApprovedPlan).toBe(true)
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'record-plan-approval' })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'plan-approval-recorded' })])
       )
     })
 
@@ -194,8 +194,8 @@ describe('Workflow', () => {
       const result = wf.appendIssueChecklist(1, '- [ ] item')
       expect(result).toStrictEqual({ pass: true })
       expect(mockAppend).toHaveBeenCalledWith(1, '- [ ] item')
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'append-issue-checklist', detail: { issueNumber: 1 } })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'issue-checklist-appended', issueNumber: 1 })])
       )
     })
 
@@ -749,7 +749,7 @@ describe('Workflow', () => {
   })
 
   describe('BLOCKED state', () => {
-    it('allows transition TO BLOCKED from any state and records prior state in event log', () => {
+    it('allows transition TO BLOCKED from any state and sets preBlockedState', () => {
       const state = stateWith({
         state: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
@@ -758,8 +758,9 @@ describe('Workflow', () => {
       const result = wf.transitionTo('BLOCKED')
       expect(result).toStrictEqual({ pass: true })
       expect(wf.getState().state).toBe('BLOCKED')
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'transition', detail: { from: 'DEVELOPING', to: 'BLOCKED' } })])
+      expect(wf.getState().preBlockedState).toBe('DEVELOPING')
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'transitioned', from: 'DEVELOPING', to: 'BLOCKED' })])
       )
     })
 
@@ -767,7 +768,7 @@ describe('Workflow', () => {
       const state = stateWith({
         state: 'BLOCKED',
         iterations: [DEFAULT_ITERATION],
-        eventLog: [{ op: 'transition', at: '2026-01-01T00:00:00Z', detail: { from: 'DEVELOPING', to: 'BLOCKED' } }],
+        preBlockedState: 'DEVELOPING',
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('DEVELOPING')
@@ -778,7 +779,7 @@ describe('Workflow', () => {
     it('fails transition FROM BLOCKED to wrong state', () => {
       const state = stateWith({
         state: 'BLOCKED',
-        eventLog: [{ op: 'transition', at: '2026-01-01T00:00:00Z', detail: { from: 'DEVELOPING', to: 'BLOCKED' } }],
+        preBlockedState: 'DEVELOPING',
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('PLANNING')
@@ -889,37 +890,37 @@ describe('Workflow', () => {
     })
   })
 
-  describe('event log', () => {
-    it('appends event for transition', () => {
+  describe('pending events', () => {
+    it('emits transitioned event for transition', () => {
       const state = stateWith({
         state: 'PLANNING',
         userApprovedPlan: true,
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.transitionTo('RESPAWN')
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'transition', detail: { from: 'PLANNING', to: 'RESPAWN' } })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'transitioned', from: 'PLANNING', to: 'RESPAWN' })])
       )
     })
 
-    it('appends event for BLOCKED transition', () => {
+    it('emits transitioned event for BLOCKED transition', () => {
       const state = stateWith({ state: 'PLANNING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.transitionTo('BLOCKED')
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'transition', detail: { from: 'PLANNING', to: 'BLOCKED' } })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'transitioned', from: 'PLANNING', to: 'BLOCKED' })])
       )
     })
 
-    it('appends event for unblock transition', () => {
+    it('emits transitioned event for unblock transition', () => {
       const state = stateWith({
         state: 'BLOCKED',
-        eventLog: [{ op: 'transition', at: '2026-01-01T00:00:00Z', detail: { from: 'PLANNING', to: 'BLOCKED' } }],
+        preBlockedState: 'PLANNING',
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.transitionTo('PLANNING')
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'transition', detail: { from: 'BLOCKED', to: 'PLANNING' } })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'transitioned', from: 'BLOCKED', to: 'PLANNING' })])
       )
     })
   })
@@ -1219,8 +1220,8 @@ describe('Workflow', () => {
       const result = wf.shutDown('developer-1')
       expect(result).toStrictEqual({ pass: true })
       expect(wf.getState().activeAgents).toStrictEqual(['reviewer-1'])
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'shut-down', detail: { agent: 'developer-1' } })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'agent-shut-down', agentName: 'developer-1' })])
       )
     })
 
@@ -1239,8 +1240,8 @@ describe('Workflow', () => {
       const result = wf.registerAgent('developer-1', 'agent-abc')
       expect(result).toStrictEqual({ pass: true })
       expect(wf.getState().activeAgents).toStrictEqual(['developer-1'])
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'subagent-start', detail: { agent: 'developer-1', agentId: 'agent-abc' } })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'agent-registered', agentType: 'developer-1', agentId: 'agent-abc' })])
       )
     })
 
@@ -1249,8 +1250,8 @@ describe('Workflow', () => {
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.registerAgent('developer-1', 'agent-xyz')
       expect(wf.getState().activeAgents).toStrictEqual(['developer-1'])
-      expect(wf.getState().eventLog).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ op: 'subagent-start', detail: { agent: 'developer-1', agentId: 'agent-xyz' } })])
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'agent-registered', agentType: 'developer-1', agentId: 'agent-xyz' })])
       )
     })
   })
