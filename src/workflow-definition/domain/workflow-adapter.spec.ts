@@ -1,6 +1,6 @@
 import { WorkflowAdapter } from './workflow-adapter.js'
-import { INITIAL_STATE } from './workflow-types.js'
 import type { WorkflowRuntimeDeps } from '../../workflow-engine/index.js'
+import type { BaseEvent } from '../../workflow-engine/index.js'
 
 function makeWorkflowDeps(): WorkflowRuntimeDeps {
   return {
@@ -23,8 +23,17 @@ function makeWorkflowDeps(): WorkflowRuntimeDeps {
 }
 
 describe('WorkflowAdapter', () => {
-  it('rehydrates a Workflow from state and deps', () => {
-    const workflow = WorkflowAdapter.rehydrate(INITIAL_STATE, makeWorkflowDeps())
+  it('rehydrates a Workflow from events and deps', () => {
+    const events: readonly BaseEvent[] = []
+    const workflow = WorkflowAdapter.rehydrate(events, makeWorkflowDeps())
+    expect(workflow.getState().state).toStrictEqual('SPAWN')
+  })
+
+  it('ignores unknown event types when folding', () => {
+    const events: readonly BaseEvent[] = [
+      { type: 'unknown-event', at: '2026-01-01T00:00:00.000Z' },
+    ]
+    const workflow = WorkflowAdapter.rehydrate(events, makeWorkflowDeps())
     expect(workflow.getState().state).toStrictEqual('SPAWN')
   })
 
@@ -32,5 +41,15 @@ describe('WorkflowAdapter', () => {
     const path = WorkflowAdapter.procedurePath('SPAWN', '/plugin')
     expect(path).toContain('spawn')
     expect(path).toContain('/plugin/')
+  })
+
+  it('returns emoji for known state', () => {
+    const emoji = WorkflowAdapter.getEmojiForState('SPAWN')
+    expect(typeof emoji).toStrictEqual('string')
+  })
+
+  it('returns empty string for unknown state', () => {
+    const emoji = WorkflowAdapter.getEmojiForState('UNKNOWN_STATE')
+    expect(emoji).toStrictEqual('')
   })
 })

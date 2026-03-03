@@ -19,6 +19,7 @@ export { LEAD_PREFIX_PATTERN } from './domain/identity-rules.js'
 export { WorkflowEngine } from './domain/workflow-engine.js'
 export type {
   EngineResult,
+  RehydratableWorkflow,
   WorkflowFactory,
   WorkflowEngineDeps,
   WorkflowDeps as WorkflowRuntimeDeps,

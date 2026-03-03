@@ -1,12 +1,11 @@
-import { readFileSync, existsSync, appendFileSync } from 'node:fs'
+import { readFileSync, appendFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { EngineResult } from './workflow-engine/index.js'
 import { WorkflowEngine } from './workflow-engine/index.js'
 import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/index.js'
 import { WorkflowAdapter, StateNameSchema } from './workflow-definition/index.js'
 import { Workflow } from './workflow-definition/index.js'
-import { readState, writeState, stateFileExists } from './infra/state-store.js'
-import { getSessionId, getPluginRoot, getEnvFilePath, getStateFilePath, getDbPath } from './infra/environment.js'
+import { getSessionId, getPluginRoot, getEnvFilePath, getDbPath } from './infra/environment.js'
 import { getGitInfo } from './infra/git.js'
 import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './infra/github.js'
 import { readStdinSync } from './infra/stdin.js'
@@ -25,12 +24,24 @@ import {
 } from './infra/hook-io.js'
 import type { ViewerServer } from './infra/workflow-viewer-server.js'
 import { startViewerServer } from './infra/workflow-viewer-server.js'
-import { createStore } from './infra/sqlite-event-store.js'
+import { createStore, readEvents, appendEvents, hasSession } from './infra/sqlite-event-store.js'
+import {
+  computeSessionSummary,
+  computeCrossSessionSummary,
+  formatSessionSummary,
+  formatCrossSessionSummary,
+} from './infra/workflow-analytics.js'
+import { existsSync } from 'node:fs'
 
 type OperationResult = { readonly output: string; readonly exitCode: number }
 
 export type ViewerDeps = {
   readonly startViewer: (dbPath: string) => ViewerServer
+}
+
+export type AnalyticsDeps = {
+  readonly computeSession: (sessionId: string) => string
+  readonly computeAll: () => string
 }
 
 export type AdapterDeps = {
@@ -39,12 +50,14 @@ export type AdapterDeps = {
   readonly engineDeps: WorkflowEngineDeps
   readonly workflowDeps: WorkflowRuntimeDeps
   readonly viewerDeps: ViewerDeps
+  readonly analyticsDeps: AnalyticsDeps
 }
 
 type CommandHandler = (args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult
 
 const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   view: handleView,
+  analyze: handleAnalyze,
   init: handleInit,
   transition: handleTransition,
   'record-issue': handleRecordIssue,
@@ -98,6 +111,17 @@ function runHookMode(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): Opera
 function handleView(_args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const server = deps.viewerDeps.startViewer(getDbPath())
   return { output: server.url, exitCode: EXIT_ALLOW }
+}
+
+function handleAnalyze(args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  if (args[1] === '--all') {
+    return { output: deps.analyticsDeps.computeAll(), exitCode: EXIT_ALLOW }
+  }
+  const sessionId = args[1]
+  if (!sessionId) {
+    return { output: 'analyze: missing required argument <sessionId> or --all', exitCode: EXIT_ERROR }
+  }
+  return { output: deps.analyticsDeps.computeSession(sessionId), exitCode: EXIT_ALLOW }
 }
 
 function handleInit(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -205,7 +229,11 @@ function handleTickIteration(args: readonly string[], engine: WorkflowEngine<Wor
 }
 
 function handleRunLint(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
-  return mapResult(engine.runLint(deps.getSessionId(), args.slice(1)))
+  const sessionId = deps.getSessionId()
+  if (!engine.hasSession(sessionId)) {
+    return { output: 'run-lint: no state file. Run init first.', exitCode: EXIT_ALLOW }
+  }
+  return mapResult(engine.transaction(sessionId, 'run-lint', (w) => w.runLint(args.slice(1))))
 }
 
 function handleReviewApproved(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -229,7 +257,11 @@ function handleShutDown(args: readonly string[], engine: WorkflowEngine<Workflow
   if (!agentName) {
     return { output: 'shut-down: missing required argument <agent-name>', exitCode: EXIT_ERROR }
   }
-  return mapResult(engine.shutDown(deps.getSessionId(), agentName))
+  const sessionId = deps.getSessionId()
+  if (!engine.hasSession(sessionId)) {
+    return { output: `shut-down: no state file for session '${sessionId}'`, exitCode: EXIT_ERROR }
+  }
+  return mapResult(engine.transaction(sessionId, 'shut-down', (w) => w.shutDown(agentName)))
 }
 
 function handleSessionStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -259,11 +291,6 @@ function handlePreToolUse(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): 
   })
   if (hookCheck.type === 'blocked') return { output: formatDenyDecision(hookCheck.output), exitCode: EXIT_BLOCK }
 
-  const identityResult = engine.verifyIdentity(hookInput.session_id, hookInput.transcript_path)
-  if (identityResult.output) {
-    return { output: formatContextInjection(identityResult.output), exitCode: EXIT_ALLOW }
-  }
-
   return { output: '', exitCode: EXIT_ALLOW }
 }
 
@@ -274,8 +301,11 @@ function handleSubagentStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps
     return { output: '', exitCode: EXIT_ALLOW }
   }
 
-  const result = engine.registerAgent(hookInput.session_id, hookInput.agent_type, hookInput.agent_id)
-  return { output: formatContextInjection(result.output), exitCode: EXIT_ALLOW }
+  const result = engine.transaction(hookInput.session_id, 'register-agent', (w) => {
+    return w.registerAgent(hookInput.agent_type, hookInput.agent_id)
+  })
+  const state = result.type === 'success' ? result.output : ''
+  return { output: formatContextInjection(state), exitCode: EXIT_ALLOW }
 }
 
 function handleTeammateIdle(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -286,7 +316,7 @@ function handleTeammateIdle(engine: WorkflowEngine<Workflow>, deps: AdapterDeps)
   }
 
   const agentName = hookInput.teammate_name ?? ''
-  const result = engine.checkIdleAllowed(hookInput.session_id, agentName)
+  const result = engine.transaction(hookInput.session_id, 'check-idle', (w) => w.checkIdleAllowed(agentName))
   if (result.type === 'blocked') {
     return { output: result.output, exitCode: EXIT_BLOCK }
   }
@@ -305,11 +335,12 @@ function mapResult(result: EngineResult): OperationResult {
 
 /* v8 ignore start */
 function buildRealDeps(): AdapterDeps {
+  const store = createStore(getDbPath())
+
   const engineDeps: WorkflowEngineDeps = {
-    readState,
-    writeState,
-    stateFileExists,
-    getStateFilePath,
+    readEvents: (sessionId) => readEvents(store, sessionId),
+    appendEvents: (sessionId, events) => appendEvents(store, sessionId, events),
+    sessionExists: (sessionId) => hasSession(store, sessionId),
     getPluginRoot,
     getEnvFilePath,
     readFile: (path) => readFileSync(path, 'utf8'),
@@ -338,12 +369,18 @@ function buildRealDeps(): AdapterDeps {
     }),
   }
 
+  const analyticsDeps: AnalyticsDeps = {
+    computeSession: (sessionId) => formatSessionSummary(computeSessionSummary(createStore(getDbPath()), sessionId)),
+    computeAll: () => formatCrossSessionSummary(computeCrossSessionSummary(createStore(getDbPath()))),
+  }
+
   return {
     getSessionId,
     readStdin: readStdinSync,
     engineDeps,
     workflowDeps,
     viewerDeps,
+    analyticsDeps,
   }
 }
 

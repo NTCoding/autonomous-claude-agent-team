@@ -1,9 +1,10 @@
 import { runWorkflow } from './autonomous-claude-agent-team-workflow.js'
-import type { AdapterDeps, ViewerDeps } from './autonomous-claude-agent-team-workflow.js'
-import type { WorkflowState } from './workflow-engine/index.js'
+import type { AdapterDeps, ViewerDeps, AnalyticsDeps } from './autonomous-claude-agent-team-workflow.js'
 import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/index.js'
-import { INITIAL_STATE } from './workflow-definition/index.js'
+import type { WorkflowEvent } from './workflow-definition/index.js'
 import { EXIT_ERROR, EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
+
+const AT = '2026-01-01T00:00:00Z'
 
 function makeHookStdin(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -19,34 +20,73 @@ function makeHookStdin(overrides: Record<string, unknown> = {}): string {
   })
 }
 
-function makeIterationState(): WorkflowState {
-  return {
-    ...INITIAL_STATE,
-    iterations: [{
-      task: 'Iteration 1',
-      developerDone: false,
-      reviewApproved: false,
-      reviewRejected: false,
-      coderabbitFeedbackAddressed: false,
-      coderabbitFeedbackIgnored: false,
-      lintedFiles: [],
-      lintRanIteration: false,
-    }],
-  }
+function spawnReadyEvents(): readonly WorkflowEvent[] {
+  return [
+    { type: 'issue-recorded', at: AT, issueNumber: 42 },
+    { type: 'agent-registered', at: AT, agentType: 'developer-1', agentId: 'agt-1' },
+    { type: 'agent-registered', at: AT, agentType: 'reviewer-1', agentId: 'agt-2' },
+  ]
+}
+
+function planningEvents(): readonly WorkflowEvent[] {
+  return [
+    ...spawnReadyEvents(),
+    { type: 'transitioned', at: AT, from: 'SPAWN', to: 'PLANNING' },
+  ]
+}
+
+function developingEvents(): readonly WorkflowEvent[] {
+  return [
+    ...planningEvents(),
+    { type: 'iteration-task-assigned', at: AT, task: 'Build the thing' },
+    { type: 'transitioned', at: AT, from: 'PLANNING', to: 'RESPAWN', iteration: 0 },
+    { type: 'transitioned', at: AT, from: 'RESPAWN', to: 'DEVELOPING', iteration: 0, developingHeadCommit: 'abc123' },
+  ]
+}
+
+function reviewingEvents(): readonly WorkflowEvent[] {
+  return [
+    ...developingEvents(),
+    { type: 'developer-done-signaled', at: AT },
+    { type: 'transitioned', at: AT, from: 'DEVELOPING', to: 'REVIEWING' },
+  ]
+}
+
+function committingEvents(): readonly WorkflowEvent[] {
+  return [
+    ...reviewingEvents(),
+    { type: 'review-approved', at: AT },
+    { type: 'transitioned', at: AT, from: 'REVIEWING', to: 'COMMITTING' },
+  ]
+}
+
+function crReviewEvents(): readonly WorkflowEvent[] {
+  return [
+    ...committingEvents(),
+    { type: 'pr-created', at: AT, prNumber: 99 },
+    { type: 'transitioned', at: AT, from: 'COMMITTING', to: 'CR_REVIEW' },
+  ]
+}
+
+function prCreationEvents(): readonly WorkflowEvent[] {
+  return [
+    ...crReviewEvents(),
+    { type: 'coderabbit-addressed', at: AT },
+    { type: 'transitioned', at: AT, from: 'CR_REVIEW', to: 'PR_CREATION' },
+  ]
 }
 
 function makeEngineDeps(overrides?: Partial<WorkflowEngineDeps>): WorkflowEngineDeps {
   return {
-    readState: () => INITIAL_STATE,
-    writeState: () => undefined,
-    stateFileExists: () => false,
-    getStateFilePath: (id: string) => `/test/state-${id}.json`,
+    readEvents: () => [],
+    appendEvents: () => undefined,
+    sessionExists: () => false,
     getPluginRoot: () => '/plugin',
     getEnvFilePath: () => '/test/claude.env',
     readFile: () => '',
     readTranscriptMessages: () => [],
     appendToFile: () => undefined,
-    now: () => '2026-01-01T00:00:00Z',
+    now: () => AT,
     ...overrides,
   }
 }
@@ -67,7 +107,7 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
     runEslintOnFiles: () => true,
     fileExists: () => false,
     getPluginRoot: () => '/plugin',
-    now: () => '2026-01-01T00:00:00Z',
+    now: () => AT,
     ...overrides,
   }
 }
@@ -82,10 +122,19 @@ function makeViewerDeps(overrides?: Partial<ViewerDeps>): ViewerDeps {
   }
 }
 
+function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
+  return {
+    computeSession: (_sessionId: string) => 'Session: test-session\n===',
+    computeAll: () => 'Total Sessions: 0',
+    ...overrides,
+  }
+}
+
 function makeDeps(overrides?: {
   engineDeps?: Partial<WorkflowEngineDeps>
   workflowDeps?: Partial<WorkflowRuntimeDeps>
   viewerDeps?: Partial<ViewerDeps>
+  analyticsDeps?: Partial<AnalyticsDeps>
   getSessionId?: () => string
   readStdin?: () => string
 }): AdapterDeps {
@@ -95,10 +144,11 @@ function makeDeps(overrides?: {
     engineDeps: makeEngineDeps(overrides?.engineDeps),
     workflowDeps: makeWorkflowDeps(overrides?.workflowDeps),
     viewerDeps: makeViewerDeps(overrides?.viewerDeps),
+    analyticsDeps: makeAnalyticsDeps(overrides?.analyticsDeps),
   }
 }
 
-describe('runWorkflow — unknown commands', () => {
+describe('runWorkflow - unknown commands', () => {
   it('returns EXIT_ERROR with unknown command message for unrecognised command', () => {
     const result = runWorkflow(['bad-command'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
@@ -106,7 +156,7 @@ describe('runWorkflow — unknown commands', () => {
   })
 })
 
-describe('runWorkflow — transition argument validation', () => {
+describe('runWorkflow - transition argument validation', () => {
   it('returns EXIT_ERROR when state argument is missing', () => {
     const result = runWorkflow(['transition'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
@@ -120,7 +170,7 @@ describe('runWorkflow — transition argument validation', () => {
   })
 })
 
-describe('runWorkflow — record-issue argument validation', () => {
+describe('runWorkflow - record-issue argument validation', () => {
   it('returns EXIT_ERROR when issue number argument is missing', () => {
     const result = runWorkflow(['record-issue'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
@@ -134,7 +184,7 @@ describe('runWorkflow — record-issue argument validation', () => {
   })
 })
 
-describe('runWorkflow — record-branch argument validation', () => {
+describe('runWorkflow - record-branch argument validation', () => {
   it('returns EXIT_ERROR when branch argument is missing', () => {
     const result = runWorkflow(['record-branch'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
@@ -142,7 +192,7 @@ describe('runWorkflow — record-branch argument validation', () => {
   })
 })
 
-describe('runWorkflow — assign-iteration-task argument validation', () => {
+describe('runWorkflow - assign-iteration-task argument validation', () => {
   it('returns EXIT_ERROR when task argument is missing', () => {
     const result = runWorkflow(['assign-iteration-task'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
@@ -150,7 +200,7 @@ describe('runWorkflow — assign-iteration-task argument validation', () => {
   })
 })
 
-describe('runWorkflow — record-pr argument validation', () => {
+describe('runWorkflow - record-pr argument validation', () => {
   it('returns EXIT_ERROR when pr number argument is missing', () => {
     const result = runWorkflow(['record-pr'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
@@ -164,7 +214,7 @@ describe('runWorkflow — record-pr argument validation', () => {
   })
 })
 
-describe('runWorkflow — create-pr argument validation', () => {
+describe('runWorkflow - create-pr argument validation', () => {
   it('returns EXIT_ERROR when title argument is missing', () => {
     const result = runWorkflow(['create-pr'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
@@ -178,7 +228,7 @@ describe('runWorkflow — create-pr argument validation', () => {
   })
 })
 
-describe('runWorkflow — append-issue-checklist argument validation', () => {
+describe('runWorkflow - append-issue-checklist argument validation', () => {
   it('returns EXIT_ERROR when issue number argument is missing', () => {
     const result = runWorkflow(['append-issue-checklist'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
@@ -198,7 +248,7 @@ describe('runWorkflow — append-issue-checklist argument validation', () => {
   })
 })
 
-describe('runWorkflow — tick-iteration argument validation', () => {
+describe('runWorkflow - tick-iteration argument validation', () => {
   it('returns EXIT_ERROR when issue number argument is missing', () => {
     const result = runWorkflow(['tick-iteration'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
@@ -212,35 +262,33 @@ describe('runWorkflow — tick-iteration argument validation', () => {
   })
 })
 
-describe('runWorkflow — CLI command routing', () => {
+describe('runWorkflow - CLI command routing', () => {
   it('dispatches init and returns success', () => {
     const result = runWorkflow(['init'], makeDeps())
     expect(result.exitCode).toStrictEqual(0)
   })
 
-  it('dispatches run-lint with no files and returns success when no state file', () => {
+  it('dispatches run-lint with no files and returns success when no session', () => {
     const result = runWorkflow(['run-lint'], makeDeps())
     expect(result.exitCode).toStrictEqual(0)
   })
 
-  it('dispatches run-lint with no files and returns success when state file exists', () => {
-    const state = { ...makeIterationState(), state: 'DEVELOPING' as const }
+  it('dispatches run-lint with no files and returns success when session exists with iteration', () => {
     const result = runWorkflow(['run-lint'], makeDeps({
       engineDeps: {
-        stateFileExists: () => true,
-        readState: () => state,
+        sessionExists: () => true,
+        readEvents: () => developingEvents(),
       },
     }))
     expect(result.exitCode).toStrictEqual(0)
-    expect(result.output).toContain('Lint passed')
+    expect(result.output).toContain('run-lint')
   })
 
   it('dispatches run-lint and returns EXIT_BLOCK when lint fails', () => {
-    const state = { ...makeIterationState(), state: 'DEVELOPING' as const }
     const result = runWorkflow(['run-lint', '/project/src/bad.ts'], makeDeps({
       engineDeps: {
-        stateFileExists: () => true,
-        readState: () => state,
+        sessionExists: () => true,
+        readEvents: () => developingEvents(),
       },
       workflowDeps: {
         fileExists: () => true,
@@ -253,7 +301,7 @@ describe('runWorkflow — CLI command routing', () => {
   it('dispatches create-pr and returns success when in PR_CREATION state', () => {
     const result = runWorkflow(
       ['create-pr', 'My PR title', 'My PR body'],
-      makeDeps({ engineDeps: { readState: () => ({ ...INITIAL_STATE, state: 'PR_CREATION' }) } }),
+      makeDeps({ engineDeps: { readEvents: () => prCreationEvents() } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -261,7 +309,7 @@ describe('runWorkflow — CLI command routing', () => {
   it('dispatches append-issue-checklist and returns success when in PLANNING state', () => {
     const result = runWorkflow(
       ['append-issue-checklist', '10', '- [ ] Iteration 1: task'],
-      makeDeps({ engineDeps: { readState: () => ({ ...INITIAL_STATE, state: 'PLANNING' }) } }),
+      makeDeps({ engineDeps: { readEvents: () => planningEvents() } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -269,13 +317,13 @@ describe('runWorkflow — CLI command routing', () => {
   it('dispatches tick-iteration and returns success when in COMMITTING state', () => {
     const result = runWorkflow(
       ['tick-iteration', '10'],
-      makeDeps({ engineDeps: { readState: () => ({ ...INITIAL_STATE, state: 'COMMITTING' }) } }),
+      makeDeps({ engineDeps: { readEvents: () => committingEvents() } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
 })
 
-describe('runWorkflow — hook mode routing', () => {
+describe('runWorkflow - hook mode routing', () => {
   it('routes SessionStart to persist-session-id and appends session id to env file', () => {
     const appended: string[] = []
     const result = runWorkflow(
@@ -289,7 +337,7 @@ describe('runWorkflow — hook mode routing', () => {
     expect(appended[0]).toContain("CLAUDE_SESSION_ID='test-session'")
   })
 
-  it('routes PreToolUse and returns EXIT_ALLOW with no state file', () => {
+  it('routes PreToolUse and returns EXIT_ALLOW with no session', () => {
     const result = runWorkflow(
       [],
       makeDeps({ readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }) }),
@@ -308,8 +356,10 @@ describe('runWorkflow — hook mode routing', () => {
             tool_input: { file_path: '/project/src/foo.ts' },
           }),
         engineDeps: {
-          stateFileExists: () => true,
-          readState: () => ({ ...INITIAL_STATE, state: 'RESPAWN' }),
+          sessionExists: () => true,
+          readEvents: () => [
+            { type: 'transitioned', at: AT, from: 'SPAWN', to: 'RESPAWN' },
+          ],
         },
       }),
     )
@@ -327,8 +377,8 @@ describe('runWorkflow — hook mode routing', () => {
             tool_input: { file_path: '/home/.claude/plugins/cache/myplugin/src/index.ts' },
           }),
         engineDeps: {
-          stateFileExists: () => true,
-          readState: () => INITIAL_STATE,
+          sessionExists: () => true,
+          readEvents: () => [],
         },
         workflowDeps: {
           getPluginRoot: () => '/home/.claude/plugins/cache/myplugin',
@@ -338,7 +388,7 @@ describe('runWorkflow — hook mode routing', () => {
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
   })
 
-  it('returns EXIT_BLOCK from PreToolUse when bash commit is blocked', () => {
+  it('returns EXIT_BLOCK from PreToolUse when bash command is blocked', () => {
     const result = runWorkflow(
       [],
       makeDeps({
@@ -349,25 +399,22 @@ describe('runWorkflow — hook mode routing', () => {
             tool_input: { command: 'git commit -m "test"' },
           }),
         engineDeps: {
-          stateFileExists: () => true,
-          readState: () => ({ ...INITIAL_STATE, state: 'DEVELOPING' }),
+          sessionExists: () => true,
+          readEvents: () => developingEvents(),
         },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
   })
 
-  it('returns empty output from PreToolUse when all checks pass and identity is verified', () => {
+  it('returns empty output from PreToolUse when all checks pass', () => {
     const result = runWorkflow(
       [],
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
         engineDeps: {
-          stateFileExists: () => true,
-          readState: () => ({ ...INITIAL_STATE, state: 'PLANNING' }),
-          readTranscriptMessages: () => [
-            { id: '1', hasTextContent: true, startsWithLeadPrefix: true },
-          ],
+          sessionExists: () => true,
+          readEvents: () => planningEvents(),
         },
       }),
     )
@@ -375,26 +422,7 @@ describe('runWorkflow — hook mode routing', () => {
     expect(result.output).toStrictEqual('')
   })
 
-  it('returns additionalContext from PreToolUse when verify-identity detects identity loss', () => {
-    const result = runWorkflow(
-      [],
-      makeDeps({
-        readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
-        engineDeps: {
-          stateFileExists: () => true,
-          readState: () => ({ ...INITIAL_STATE, state: 'PLANNING' }),
-          readTranscriptMessages: () => [
-            { id: '1', hasTextContent: true, startsWithLeadPrefix: true },
-            { id: '2', hasTextContent: true, startsWithLeadPrefix: false },
-          ],
-        },
-      }),
-    )
-    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(result.output).toContain('additionalContext')
-  })
-
-  it('routes SubagentStart and returns EXIT_ALLOW with no state file', () => {
+  it('routes SubagentStart and returns EXIT_ALLOW with no session', () => {
     const result = runWorkflow(
       [],
       makeDeps({ readStdin: () => makeHookStdin({ hook_event_name: 'SubagentStart', agent_id: 'agt-1', agent_type: 'developer-1' }) }),
@@ -402,8 +430,8 @@ describe('runWorkflow — hook mode routing', () => {
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
 
-  it('SubagentStart uses hook input session ID to find state file', () => {
-    const written: { path: string }[] = []
+  it('SubagentStart appends agent-registered event when session exists', () => {
+    const appended: Array<{ sessionId: string; firstEventType: string }> = []
     const result = runWorkflow(
       [],
       makeDeps({
@@ -414,18 +442,17 @@ describe('runWorkflow — hook mode routing', () => {
           agent_type: 'developer-1',
         }),
         engineDeps: {
-          stateFileExists: (path: string) => path.includes('parent-session'),
-          readState: () => INITIAL_STATE,
-          writeState: (path: string) => { written.push({ path }) },
-          getStateFilePath: (id: string) => `/test/state-${id}.json`,
+          sessionExists: () => true,
+          readEvents: () => [],
+          appendEvents: (sessionId, events) => appended.push({ sessionId, firstEventType: events[0]?.type ?? '' }),
         },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(written[0]?.path).toContain('parent-session')
+    expect(appended[0]?.firstEventType).toStrictEqual('agent-registered')
   })
 
-  it('routes TeammateIdle and returns EXIT_ALLOW with no state file', () => {
+  it('routes TeammateIdle and returns EXIT_ALLOW with no session', () => {
     const result = runWorkflow(
       [],
       makeDeps({ readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle' }) }),
@@ -439,8 +466,8 @@ describe('runWorkflow — hook mode routing', () => {
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle' }),
         engineDeps: {
-          stateFileExists: () => true,
-          readState: () => ({ ...INITIAL_STATE, state: 'DEVELOPING' }),
+          sessionExists: () => true,
+          readEvents: () => developingEvents(),
         },
       }),
     )
@@ -453,8 +480,8 @@ describe('runWorkflow — hook mode routing', () => {
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle', teammate_name: 'reviewer-1' }),
         engineDeps: {
-          stateFileExists: () => true,
-          readState: () => ({ ...INITIAL_STATE, state: 'DEVELOPING' }),
+          sessionExists: () => true,
+          readEvents: () => developingEvents(),
         },
       }),
     )
@@ -467,8 +494,8 @@ describe('runWorkflow — hook mode routing', () => {
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle', teammate_name: 'lead-1' }),
         engineDeps: {
-          stateFileExists: () => true,
-          readState: () => ({ ...INITIAL_STATE, state: 'DEVELOPING' }),
+          sessionExists: () => true,
+          readEvents: () => developingEvents(),
         },
       }),
     )
@@ -486,51 +513,51 @@ describe('runWorkflow — hook mode routing', () => {
   })
 })
 
-describe('runWorkflow — shut-down argument validation', () => {
+describe('runWorkflow - shut-down argument validation', () => {
   it('returns EXIT_ERROR when agent name argument is missing', () => {
     const result = runWorkflow(['shut-down'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
     expect(result.output).toContain('missing required argument')
   })
 
-  it('returns EXIT_ERROR when no state file exists', () => {
+  it('returns EXIT_ERROR when no session exists', () => {
     const result = runWorkflow(
       ['shut-down', 'developer-1'],
-      makeDeps({ engineDeps: { stateFileExists: () => false } }),
+      makeDeps({ engineDeps: { sessionExists: () => false } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
     expect(result.output).toContain('no state file')
   })
 
-  it('dispatches shut-down and returns success when state file exists', () => {
+  it('dispatches shut-down and returns success when session exists', () => {
     const result = runWorkflow(
       ['shut-down', 'developer-1'],
       makeDeps({
         engineDeps: {
-          stateFileExists: () => true,
-          readState: () => ({ ...INITIAL_STATE, activeAgents: ['developer-1'] }),
+          sessionExists: () => true,
+          readEvents: (): readonly WorkflowEvent[] => [
+            { type: 'session-started', at: AT, sessionId: 'test-session' },
+            { type: 'agent-registered', at: AT, agentType: 'developer-1', agentId: 'agt-1' },
+          ],
         },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(result.output).toContain('deregistered')
+    expect(result.output).toContain('shut-down')
   })
 })
 
-describe('runWorkflow — CLI command dispatch', () => {
+describe('runWorkflow - CLI command dispatch', () => {
   it('dispatches transition and returns EXIT_BLOCK when guard fails', () => {
     const result = runWorkflow(['transition', 'PLANNING'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
   })
 
   it('dispatches transition with valid state and returns success', () => {
-    const spawnReady = {
-      ...INITIAL_STATE,
-      githubIssue: 42,
-      activeAgents: ['developer-1', 'reviewer-1'],
-    }
     const result = runWorkflow(['transition', 'PLANNING'], makeDeps({
-      engineDeps: { readState: () => spawnReady },
+      engineDeps: {
+        readEvents: () => spawnReadyEvents(),
+      },
     }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -545,31 +572,15 @@ describe('runWorkflow — CLI command dispatch', () => {
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
   })
 
-  it('dispatches record-plan-approval and returns gate error for SPAWN state', () => {
-    const result = runWorkflow(['record-plan-approval'], makeDeps())
-    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
-  })
-
-  it('dispatches assign-iteration-task and returns gate error for SPAWN state', () => {
-    const result = runWorkflow(['assign-iteration-task', 'Iteration 1: Add foo'], makeDeps())
-    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
-  })
-
-  it('dispatches signal-done and returns gate error for SPAWN state', () => {
-    const result = runWorkflow(['signal-done'], makeDeps())
-    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
-  })
-
   it('dispatches record-pr with valid number and returns gate error for SPAWN state', () => {
     const result = runWorkflow(['record-pr', '7'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
   })
 })
 
-describe('runWorkflow — new review and coderabbit commands', () => {
+describe('runWorkflow - new review and coderabbit commands', () => {
   it('dispatches review-approved and returns success when in REVIEWING state', () => {
-    const state = { ...makeIterationState(), state: 'REVIEWING' as const }
-    const result = runWorkflow(['review-approved'], makeDeps({ engineDeps: { readState: () => state } }))
+    const result = runWorkflow(['review-approved'], makeDeps({ engineDeps: { readEvents: () => reviewingEvents() } }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('Review approved')
   })
@@ -580,8 +591,7 @@ describe('runWorkflow — new review and coderabbit commands', () => {
   })
 
   it('dispatches review-rejected and returns success when in REVIEWING state', () => {
-    const state = { ...makeIterationState(), state: 'REVIEWING' as const }
-    const result = runWorkflow(['review-rejected'], makeDeps({ engineDeps: { readState: () => state } }))
+    const result = runWorkflow(['review-rejected'], makeDeps({ engineDeps: { readEvents: () => reviewingEvents() } }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('Review rejected')
   })
@@ -592,8 +602,7 @@ describe('runWorkflow — new review and coderabbit commands', () => {
   })
 
   it('dispatches coderabbit-feedback-addressed and returns success when in CR_REVIEW state', () => {
-    const state = { ...makeIterationState(), state: 'CR_REVIEW' as const }
-    const result = runWorkflow(['coderabbit-feedback-addressed'], makeDeps({ engineDeps: { readState: () => state } }))
+    const result = runWorkflow(['coderabbit-feedback-addressed'], makeDeps({ engineDeps: { readEvents: () => crReviewEvents() } }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('CodeRabbit feedback marked as addressed')
   })
@@ -604,8 +613,7 @@ describe('runWorkflow — new review and coderabbit commands', () => {
   })
 
   it('dispatches coderabbit-feedback-ignored and returns success when in CR_REVIEW state', () => {
-    const state = { ...makeIterationState(), state: 'CR_REVIEW' as const }
-    const result = runWorkflow(['coderabbit-feedback-ignored'], makeDeps({ engineDeps: { readState: () => state } }))
+    const result = runWorkflow(['coderabbit-feedback-ignored'], makeDeps({ engineDeps: { readEvents: () => crReviewEvents() } }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('CodeRabbit feedback marked as ignored')
   })
@@ -616,7 +624,7 @@ describe('runWorkflow — new review and coderabbit commands', () => {
   })
 })
 
-describe('runWorkflow — view command', () => {
+describe('runWorkflow - view command', () => {
   it('returns EXIT_ALLOW and outputs the server URL', () => {
     const result = runWorkflow(['view'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
@@ -625,24 +633,92 @@ describe('runWorkflow — view command', () => {
 
   it('calls startViewer with the db path', () => {
     const calledWith: string[] = []
-    const result = runWorkflow(['view'], makeDeps({
+    runWorkflow(['view'], makeDeps({
       viewerDeps: {
         startViewer: (dbPath) => {
           calledWith.push(dbPath)
-          return { url: 'http://localhost:1234', close: () => undefined }
+          return { url: 'http://localhost:9999', close: () => undefined }
         },
       },
     }))
-    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(calledWith).toHaveLength(1)
+    expect(calledWith[0]).toBeDefined()
   })
 
-  it('outputs the URL returned by startViewer', () => {
+  it('returns the URL from the viewer server', () => {
     const result = runWorkflow(['view'], makeDeps({
       viewerDeps: {
         startViewer: (_dbPath) => ({ url: 'http://localhost:5678', close: () => undefined }),
       },
     }))
     expect(result.output).toStrictEqual('http://localhost:5678')
+  })
+})
+
+describe('runWorkflow - analyze command', () => {
+  it('returns EXIT_ERROR when no sessionId or --all is given', () => {
+    const result = runWorkflow(['analyze'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
+    expect(result.output).toContain('missing required argument')
+  })
+
+  it('returns EXIT_ALLOW and calls computeSession with the given sessionId', () => {
+    const calledWith: string[] = []
+    const result = runWorkflow(['analyze', 'my-session'], makeDeps({
+      analyticsDeps: {
+        computeSession: (sessionId) => {
+          calledWith.push(sessionId)
+          return 'Session: my-session\n==='
+        },
+      },
+    }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(calledWith[0]).toStrictEqual('my-session')
+  })
+
+  it('returns EXIT_ALLOW and calls computeAll when --all is given', () => {
+    const computeAllCalls: string[] = []
+    const result = runWorkflow(['analyze', '--all'], makeDeps({
+      analyticsDeps: {
+        computeAll: () => {
+          computeAllCalls.push('called')
+          return 'Total Sessions: 5'
+        },
+      },
+    }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(computeAllCalls).toHaveLength(1)
+  })
+})
+
+describe('runWorkflow - record-plan-approval command', () => {
+  it('dispatches record-plan-approval and returns success when in PLANNING state', () => {
+    const result = runWorkflow(
+      ['record-plan-approval'],
+      makeDeps({ engineDeps: { readEvents: () => planningEvents() } }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('Plan approved')
+  })
+})
+
+describe('runWorkflow - assign-iteration-task command', () => {
+  it('dispatches assign-iteration-task and returns success when in PLANNING state', () => {
+    const result = runWorkflow(
+      ['assign-iteration-task', 'Build the thing'],
+      makeDeps({ engineDeps: { readEvents: () => planningEvents() } }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('Iteration task set')
+  })
+})
+
+describe('runWorkflow - signal-done command', () => {
+  it('dispatches signal-done and returns success when in DEVELOPING state', () => {
+    const result = runWorkflow(
+      ['signal-done'],
+      makeDeps({ engineDeps: { readEvents: () => developingEvents() } }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('Developer signaled completion')
   })
 })

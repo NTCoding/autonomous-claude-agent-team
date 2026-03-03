@@ -1,20 +1,26 @@
-import type { WorkflowFactory, WorkflowRuntimeDeps, WorkflowState } from '../../workflow-engine/index.js'
+import type { WorkflowFactory, WorkflowRuntimeDeps, BaseEvent } from '../../workflow-engine/index.js'
 import { Workflow } from './workflow.js'
 import { INITIAL_STATE, STATE_EMOJI_MAP } from './workflow-types.js'
 import { getOperationBody, getTransitionTitle } from './output-messages.js'
+import { fold } from './fold.js'
+import { WorkflowEventSchema } from './workflow-events.js'
 
 export const WorkflowAdapter: WorkflowFactory<Workflow> = {
-  rehydrate(state: WorkflowState, deps: WorkflowRuntimeDeps): Workflow {
+  rehydrate(events: readonly BaseEvent[], deps: WorkflowRuntimeDeps): Workflow {
+    const workflowEvents = events.flatMap((e) => {
+      const result = WorkflowEventSchema.safeParse(e)
+      return result.success ? [result.data] : []
+    })
+    const state = fold(workflowEvents)
     return Workflow.rehydrate(state, deps)
   },
   procedurePath(state: string, pluginRoot: string): string {
     return Workflow.procedurePath(state, pluginRoot)
   },
-  initialState(): WorkflowState {
+  initialState(): typeof INITIAL_STATE {
     return INITIAL_STATE
   },
   getEmojiForState(state: string): string {
-    /* v8 ignore next */
     return STATE_EMOJI_MAP[state] ?? ''
   },
   getOperationBody,
