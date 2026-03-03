@@ -20,6 +20,7 @@ export interface RehydratableWorkflow {
   getAgentInstructions(pluginRoot: string): string
   transitionTo(target: string): PreconditionResult
   getPendingEvents(): readonly BaseEvent[]
+  verifyIdentity(transcriptPath: string): PreconditionResult
 }
 
 export type WorkflowDeps = {
@@ -44,10 +45,14 @@ export interface WorkflowFactory<TWorkflow extends RehydratableWorkflow> {
   getTransitionTitle(to: string, state: WorkflowState): string
 }
 
+export interface WorkflowEventStore {
+  readEvents(sessionId: string): readonly BaseEvent[]
+  appendEvents(sessionId: string, events: readonly BaseEvent[]): void
+  sessionExists(sessionId: string): boolean
+}
+
 export type WorkflowEngineDeps = {
-  readonly readEvents: (sessionId: string) => readonly BaseEvent[]
-  readonly appendEvents: (sessionId: string, events: readonly BaseEvent[]) => void
-  readonly sessionExists: (sessionId: string) => boolean
+  readonly store: WorkflowEventStore
   readonly getPluginRoot: () => string
   readonly getEnvFilePath: () => string
   readonly readFile: (path: string) => string
@@ -71,7 +76,7 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
   }
 
   startSession(sessionId: string, transcriptPath?: string): EngineResult {
-    if (this.engineDeps.sessionExists(sessionId)) {
+    if (this.engineDeps.store.sessionExists(sessionId)) {
       return { type: 'success', output: '' }
     }
     const initial = this.factory.initialState()
@@ -81,7 +86,7 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
       ...(transcriptPath === undefined ? {} : { transcriptPath }),
     }
     const events: BaseEvent[] = [sessionStartedEvent]
-    this.engineDeps.appendEvents(sessionId, events)
+    this.engineDeps.store.appendEvents(sessionId, events)
     const procedurePath = this.factory.procedurePath(initial.state, this.engineDeps.getPluginRoot())
     const procedureContent = this.engineDeps.readFile(procedurePath)
     return { type: 'success', output: formatInitSuccess(procedureContent) }
@@ -91,13 +96,21 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     sessionId: string,
     op: string,
     fn: (w: TWorkflow) => PreconditionResult,
+    transcriptPath?: string,
   ): EngineResult {
     const workflow = this.rehydrateFromEvents(sessionId)
+    if (transcriptPath !== undefined) {
+      const identityCheck = workflow.verifyIdentity(transcriptPath)
+      if (!identityCheck.pass) {
+        this.persistEvents(sessionId, workflow)
+        return { type: 'blocked', output: formatOperationGateError(op, identityCheck.reason) }
+      }
+    }
     const result = fn(workflow)
+    this.persistEvents(sessionId, workflow)
     if (!result.pass) {
       return { type: 'blocked', output: formatOperationGateError(op, result.reason) }
     }
-    this.persistEvents(sessionId, workflow)
     const body = this.factory.getOperationBody(op, workflow.getState())
     return { type: 'success', output: formatOperationSuccess(op, body) }
   }
@@ -122,18 +135,18 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
   }
 
   hasSession(sessionId: string): boolean {
-    return this.engineDeps.sessionExists(sessionId)
+    return this.engineDeps.store.sessionExists(sessionId)
   }
 
   private rehydrateFromEvents(sessionId: string): TWorkflow {
-    const events = this.engineDeps.readEvents(sessionId)
+    const events = this.engineDeps.store.readEvents(sessionId)
     return this.factory.rehydrate(events, this.workflowDeps)
   }
 
   private persistEvents(sessionId: string, workflow: TWorkflow): void {
     const pending = workflow.getPendingEvents()
     if (pending.length > 0) {
-      this.engineDeps.appendEvents(sessionId, pending)
+      this.engineDeps.store.appendEvents(sessionId, pending)
     }
   }
 

@@ -21,6 +21,7 @@ export type {
   EngineResult,
   RehydratableWorkflow,
   WorkflowFactory,
+  WorkflowEventStore,
   WorkflowEngineDeps,
   WorkflowDeps as WorkflowRuntimeDeps,
 } from './domain/workflow-engine.js'

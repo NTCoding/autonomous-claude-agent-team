@@ -1,18 +1,20 @@
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { createStore, appendEvents } from './sqlite-event-store.js'
-import type { EventStore } from './sqlite-event-store.js'
+import { tmpdir } from 'node:os'
+import { createStore, appendEvents } from '../workflow-event-store/sqlite-event-store.js'
+import type { EventStore } from '../workflow-event-store/sqlite-event-store.js'
 import type { BaseEvent } from '../workflow-engine/index.js'
 import {
   renderBar,
   formatDuration,
   computeSessionSummary,
   computeCrossSessionSummary,
+  computeEventContext,
   formatSessionSummary,
   formatCrossSessionSummary,
 } from './workflow-analytics.js'
 
-const tmpDb = (name: string): string => join('/tmp', `workflow-analytics-spec-${name}.db`)
+const tmpDb = (name: string): string => join(tmpdir(), `workflow-analytics-spec-${name}.db`)
 
 function cleanup(path: string): void {
   if (existsSync(path)) unlinkSync(path)
@@ -568,5 +570,68 @@ describe('formatCrossSessionSummary', () => {
     }
     const output = formatCrossSessionSummary(summary)
     expect(output).not.toContain('Hook Denial Hotspots:')
+  })
+})
+
+describe('computeEventContext', () => {
+  const dbPath = tmpDb('event-context')
+
+  beforeEach(() => { cleanup(dbPath) })
+  afterEach(() => cleanup(dbPath))
+
+  it('returns session and state info for an empty session', () => {
+    const store = createStore(dbPath)
+    appendEvents(store, 'ctx-session', [])
+    const output = computeEventContext(store, 'ctx-session')
+    expect(output).toContain('Session: ctx-session')
+    expect(output).toContain('SPAWN')
+  })
+
+  it('shows current state after transitions', () => {
+    const store = createStore(dbPath)
+    appendEvents(store, 'ctx-session', [
+      ev('session-started', '2026-01-01T00:00:00Z', { sessionId: 'ctx-session' }),
+      ev('transitioned', '2026-01-01T00:01:00Z', { from: 'SPAWN', to: 'PLANNING' }),
+    ])
+    const output = computeEventContext(store, 'ctx-session')
+    expect(output).toContain('PLANNING')
+  })
+
+  it('shows iterations when present', () => {
+    const store = createStore(dbPath)
+    appendEvents(store, 'ctx-session', [
+      ev('iteration-task-assigned', '2026-01-01T00:01:00Z', { task: 'Build the thing' }),
+    ])
+    const output = computeEventContext(store, 'ctx-session')
+    expect(output).toContain('Iterations:')
+    expect(output).toContain('Build the thing')
+  })
+
+  it('shows active agents when present', () => {
+    const store = createStore(dbPath)
+    appendEvents(store, 'ctx-session', [
+      ev('agent-registered', '2026-01-01T00:01:00Z', { agentType: 'developer-1', agentId: 'agt-1' }),
+    ])
+    const output = computeEventContext(store, 'ctx-session')
+    expect(output).toContain('Active agents:')
+    expect(output).toContain('developer-1')
+  })
+
+  it('shows recent events', () => {
+    const store = createStore(dbPath)
+    appendEvents(store, 'ctx-session', [
+      ev('session-started', '2026-01-01T00:00:00Z', { sessionId: 'ctx-session' }),
+    ])
+    const output = computeEventContext(store, 'ctx-session')
+    expect(output).toContain('Recent events')
+    expect(output).toContain('session-started')
+  })
+
+  it('throws WorkflowError on unknown event types', () => {
+    const store = createStore(dbPath)
+    appendEvents(store, 'ctx-session', [
+      ev('unknown-event-type', '2026-01-01T00:00:00Z'),
+    ])
+    expect(() => computeEventContext(store, 'ctx-session')).toThrow('Unknown event type in store')
   })
 })

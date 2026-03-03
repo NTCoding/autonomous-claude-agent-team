@@ -1,6 +1,6 @@
 import { runWorkflow } from './autonomous-claude-agent-team-workflow.js'
 import type { AdapterDeps, ViewerDeps, AnalyticsDeps } from './autonomous-claude-agent-team-workflow.js'
-import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/index.js'
+import type { WorkflowEngineDeps, WorkflowEventStore, WorkflowRuntimeDeps } from './workflow-engine/index.js'
 import type { WorkflowEvent } from './workflow-definition/index.js'
 import { EXIT_ERROR, EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
 
@@ -76,17 +76,27 @@ function prCreationEvents(): readonly WorkflowEvent[] {
   ]
 }
 
-function makeEngineDeps(overrides?: Partial<WorkflowEngineDeps>): WorkflowEngineDeps {
+type EngineDepsOverrides = { store?: Partial<WorkflowEventStore> } & Partial<Omit<WorkflowEngineDeps, 'store'>>
+
+function makeStore(overrides?: Partial<WorkflowEventStore>): WorkflowEventStore {
   return {
     readEvents: () => [],
     appendEvents: () => undefined,
     sessionExists: () => false,
+    ...overrides,
+  }
+}
+
+function makeEngineDeps(overrides?: EngineDepsOverrides): WorkflowEngineDeps {
+  const { store: storeOverrides, ...rest } = overrides ?? {}
+  return {
+    store: makeStore(storeOverrides),
     getPluginRoot: () => '/plugin',
     getEnvFilePath: () => '/test/claude.env',
     readFile: () => '',
     appendToFile: () => undefined,
     now: () => AT,
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -114,7 +124,7 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
 
 function makeViewerDeps(overrides?: Partial<ViewerDeps>): ViewerDeps {
   return {
-    startViewer: (_dbPath: string) => ({
+    startViewer: () => ({
       url: 'http://localhost:9999',
       close: () => undefined,
     }),
@@ -126,12 +136,13 @@ function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
   return {
     computeSession: (_sessionId: string) => 'Session: test-session\n===',
     computeAll: () => 'Total Sessions: 0',
+    computeEventContext: (_sessionId: string) => 'Session: test-session\nState: SPAWN (iteration: 0)',
     ...overrides,
   }
 }
 
 function makeDeps(overrides?: {
-  engineDeps?: Partial<WorkflowEngineDeps>
+  engineDeps?: EngineDepsOverrides
   workflowDeps?: Partial<WorkflowRuntimeDeps>
   viewerDeps?: Partial<ViewerDeps>
   analyticsDeps?: Partial<AnalyticsDeps>
@@ -276,8 +287,7 @@ describe('runWorkflow - CLI command routing', () => {
   it('dispatches run-lint with no files and returns success when session exists with iteration', () => {
     const result = runWorkflow(['run-lint'], makeDeps({
       engineDeps: {
-        sessionExists: () => true,
-        readEvents: () => developingEvents(),
+        store: { sessionExists: () => true, readEvents: () => developingEvents() },
       },
     }))
     expect(result.exitCode).toStrictEqual(0)
@@ -287,8 +297,7 @@ describe('runWorkflow - CLI command routing', () => {
   it('dispatches run-lint and returns EXIT_BLOCK when lint fails', () => {
     const result = runWorkflow(['run-lint', '/project/src/bad.ts'], makeDeps({
       engineDeps: {
-        sessionExists: () => true,
-        readEvents: () => developingEvents(),
+        store: { sessionExists: () => true, readEvents: () => developingEvents() },
       },
       workflowDeps: {
         fileExists: () => true,
@@ -301,7 +310,7 @@ describe('runWorkflow - CLI command routing', () => {
   it('dispatches create-pr and returns success when in PR_CREATION state', () => {
     const result = runWorkflow(
       ['create-pr', 'My PR title', 'My PR body'],
-      makeDeps({ engineDeps: { readEvents: () => prCreationEvents() } }),
+      makeDeps({ engineDeps: { store: { readEvents: () => prCreationEvents() } } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -309,7 +318,7 @@ describe('runWorkflow - CLI command routing', () => {
   it('dispatches append-issue-checklist and returns success when in PLANNING state', () => {
     const result = runWorkflow(
       ['append-issue-checklist', '10', '- [ ] Iteration 1: task'],
-      makeDeps({ engineDeps: { readEvents: () => planningEvents() } }),
+      makeDeps({ engineDeps: { store: { readEvents: () => planningEvents() } } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -317,7 +326,7 @@ describe('runWorkflow - CLI command routing', () => {
   it('dispatches tick-iteration and returns success when in COMMITTING state', () => {
     const result = runWorkflow(
       ['tick-iteration', '10'],
-      makeDeps({ engineDeps: { readEvents: () => committingEvents() } }),
+      makeDeps({ engineDeps: { store: { readEvents: () => committingEvents() } } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
@@ -356,10 +365,9 @@ describe('runWorkflow - hook mode routing', () => {
             tool_input: { file_path: '/project/src/foo.ts' },
           }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => [
+          store: { sessionExists: () => true, readEvents: () => [
             { type: 'transitioned', at: AT, from: 'SPAWN', to: 'RESPAWN' },
-          ],
+          ] },
         },
       }),
     )
@@ -377,8 +385,7 @@ describe('runWorkflow - hook mode routing', () => {
             tool_input: { file_path: '/home/.claude/plugins/cache/myplugin/src/index.ts' },
           }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => [],
+          store: { sessionExists: () => true, readEvents: () => [] },
         },
         workflowDeps: {
           getPluginRoot: () => '/home/.claude/plugins/cache/myplugin',
@@ -399,8 +406,7 @@ describe('runWorkflow - hook mode routing', () => {
             tool_input: { command: 'git commit -m "test"' },
           }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => developingEvents(),
+          store: { sessionExists: () => true, readEvents: () => developingEvents() },
         },
       }),
     )
@@ -413,8 +419,7 @@ describe('runWorkflow - hook mode routing', () => {
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => planningEvents(),
+          store: { sessionExists: () => true, readEvents: () => planningEvents() },
         },
       }),
     )
@@ -442,9 +447,11 @@ describe('runWorkflow - hook mode routing', () => {
           agent_type: 'developer-1',
         }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => [],
-          appendEvents: (sessionId, events) => appended.push({ sessionId, firstEventType: events[0]?.type ?? '' }),
+          store: {
+            sessionExists: () => true,
+            readEvents: () => [],
+            appendEvents: (sessionId, events) => appended.push({ sessionId, firstEventType: events[0]?.type ?? '' }),
+          },
         },
       }),
     )
@@ -466,8 +473,7 @@ describe('runWorkflow - hook mode routing', () => {
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle' }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => developingEvents(),
+          store: { sessionExists: () => true, readEvents: () => developingEvents() },
         },
       }),
     )
@@ -480,8 +486,7 @@ describe('runWorkflow - hook mode routing', () => {
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle', teammate_name: 'reviewer-1' }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => developingEvents(),
+          store: { sessionExists: () => true, readEvents: () => developingEvents() },
         },
       }),
     )
@@ -494,8 +499,7 @@ describe('runWorkflow - hook mode routing', () => {
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'TeammateIdle', teammate_name: 'lead-1' }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => developingEvents(),
+          store: { sessionExists: () => true, readEvents: () => developingEvents() },
         },
       }),
     )
@@ -523,7 +527,7 @@ describe('runWorkflow - shut-down argument validation', () => {
   it('returns EXIT_ERROR when no session exists', () => {
     const result = runWorkflow(
       ['shut-down', 'developer-1'],
-      makeDeps({ engineDeps: { sessionExists: () => false } }),
+      makeDeps({ engineDeps: { store: { sessionExists: () => false } } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
     expect(result.output).toContain('no state file')
@@ -534,11 +538,13 @@ describe('runWorkflow - shut-down argument validation', () => {
       ['shut-down', 'developer-1'],
       makeDeps({
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: (): readonly WorkflowEvent[] => [
-            { type: 'session-started', at: AT, sessionId: 'test-session' },
-            { type: 'agent-registered', at: AT, agentType: 'developer-1', agentId: 'agt-1' },
-          ],
+          store: {
+            sessionExists: () => true,
+            readEvents: (): readonly WorkflowEvent[] => [
+              { type: 'session-started', at: AT, sessionId: 'test-session' },
+              { type: 'agent-registered', at: AT, agentType: 'developer-1', agentId: 'agt-1' },
+            ],
+          },
         },
       }),
     )
@@ -556,7 +562,7 @@ describe('runWorkflow - CLI command dispatch', () => {
   it('dispatches transition with valid state and returns success', () => {
     const result = runWorkflow(['transition', 'PLANNING'], makeDeps({
       engineDeps: {
-        readEvents: () => spawnReadyEvents(),
+        store: { readEvents: () => spawnReadyEvents() },
       },
     }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
@@ -580,7 +586,7 @@ describe('runWorkflow - CLI command dispatch', () => {
 
 describe('runWorkflow - new review and coderabbit commands', () => {
   it('dispatches review-approved and returns success when in REVIEWING state', () => {
-    const result = runWorkflow(['review-approved'], makeDeps({ engineDeps: { readEvents: () => reviewingEvents() } }))
+    const result = runWorkflow(['review-approved'], makeDeps({ engineDeps: { store: { readEvents: () => reviewingEvents() } } }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('Review approved')
   })
@@ -591,7 +597,7 @@ describe('runWorkflow - new review and coderabbit commands', () => {
   })
 
   it('dispatches review-rejected and returns success when in REVIEWING state', () => {
-    const result = runWorkflow(['review-rejected'], makeDeps({ engineDeps: { readEvents: () => reviewingEvents() } }))
+    const result = runWorkflow(['review-rejected'], makeDeps({ engineDeps: { store: { readEvents: () => reviewingEvents() } } }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('Review rejected')
   })
@@ -602,7 +608,7 @@ describe('runWorkflow - new review and coderabbit commands', () => {
   })
 
   it('dispatches coderabbit-feedback-addressed and returns success when in CR_REVIEW state', () => {
-    const result = runWorkflow(['coderabbit-feedback-addressed'], makeDeps({ engineDeps: { readEvents: () => crReviewEvents() } }))
+    const result = runWorkflow(['coderabbit-feedback-addressed'], makeDeps({ engineDeps: { store: { readEvents: () => crReviewEvents() } } }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('CodeRabbit feedback marked as addressed')
   })
@@ -613,7 +619,7 @@ describe('runWorkflow - new review and coderabbit commands', () => {
   })
 
   it('dispatches coderabbit-feedback-ignored and returns success when in CR_REVIEW state', () => {
-    const result = runWorkflow(['coderabbit-feedback-ignored'], makeDeps({ engineDeps: { readEvents: () => crReviewEvents() } }))
+    const result = runWorkflow(['coderabbit-feedback-ignored'], makeDeps({ engineDeps: { store: { readEvents: () => crReviewEvents() } } }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('CodeRabbit feedback marked as ignored')
   })
@@ -631,23 +637,23 @@ describe('runWorkflow - view command', () => {
     expect(result.output).toStrictEqual('http://localhost:9999')
   })
 
-  it('calls startViewer with the db path', () => {
-    const calledWith: string[] = []
+  it('calls startViewer', () => {
+    const calls: string[] = []
     runWorkflow(['view'], makeDeps({
       viewerDeps: {
-        startViewer: (dbPath) => {
-          calledWith.push(dbPath)
+        startViewer: () => {
+          calls.push('called')
           return { url: 'http://localhost:9999', close: () => undefined }
         },
       },
     }))
-    expect(calledWith[0]).toBeDefined()
+    expect(calls).toHaveLength(1)
   })
 
   it('returns the URL from the viewer server', () => {
     const result = runWorkflow(['view'], makeDeps({
       viewerDeps: {
-        startViewer: (_dbPath) => ({ url: 'http://localhost:5678', close: () => undefined }),
+        startViewer: () => ({ url: 'http://localhost:5678', close: () => undefined }),
       },
     }))
     expect(result.output).toStrictEqual('http://localhost:5678')
@@ -694,7 +700,7 @@ describe('runWorkflow - record-plan-approval command', () => {
   it('dispatches record-plan-approval and returns success when in PLANNING state', () => {
     const result = runWorkflow(
       ['record-plan-approval'],
-      makeDeps({ engineDeps: { readEvents: () => planningEvents() } }),
+      makeDeps({ engineDeps: { store: { readEvents: () => planningEvents() } } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('Plan approved')
@@ -710,7 +716,7 @@ describe('runWorkflow - assign-iteration-task command', () => {
     ]
     const result = runWorkflow(
       ['assign-iteration-task', 'Build the thing'],
-      makeDeps({ engineDeps: { readEvents: () => respawnEvents } }),
+      makeDeps({ engineDeps: { store: { readEvents: () => respawnEvents } } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('Iteration task set')
@@ -721,7 +727,7 @@ describe('runWorkflow - signal-done command', () => {
   it('dispatches signal-done and returns success when in DEVELOPING state', () => {
     const result = runWorkflow(
       ['signal-done'],
-      makeDeps({ engineDeps: { readEvents: () => developingEvents() } }),
+      makeDeps({ engineDeps: { store: { readEvents: () => developingEvents() } } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('Developer signaled completion')
@@ -744,7 +750,7 @@ describe('runWorkflow - write-journal command', () => {
   it('returns EXIT_ERROR when no session exists', () => {
     const result = runWorkflow(
       ['write-journal', 'developer-1', 'My summary'],
-      makeDeps({ engineDeps: { sessionExists: () => false } }),
+      makeDeps({ engineDeps: { store: { sessionExists: () => false } } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
     expect(result.output).toContain('no session')
@@ -756,9 +762,11 @@ describe('runWorkflow - write-journal command', () => {
       ['write-journal', 'developer-1', 'Finished auth module'],
       makeDeps({
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => [],
-          appendEvents: (sessionId, events) => appended.push({ sessionId, firstEventType: events[0]?.type ?? '' }),
+          store: {
+            sessionExists: () => true,
+            readEvents: () => [],
+            appendEvents: (sessionId, events) => appended.push({ sessionId, firstEventType: events[0]?.type ?? '' }),
+          },
         },
       }),
     )
@@ -771,25 +779,34 @@ describe('runWorkflow - event-context command', () => {
   it('returns EXIT_ERROR when no session exists', () => {
     const result = runWorkflow(
       ['event-context'],
-      makeDeps({ engineDeps: { sessionExists: () => false } }),
+      makeDeps({ engineDeps: { store: { sessionExists: () => false } } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
     expect(result.output).toContain('no session')
   })
 
-  it('returns EXIT_ALLOW with session and state info when session exists', () => {
+  it('returns EXIT_ALLOW with output from computeEventContext when session exists', () => {
     const result = runWorkflow(
       ['event-context'],
       makeDeps({
-        engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => developingEvents(),
-        },
+        engineDeps: { store: { sessionExists: () => true } },
+        analyticsDeps: { computeEventContext: () => 'Session: test-session\nState: DEVELOPING (iteration: 0)' },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(result.output).toContain('Session: test-session')
     expect(result.output).toContain('DEVELOPING')
+  })
+
+  it('passes sessionId to computeEventContext', () => {
+    const calls: string[] = []
+    runWorkflow(
+      ['event-context'],
+      makeDeps({
+        engineDeps: { store: { sessionExists: () => true } },
+        analyticsDeps: { computeEventContext: (id) => { calls.push(id); return '' } },
+      }),
+    )
+    expect(calls[0]).toStrictEqual('test-session')
   })
 
   it('appends context-requested event when session exists', () => {
@@ -798,9 +815,11 @@ describe('runWorkflow - event-context command', () => {
       ['event-context', 'developer-1'],
       makeDeps({
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => [],
-          appendEvents: (_sessionId, events) => appended.push({ firstEventType: events[0]?.type ?? '' }),
+          store: {
+            sessionExists: () => true,
+            readEvents: () => [],
+            appendEvents: (_sessionId, events) => appended.push({ firstEventType: events[0]?.type ?? '' }),
+          },
         },
       }),
     )
@@ -814,9 +833,11 @@ describe('runWorkflow - event-context command', () => {
       makeDeps({
         readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => planningEvents(),
-          appendEvents: (_sessionId, events) => appended.push({ firstEventType: events[0]?.type ?? '' }),
+          store: {
+            sessionExists: () => true,
+            readEvents: () => planningEvents(),
+            appendEvents: (_sessionId, events) => appended.push({ firstEventType: events[0]?.type ?? '' }),
+          },
         },
       }),
     )
@@ -836,25 +857,11 @@ describe('runWorkflow - event-context command', () => {
         },
         readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
         engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => planningEvents(),
+          store: { sessionExists: () => true, readEvents: () => planningEvents() },
         },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
   })
 
-  it('returns session info when events contain unknown types', () => {
-    const result = runWorkflow(
-      ['event-context'],
-      makeDeps({
-        engineDeps: {
-          sessionExists: () => true,
-          readEvents: () => [{ type: 'unknown-event', at: AT }],
-        },
-      }),
-    )
-    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(result.output).toContain('Session: test-session')
-  })
 })

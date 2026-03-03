@@ -1,5 +1,6 @@
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import {
   createStore,
   appendEvents,
@@ -8,7 +9,7 @@ import {
   listSessions,
 } from './sqlite-event-store.js'
 
-const tmpDb = (name: string): string => join('/tmp', `sqlite-event-store-spec-${name}.db`)
+const tmpDb = (name: string): string => join(tmpdir(), `sqlite-event-store-spec-${name}.db`)
 
 function cleanup(path: string): void {
   if (existsSync(path)) unlinkSync(path)

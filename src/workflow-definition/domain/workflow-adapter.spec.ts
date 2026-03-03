@@ -30,12 +30,11 @@ describe('WorkflowAdapter', () => {
     expect(workflow.getState().state).toStrictEqual('SPAWN')
   })
 
-  it('ignores unknown event types when folding', () => {
+  it('throws WorkflowStateError on unknown event types', () => {
     const events: readonly BaseEvent[] = [
       { type: 'unknown-event', at: '2026-01-01T00:00:00.000Z' },
     ]
-    const workflow = WorkflowAdapter.rehydrate(events, makeWorkflowDeps())
-    expect(workflow.getState().state).toStrictEqual('SPAWN')
+    expect(() => WorkflowAdapter.rehydrate(events, makeWorkflowDeps())).toThrow('Unknown event type in store')
   })
 
   it('returns procedure path for a given state', () => {

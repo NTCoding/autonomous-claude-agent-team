@@ -1,7 +1,9 @@
 import { z } from 'zod'
-import type { EventStore } from './sqlite-event-store.js'
-import { readEvents, listSessions } from './sqlite-event-store.js'
+import type { EventStore } from '../workflow-event-store/sqlite-event-store.js'
+import { readEvents, listSessions } from '../workflow-event-store/sqlite-event-store.js'
 import type { BaseEvent } from '../workflow-engine/index.js'
+import { fold, WorkflowEventSchema } from '../workflow-definition/index.js'
+import { WorkflowError } from '../infra/workflow-error.js'
 
 // --- Bar chart ---
 
@@ -298,6 +300,41 @@ export function formatSessionSummary(summary: SessionSummary): string {
     '',
     `Blocked Episodes: ${summary.blockedEpisodes}`,
   ].join('\n')
+}
+
+export function computeEventContext(store: EventStore, sessionId: string): string {
+  const events = readEvents(store, sessionId)
+  const workflowEvents = events.map((e) => {
+    const result = WorkflowEventSchema.safeParse(e)
+    if (!result.success) {
+      throw new WorkflowError(`Unknown event type in store: "${e.type}". Event store may be corrupted or from a newer version.`)
+    }
+    return result.data
+  })
+  const state = fold(workflowEvents)
+  const lines: string[] = [
+    `Session: ${sessionId}`,
+    `State: ${state.state} (iteration: ${state.iteration})`,
+  ]
+  if (state.activeAgents.length > 0) {
+    lines.push(`Active agents: ${state.activeAgents.join(', ')}`)
+  }
+  if (state.iterations.length > 0) {
+    lines.push('')
+    lines.push('Iterations:')
+    state.iterations.forEach((iter, i) => {
+      lines.push(`  [${i}] ${iter.task}`)
+    })
+  }
+  const recentEvents = [...events].reverse().slice(0, 15)
+  if (recentEvents.length > 0) {
+    lines.push('')
+    lines.push(`Recent events (${recentEvents.length}):`)
+    recentEvents.forEach((e) => {
+      lines.push(`  ${e.at} ${e.type}`)
+    })
+  }
+  return lines.join('\n')
 }
 
 export function formatCrossSessionSummary(summary: CrossSessionSummary): string {

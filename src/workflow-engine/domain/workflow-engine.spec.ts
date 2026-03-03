@@ -2,6 +2,7 @@ import { WorkflowEngine } from './workflow-engine.js'
 import type {
   RehydratableWorkflow,
   WorkflowFactory,
+  WorkflowEventStore,
   WorkflowEngineDeps,
   WorkflowDeps,
 } from './workflow-engine.js'
@@ -52,6 +53,10 @@ class StubWorkflow implements RehydratableWorkflow {
   addPendingEvent(event: BaseEvent): void {
     this.pending = [...this.pending, event]
   }
+
+  verifyIdentity(_transcriptPath: string): PreconditionResult {
+    return pass()
+  }
 }
 
 class FailingWorkflow extends StubWorkflow {
@@ -71,17 +76,27 @@ function makeFactory(workflow?: StubWorkflow): WorkflowFactory<StubWorkflow> {
   }
 }
 
-function makeEngineDeps(overrides?: Partial<WorkflowEngineDeps>): WorkflowEngineDeps {
+type EngineDepsOverrides = { store?: Partial<WorkflowEventStore> } & Partial<Omit<WorkflowEngineDeps, 'store'>>
+
+function makeStore(overrides?: Partial<WorkflowEventStore>): WorkflowEventStore {
   return {
     readEvents: () => [],
     appendEvents: () => undefined,
     sessionExists: () => true,
+    ...overrides,
+  }
+}
+
+function makeEngineDeps(overrides?: EngineDepsOverrides): WorkflowEngineDeps {
+  const { store: storeOverrides, ...rest } = overrides ?? {}
+  return {
+    store: makeStore(storeOverrides),
     getPluginRoot: () => '/plugin',
     getEnvFilePath: () => '/test/claude.env',
     readFile: () => '# Procedure\n\n- [ ] Do the thing',
     appendToFile: () => undefined,
     now: () => '2026-01-01T00:00:00.000Z',
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -107,7 +122,7 @@ function makeWorkflowDeps(): WorkflowDeps {
 }
 
 function makeEngine(
-  engineOverrides?: Partial<WorkflowEngineDeps>,
+  engineOverrides?: EngineDepsOverrides,
   factoryWorkflow?: StubWorkflow,
 ): WorkflowEngine<StubWorkflow> {
   return new WorkflowEngine(
@@ -121,8 +136,7 @@ describe('WorkflowEngine.startSession', () => {
   it('creates initial session-started event when no session exists', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
     const engine = makeEngine({
-      sessionExists: () => false,
-      appendEvents: (sessionId, events) => appended.push({ sessionId, events }),
+      store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
     })
     const result = engine.startSession('sess1', '/transcript.jsonl')
     expect(result.type).toStrictEqual('success')
@@ -134,8 +148,7 @@ describe('WorkflowEngine.startSession', () => {
   it('creates session-started event without transcriptPath when omitted', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
     const engine = makeEngine({
-      sessionExists: () => false,
-      appendEvents: (sessionId, events) => appended.push({ sessionId, events }),
+      store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
     })
     const result = engine.startSession('sess1')
     expect(result.type).toStrictEqual('success')
@@ -145,8 +158,7 @@ describe('WorkflowEngine.startSession', () => {
   it('persists session-started event with session id in SPAWN state', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
     const engine = makeEngine({
-      sessionExists: () => false,
-      appendEvents: (sessionId, events) => appended.push({ sessionId, events }),
+      store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
     })
     engine.startSession('sess1')
     expect(appended[0]?.sessionId).toStrictEqual('sess1')
@@ -154,7 +166,7 @@ describe('WorkflowEngine.startSession', () => {
   })
 
   it('returns empty output when session already exists', () => {
-    const engine = makeEngine({ sessionExists: () => true })
+    const engine = makeEngine({ store: { sessionExists: () => true } })
     const result = engine.startSession('sess1', '/t.jsonl')
     expect(result.type).toStrictEqual('success')
     expect(result.output).toStrictEqual('')
@@ -166,7 +178,7 @@ describe('WorkflowEngine.transaction', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
     const workflow = new StubWorkflow(INITIAL_STATE)
     const engine = makeEngine(
-      { appendEvents: (id, events) => appended.push({ sessionId: id, events }) },
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
       workflow,
     )
     const result = engine.transaction('sess1', 'record-issue', (w) => {
@@ -180,7 +192,7 @@ describe('WorkflowEngine.transaction', () => {
   it('does not append events when precondition fails', () => {
     const appended: BaseEvent[] = []
     const engine = makeEngine({
-      appendEvents: (_id, events) => appended.push(...events),
+      store: { appendEvents: (_id, events) => appended.push(...events) },
     })
     const result = engine.transaction('sess1', 'record-issue', () => fail('not allowed in SPAWN'))
     expect(result.type).toStrictEqual('blocked')
@@ -192,7 +204,7 @@ describe('WorkflowEngine.transaction', () => {
   it('skips appendEvents call when no pending events', () => {
     const appended: BaseEvent[] = []
     const engine = makeEngine({
-      appendEvents: (_id, events) => appended.push(...events),
+      store: { appendEvents: (_id, events) => appended.push(...events) },
     })
     const result = engine.transaction('sess1', 'no-op', () => pass())
     expect(result.type).toStrictEqual('success')
@@ -203,7 +215,7 @@ describe('WorkflowEngine.transaction', () => {
 describe('WorkflowEngine.transition', () => {
   it('appends pending events on success', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const engine = makeEngine({ appendEvents: (id, events) => appended.push({ sessionId: id, events }) })
+    const engine = makeEngine({ store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } })
     const result = engine.transition('sess1', 'PLANNING')
     expect(result.type).toStrictEqual('success')
     expect(result.output).toContain('PLANNING')
@@ -235,12 +247,12 @@ describe('WorkflowEngine.persistSessionId', () => {
 
 describe('WorkflowEngine.hasSession', () => {
   it('returns true when session exists', () => {
-    const engine = makeEngine({ sessionExists: () => true })
+    const engine = makeEngine({ store: { sessionExists: () => true } })
     expect(engine.hasSession('sess1')).toStrictEqual(true)
   })
 
   it('returns false when session does not exist', () => {
-    const engine = makeEngine({ sessionExists: () => false })
+    const engine = makeEngine({ store: { sessionExists: () => false } })
     expect(engine.hasSession('sess1')).toStrictEqual(false)
   })
 })

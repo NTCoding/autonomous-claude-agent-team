@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { z } from 'zod'
-import { WorkflowError } from './workflow-error.js'
+import { WorkflowError } from '../infra/workflow-error.js'
 
 const BaseEventSchema = z.object({ type: z.string(), at: z.string() }).passthrough()
 type BaseEvent = z.infer<typeof BaseEventSchema>

@@ -2,8 +2,8 @@ import * as http from 'node:http'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
-import type { EventStore } from './sqlite-event-store.js'
-import { readEvents, listSessions } from './sqlite-event-store.js'
+import type { EventStore } from '../workflow-event-store/sqlite-event-store.js'
+import { readEvents, listSessions } from '../workflow-event-store/sqlite-event-store.js'
 import { buildSessionViewData, buildSessionListItem } from './session-view.js'
 
 export type TimerId = ReturnType<typeof globalThis.setTimeout>

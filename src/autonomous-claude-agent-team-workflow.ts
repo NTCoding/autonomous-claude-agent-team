@@ -1,17 +1,9 @@
-import { readFileSync, appendFileSync } from 'node:fs'
+import { appendFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { EngineResult } from './workflow-engine/index.js'
 import { WorkflowEngine } from './workflow-engine/index.js'
-import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/index.js'
-import { WorkflowAdapter, StateNameSchema, WorkflowEventSchema, fold } from './workflow-definition/index.js'
-import { Workflow } from './workflow-definition/index.js'
-import type { BaseEvent } from './workflow-engine/index.js'
-import { getSessionId, getPluginRoot, getEnvFilePath, getDbPath } from './infra/environment.js'
-import { getGitInfo } from './infra/git.js'
-import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './infra/github.js'
-import { readStdinSync } from './infra/stdin.js'
-import { readTranscriptMessages } from './infra/transcript.js'
-import { runEslintOnFiles } from './infra/linter.js'
+import { WorkflowAdapter, StateNameSchema } from './workflow-definition/index.js'
+import type { Workflow } from './workflow-definition/index.js'
 import {
   parsePreToolUseInput,
   parseSubagentStartInput,
@@ -23,36 +15,11 @@ import {
   EXIT_ERROR,
   EXIT_BLOCK,
 } from './infra/hook-io.js'
-import type { ViewerServer } from './infra/workflow-viewer-server.js'
-import { startViewerServer } from './infra/workflow-viewer-server.js'
-import { createStore, readEvents, appendEvents, hasSession } from './infra/sqlite-event-store.js'
-import {
-  computeSessionSummary,
-  computeCrossSessionSummary,
-  formatSessionSummary,
-  formatCrossSessionSummary,
-} from './infra/workflow-analytics.js'
-import { existsSync } from 'node:fs'
+import { buildRealDeps } from './infra/composition-root.js'
+import type { ViewerDeps, AnalyticsDeps, AdapterDeps } from './infra/composition-root.js'
+export type { ViewerDeps, AnalyticsDeps, AdapterDeps }
 
 type OperationResult = { readonly output: string; readonly exitCode: number }
-
-export type ViewerDeps = {
-  readonly startViewer: (dbPath: string) => ViewerServer
-}
-
-export type AnalyticsDeps = {
-  readonly computeSession: (sessionId: string) => string
-  readonly computeAll: () => string
-}
-
-export type AdapterDeps = {
-  readonly getSessionId: () => string
-  readonly readStdin: () => string
-  readonly engineDeps: WorkflowEngineDeps
-  readonly workflowDeps: WorkflowRuntimeDeps
-  readonly viewerDeps: ViewerDeps
-  readonly analyticsDeps: AnalyticsDeps
-}
 
 type CommandHandler = (args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult
 
@@ -112,7 +79,7 @@ function runHookMode(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): Opera
 }
 
 function handleView(_args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
-  const server = deps.viewerDeps.startViewer(getDbPath())
+  const server = deps.viewerDeps.startViewer()
   return { output: server.url, exitCode: EXIT_ALLOW }
 }
 
@@ -286,14 +253,12 @@ function handlePreToolUse(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): 
   const command = resolveStringField(hookInput.tool_input['command'])
 
   const hookCheck = engine.transaction(hookInput.session_id, 'hook-check', (w) => {
-    const identityCheck = w.verifyIdentity(hookInput.transcript_path)
-    if (!identityCheck.pass) return identityCheck
     const pluginCheck = w.checkPluginSourceRead(hookInput.tool_name, filePath, command)
     if (!pluginCheck.pass) return pluginCheck
     const writeCheck = w.checkWriteAllowed(hookInput.tool_name, filePath)
     if (!writeCheck.pass) return writeCheck
     return w.checkBashAllowed(hookInput.tool_name, command)
-  })
+  }, hookInput.transcript_path)
   if (hookCheck.type === 'blocked') return { output: formatDenyDecision(hookCheck.output), exitCode: EXIT_BLOCK }
 
   return { output: '', exitCode: EXIT_ALLOW }
@@ -352,40 +317,8 @@ function handleEventContext(_args: readonly string[], engine: WorkflowEngine<Wor
     return { output: 'event-context: no session. Run init first.', exitCode: EXIT_ERROR }
   }
   const agentName = _args[1] ?? ''
-  const events = deps.engineDeps.readEvents(sessionId)
   engine.transaction(sessionId, 'event-context', (w) => w.requestContext(agentName))
-  return { output: formatEventContext(events, sessionId), exitCode: EXIT_ALLOW }
-}
-
-function formatEventContext(events: readonly BaseEvent[], sessionId: string): string {
-  const workflowEvents = events.flatMap((e) => {
-    const result = WorkflowEventSchema.safeParse(e)
-    return result.success ? [result.data] : []
-  })
-  const state = fold(workflowEvents)
-  const lines: string[] = [
-    `Session: ${sessionId}`,
-    `State: ${state.state} (iteration: ${state.iteration})`,
-  ]
-  if (state.activeAgents.length > 0) {
-    lines.push(`Active agents: ${state.activeAgents.join(', ')}`)
-  }
-  if (state.iterations.length > 0) {
-    lines.push('')
-    lines.push('Iterations:')
-    state.iterations.forEach((iter, i) => {
-      lines.push(`  [${i}] ${iter.task}`)
-    })
-  }
-  const recentEvents = [...events].reverse().slice(0, 15)
-  if (recentEvents.length > 0) {
-    lines.push('')
-    lines.push(`Recent events (${recentEvents.length}):`)
-    recentEvents.forEach((e) => {
-      lines.push(`  ${e.at} ${e.type}`)
-    })
-  }
-  return lines.join('\n')
+  return { output: deps.analyticsDeps.computeEventContext(sessionId), exitCode: EXIT_ALLOW }
 }
 
 function resolveStringField(value: unknown): string {
@@ -399,56 +332,6 @@ function mapResult(result: EngineResult): OperationResult {
 }
 
 /* v8 ignore start */
-function buildRealDeps(): AdapterDeps {
-  const store = createStore(getDbPath())
-
-  const engineDeps: WorkflowEngineDeps = {
-    readEvents: (sessionId) => readEvents(store, sessionId),
-    appendEvents: (sessionId, events) => appendEvents(store, sessionId, events),
-    sessionExists: (sessionId) => hasSession(store, sessionId),
-    getPluginRoot,
-    getEnvFilePath,
-    readFile: (path) => readFileSync(path, 'utf8'),
-    appendToFile: (path, content) => appendFileSync(path, content),
-    now: () => new Date().toISOString(),
-  }
-
-  const workflowDeps: WorkflowRuntimeDeps = {
-    getGitInfo,
-    checkPrChecks,
-    createDraftPr,
-    appendIssueChecklist,
-    tickFirstUncheckedIteration,
-    runEslintOnFiles,
-    fileExists: existsSync,
-    getPluginRoot,
-    now: () => new Date().toISOString(),
-    readTranscriptMessages,
-  }
-
-  const viewerDeps: ViewerDeps = {
-    startViewer: (dbPath) => startViewerServer(createStore(dbPath), {
-      openBrowser: (url) => { import('node:child_process').then(({ exec }) => { exec(`open ${url}`) }) },
-      scheduleTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
-      cancelTimeout: (id) => { globalThis.clearTimeout(id) },
-    }),
-  }
-
-  const analyticsDeps: AnalyticsDeps = {
-    computeSession: (sessionId) => formatSessionSummary(computeSessionSummary(createStore(getDbPath()), sessionId)),
-    computeAll: () => formatCrossSessionSummary(computeCrossSessionSummary(createStore(getDbPath()))),
-  }
-
-  return {
-    getSessionId,
-    readStdin: readStdinSync,
-    engineDeps,
-    workflowDeps,
-    viewerDeps,
-    analyticsDeps,
-  }
-}
-
 function main(): void {
   try {
     const result = runWorkflow(process.argv.slice(2), buildRealDeps())

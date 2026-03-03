@@ -1,12 +1,13 @@
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { z } from 'zod'
-import { createStore, appendEvents } from './sqlite-event-store.js'
+import { createStore, appendEvents } from '../workflow-event-store/sqlite-event-store.js'
 import { startViewerServer, routeRequest, extractRequestUrl, extractServerPort, extractCaptureGroup } from './workflow-viewer-server.js'
 import type { ViewerServerDeps, TimerId, HttpResponse } from './workflow-viewer-server.js'
-import { WorkflowError } from './workflow-error.js'
+import { WorkflowError } from '../infra/workflow-error.js'
 
-const tmpDb = (name: string): string => join('/tmp', `workflow-viewer-server-spec-${name}.db`)
+const tmpDb = (name: string): string => join(tmpdir(), `workflow-viewer-server-spec-${name}.db`)
 
 function cleanup(path: string): void {
   if (existsSync(path)) unlinkSync(path)

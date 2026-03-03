@@ -6,10 +6,12 @@
 src/
 ├── workflow-dsl/          ← Language for defining workflows (states, transitions, guards, operations)
 ├── workflow-engine/       ← Runs workflows: rehydrate, execute, persist, format output
-└── workflow-definition/   ← The actual workflow: states, rules, transitions, guards
+├── workflow-definition/   ← The actual workflow: states, rules, transitions, guards
+├── workflow-event-store/  ← SQLite event persistence (createStore, appendEvents, readEvents)
+└── workflow-analysis/     ← Session analytics, event viewer server, session view data
 ```
 
-`infra/` is the I/O boundary (filesystem, git, GitHub, stdin, SQLite, linter) — not a domain module.
+`infra/` is the I/O boundary (filesystem, git, GitHub, stdin, linter, composition root) — not a domain module.
 
 ### Module Relationships
 
@@ -96,17 +98,28 @@ engine.transaction(sessionId, 'record-issue', (w) => w.recordIssue(42))
 
 `fold()` is a pure function: `(events: readonly WorkflowEvent[]) → WorkflowState`. Each event type has a corresponding `applyEvent(state, event)` case. Observation events (idle-checked, write-checked, etc.) return state unchanged.
 
-### New Infrastructure Files
+### workflow-event-store
 
-- `src/infra/sqlite-event-store.ts` — `createStore`, `appendEvents`, `readEvents`, `hasSession`, `listSessions`
-- `src/infra/workflow-analytics.ts` — pure query functions: `computeSessionSummary`, `computeCrossSessionSummary`
-- `src/infra/workflow-viewer-server.ts` — HTTP server (`GET /api/sessions`, `GET /api/sessions/:id/events`, `GET /`)
-- `src/infra/workflow-viewer-data.ts` — data transformation for the session viewer (event grouping, state durations, timeline proportions)
+`src/workflow-event-store/` provides the SQLite event persistence layer:
+- `createStore(dbPath)` — opens/creates the DB with WAL mode
+- `appendEvents(store, sessionId, events[])` — transactional insert
+- `readEvents(store, sessionId)` — ordered by `seq`, Zod-validated on read
+- `hasSession(store, sessionId)` / `listSessions(store)` — session queries
 
-### New Domain Files
+### workflow-analysis
+
+`src/workflow-analysis/` provides observability over event history:
+- `workflow-analytics.ts` — pure query functions: `computeSessionSummary`, `computeCrossSessionSummary`, `computeEventContext`
+- `workflow-viewer-server.ts` — HTTP server (`GET /api/sessions`, `GET /api/sessions/:id/events`, `GET /`)
+- `session-view.ts` — data transformation for the viewer (event grouping, state durations, timeline proportions)
+
+### workflow-definition domain files
 
 - `src/workflow-definition/domain/fold.ts` — `fold(events)`, `applyEvent(state, event)`, `EMPTY_STATE`
-- `src/workflow-definition/domain/workflow-events.ts` — `WorkflowEvent` discriminated union (25 types) with Zod schemas
+- `src/workflow-definition/domain/workflow-events.ts` — `WorkflowEvent` discriminated union with Zod schemas
+
+### workflow-engine domain files
+
 - `src/workflow-engine/domain/base-event.ts` — `BaseEvent { type: string, at: string }`
 
 ## WorkflowEngine
@@ -198,7 +211,7 @@ Zero orchestration logic in the adapter.
 
 Workflow commands: `init`, `transition`, `record-issue`, `record-branch`, `record-plan-approval`, `assign-iteration-task`, `signal-done`, `record-pr`, `create-pr`, `append-issue-checklist`, `tick-iteration`, `review-approved`, `review-rejected`, `coderabbit-feedback-addressed`, `coderabbit-feedback-ignored`
 
-New in PRD2: `write-journal <agent-name> <content>`, `event-context [agent-name]`, `analyze [session-id | --all]`, `view`
+Analytics/observability: `write-journal <agent-name> <content>`, `event-context [agent-name]`, `analyze [session-id | --all]`, `view`
 
 ## Generic Constraint
 
