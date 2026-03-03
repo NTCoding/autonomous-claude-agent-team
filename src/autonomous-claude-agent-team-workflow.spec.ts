@@ -702,10 +702,15 @@ describe('runWorkflow - record-plan-approval command', () => {
 })
 
 describe('runWorkflow - assign-iteration-task command', () => {
-  it('dispatches assign-iteration-task and returns success when in PLANNING state', () => {
+  it('dispatches assign-iteration-task and returns success when in RESPAWN state', () => {
+    const respawnEvents: readonly WorkflowEvent[] = [
+      ...planningEvents(),
+      { type: 'plan-approval-recorded', at: AT },
+      { type: 'transitioned', at: AT, from: 'PLANNING', to: 'RESPAWN', iteration: 0 },
+    ]
     const result = runWorkflow(
       ['assign-iteration-task', 'Build the thing'],
-      makeDeps({ engineDeps: { readEvents: () => planningEvents() } }),
+      makeDeps({ engineDeps: { readEvents: () => respawnEvents } }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('Iteration task set')
