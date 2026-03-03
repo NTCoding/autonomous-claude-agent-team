@@ -32,6 +32,7 @@ export type WorkflowDeps = {
   readonly fileExists: (path: string) => boolean
   readonly getPluginRoot: () => string
   readonly now: () => string
+  readonly readTranscriptMessages: (path: string) => readonly AssistantMessage[]
 }
 
 export interface WorkflowFactory<TWorkflow extends RehydratableWorkflow> {
@@ -50,7 +51,6 @@ export type WorkflowEngineDeps = {
   readonly getPluginRoot: () => string
   readonly getEnvFilePath: () => string
   readonly readFile: (path: string) => string
-  readonly readTranscriptMessages: (path: string) => readonly AssistantMessage[]
   readonly appendToFile: (filePath: string, content: string) => void
   readonly now: () => string
 }

@@ -13,7 +13,7 @@ export {
 
 // Identity rules
 export type { AssistantMessage } from './domain/identity-rules.js'
-export { LEAD_PREFIX_PATTERN } from './domain/identity-rules.js'
+export { LEAD_PREFIX_PATTERN, checkLeadIdentity } from './domain/identity-rules.js'
 
 // Workflow engine
 export { WorkflowEngine } from './domain/workflow-engine.js'

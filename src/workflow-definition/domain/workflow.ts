@@ -2,9 +2,11 @@ import type { PreconditionResult, TransitionContext, GitInfo } from '../../workf
 import { pass, fail } from '../../workflow-dsl/index.js'
 import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
 import { WorkflowStateError } from '../../workflow-engine/index.js'
+import type { AssistantMessage } from '../../workflow-engine/index.js'
+import { checkLeadIdentity } from '../../workflow-engine/index.js'
 import { WORKFLOW_REGISTRY, GLOBAL_FORBIDDEN, getStateDefinition } from './registry.js'
 import type { StateName, WorkflowOperation } from './workflow-types.js'
-import { parseStateName, WorkflowStateSchema } from './workflow-types.js'
+import { parseStateName, WorkflowStateSchema, STATE_EMOJI_MAP } from './workflow-types.js'
 import type { WorkflowEvent } from './workflow-events.js'
 import { applyEvent } from './fold.js'
 
@@ -18,6 +20,7 @@ export type WorkflowDeps = {
   readonly fileExists: (path: string) => boolean
   readonly getPluginRoot: () => string
   readonly now: () => string
+  readonly readTranscriptMessages: (path: string) => readonly AssistantMessage[]
 }
 
 export class Workflow {
@@ -309,6 +312,27 @@ export class Workflow {
 
   registerAgent(agentType: string, agentId: string): PreconditionResult {
     this.append({ type: 'agent-registered', at: this.deps.now(), agentType, agentId })
+    return pass()
+  }
+
+  verifyIdentity(transcriptPath: string): PreconditionResult {
+    const messages = this.deps.readTranscriptMessages(transcriptPath)
+    /* v8 ignore next */
+    const emoji = STATE_EMOJI_MAP[this.state.state] ?? ''
+    const result = checkLeadIdentity(messages, this.state.state, emoji)
+    this.append({ type: 'identity-verified', at: this.deps.now(), status: result.status, transcriptPath })
+    if (result.status === 'lost') return fail(result.recoveryMessage)
+    return pass()
+  }
+
+  writeJournal(agentName: string, content: string): PreconditionResult {
+    if (!content) return fail('write-journal: content cannot be empty')
+    this.append({ type: 'journal-entry', at: this.deps.now(), agentName, content })
+    return pass()
+  }
+
+  requestContext(agentName: string): PreconditionResult {
+    this.append({ type: 'context-requested', at: this.deps.now(), agentName })
     return pass()
   }
 

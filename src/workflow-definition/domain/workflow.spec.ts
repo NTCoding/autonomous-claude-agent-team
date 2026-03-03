@@ -28,6 +28,7 @@ function makeDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
     fileExists: () => true,
     getPluginRoot: () => '/plugin',
     now: () => '2026-01-01T00:00:00Z',
+    readTranscriptMessages: () => [],
     ...overrides,
   }
 }
@@ -1457,6 +1458,77 @@ describe('Workflow', () => {
       expect(wf.getState().activeAgents).toStrictEqual(['developer-1'])
       expect(wf.getPendingEvents()).toStrictEqual(
         expect.arrayContaining([expect.objectContaining({ type: 'agent-registered', agentType: 'developer-1', agentId: 'agent-xyz' })])
+      )
+    })
+  })
+
+  describe('verifyIdentity', () => {
+    it('returns pass and emits identity-verified event when no messages yet', () => {
+      const wf = Workflow.rehydrate(INITIAL_STATE, makeDeps())
+      const result = wf.verifyIdentity('/path/to/transcript.jsonl')
+      expect(result).toStrictEqual({ pass: true })
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'identity-verified', status: 'never-spoken', transcriptPath: '/path/to/transcript.jsonl' }),
+        ])
+      )
+    })
+
+    it('returns pass when last message starts with lead prefix', () => {
+      const wf = Workflow.rehydrate(INITIAL_STATE, makeDeps({
+        readTranscriptMessages: () => [
+          { id: 'msg-1', hasTextContent: true, startsWithLeadPrefix: true },
+        ],
+      }))
+      const result = wf.verifyIdentity('/t.jsonl')
+      expect(result).toStrictEqual({ pass: true })
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'identity-verified', status: 'verified' })])
+      )
+    })
+
+    it('returns fail with recovery message when identity is lost', () => {
+      const wf = Workflow.rehydrate(INITIAL_STATE, makeDeps({
+        readTranscriptMessages: () => [
+          { id: 'msg-1', hasTextContent: true, startsWithLeadPrefix: true },
+          { id: 'msg-2', hasTextContent: true, startsWithLeadPrefix: false },
+        ],
+      }))
+      const result = wf.verifyIdentity('/t.jsonl')
+      expect(result.pass).toBe(false)
+      expect(result.pass ? '' : result.reason).toContain('lost your feature-team-lead identity')
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'identity-verified', status: 'lost' })])
+      )
+    })
+  })
+
+  describe('writeJournal', () => {
+    it('appends journal-entry event with agent name and content', () => {
+      const wf = Workflow.rehydrate(INITIAL_STATE, makeDeps())
+      const result = wf.writeJournal('developer-1', 'Completed auth module')
+      expect(result).toStrictEqual({ pass: true })
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'journal-entry', agentName: 'developer-1', content: 'Completed auth module' }),
+        ])
+      )
+    })
+
+    it('returns fail when content is empty', () => {
+      const wf = Workflow.rehydrate(INITIAL_STATE, makeDeps())
+      const result = wf.writeJournal('developer-1', '')
+      expect(result.pass).toBe(false)
+    })
+  })
+
+  describe('requestContext', () => {
+    it('appends context-requested event and returns pass', () => {
+      const wf = Workflow.rehydrate(INITIAL_STATE, makeDeps())
+      const result = wf.requestContext('developer-1')
+      expect(result).toStrictEqual({ pass: true })
+      expect(wf.getPendingEvents()).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'context-requested', agentName: 'developer-1' })])
       )
     })
   })

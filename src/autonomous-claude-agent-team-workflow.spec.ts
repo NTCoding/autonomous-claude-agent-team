@@ -84,7 +84,6 @@ function makeEngineDeps(overrides?: Partial<WorkflowEngineDeps>): WorkflowEngine
     getPluginRoot: () => '/plugin',
     getEnvFilePath: () => '/test/claude.env',
     readFile: () => '',
-    readTranscriptMessages: () => [],
     appendToFile: () => undefined,
     now: () => AT,
     ...overrides,
@@ -108,6 +107,7 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
     fileExists: () => false,
     getPluginRoot: () => '/plugin',
     now: () => AT,
+    readTranscriptMessages: () => [],
     ...overrides,
   }
 }
@@ -725,5 +725,136 @@ describe('runWorkflow - signal-done command', () => {
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(result.output).toContain('Developer signaled completion')
+  })
+})
+
+describe('runWorkflow - write-journal command', () => {
+  it('returns EXIT_ERROR when agent name is missing', () => {
+    const result = runWorkflow(['write-journal'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
+    expect(result.output).toContain('missing required argument')
+  })
+
+  it('returns EXIT_ERROR when content is missing', () => {
+    const result = runWorkflow(['write-journal', 'developer-1'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
+    expect(result.output).toContain('missing required argument')
+  })
+
+  it('returns EXIT_ERROR when no session exists', () => {
+    const result = runWorkflow(
+      ['write-journal', 'developer-1', 'My summary'],
+      makeDeps({ engineDeps: { sessionExists: () => false } }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
+    expect(result.output).toContain('no session')
+  })
+
+  it('returns EXIT_ALLOW and appends journal-entry event when session exists', () => {
+    const appended: Array<{ sessionId: string; firstEventType: string }> = []
+    const result = runWorkflow(
+      ['write-journal', 'developer-1', 'Finished auth module'],
+      makeDeps({
+        engineDeps: {
+          sessionExists: () => true,
+          readEvents: () => [],
+          appendEvents: (sessionId, events) => appended.push({ sessionId, firstEventType: events[0]?.type ?? '' }),
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(appended[0]?.firstEventType).toStrictEqual('journal-entry')
+  })
+})
+
+describe('runWorkflow - event-context command', () => {
+  it('returns EXIT_ERROR when no session exists', () => {
+    const result = runWorkflow(
+      ['event-context'],
+      makeDeps({ engineDeps: { sessionExists: () => false } }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
+    expect(result.output).toContain('no session')
+  })
+
+  it('returns EXIT_ALLOW with session and state info when session exists', () => {
+    const result = runWorkflow(
+      ['event-context'],
+      makeDeps({
+        engineDeps: {
+          sessionExists: () => true,
+          readEvents: () => developingEvents(),
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('Session: test-session')
+    expect(result.output).toContain('DEVELOPING')
+  })
+
+  it('appends context-requested event when session exists', () => {
+    const appended: Array<{ firstEventType: string }> = []
+    runWorkflow(
+      ['event-context', 'developer-1'],
+      makeDeps({
+        engineDeps: {
+          sessionExists: () => true,
+          readEvents: () => [],
+          appendEvents: (_sessionId, events) => appended.push({ firstEventType: events[0]?.type ?? '' }),
+        },
+      }),
+    )
+    expect(appended[0]?.firstEventType).toStrictEqual('context-requested')
+  })
+
+  it('PreToolUse records identity-verified event via verifyIdentity', () => {
+    const appended: Array<{ firstEventType: string }> = []
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
+        engineDeps: {
+          sessionExists: () => true,
+          readEvents: () => planningEvents(),
+          appendEvents: (_sessionId, events) => appended.push({ firstEventType: events[0]?.type ?? '' }),
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(appended[0]?.firstEventType).toStrictEqual('identity-verified')
+  })
+
+  it('PreToolUse blocks when identity is lost', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        workflowDeps: {
+          readTranscriptMessages: () => [
+            { id: '1', hasTextContent: true, startsWithLeadPrefix: true },
+            { id: '2', hasTextContent: true, startsWithLeadPrefix: false },
+          ],
+        },
+        readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
+        engineDeps: {
+          sessionExists: () => true,
+          readEvents: () => planningEvents(),
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+
+  it('returns session info when events contain unknown types', () => {
+    const result = runWorkflow(
+      ['event-context'],
+      makeDeps({
+        engineDeps: {
+          sessionExists: () => true,
+          readEvents: () => [{ type: 'unknown-event', at: AT }],
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toContain('Session: test-session')
   })
 })

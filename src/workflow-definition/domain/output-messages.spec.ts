@@ -81,6 +81,16 @@ describe('getOperationBody', () => {
     expect(body).toContain('#5')
   })
 
+  it('returns fallback for append-issue-checklist without issue', () => {
+    const body = getOperationBody('append-issue-checklist', makeState())
+    expect(body).toContain('#?')
+  })
+
+  it('returns fallback for tick-iteration without issue', () => {
+    const body = getOperationBody('tick-iteration', makeState())
+    expect(body).toContain('#?')
+  })
+
   it('returns review-approved message', () => {
     const body = getOperationBody('review-approved', makeState())
     expect(body).toContain('Review approved')

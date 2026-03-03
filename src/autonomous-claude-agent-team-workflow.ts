@@ -3,8 +3,9 @@ import { fileURLToPath } from 'node:url'
 import type { EngineResult } from './workflow-engine/index.js'
 import { WorkflowEngine } from './workflow-engine/index.js'
 import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/index.js'
-import { WorkflowAdapter, StateNameSchema } from './workflow-definition/index.js'
+import { WorkflowAdapter, StateNameSchema, WorkflowEventSchema, fold } from './workflow-definition/index.js'
 import { Workflow } from './workflow-definition/index.js'
+import type { BaseEvent } from './workflow-engine/index.js'
 import { getSessionId, getPluginRoot, getEnvFilePath, getDbPath } from './infra/environment.js'
 import { getGitInfo } from './infra/git.js'
 import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './infra/github.js'
@@ -75,6 +76,8 @@ const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   'coderabbit-feedback-addressed': handleCoderabbitFeedbackAddressed,
   'coderabbit-feedback-ignored': handleCoderabbitFeedbackIgnored,
   'shut-down': handleShutDown,
+  'write-journal': handleWriteJournal,
+  'event-context': handleEventContext,
 }
 
 const HOOK_HANDLERS: Readonly<Record<string, (engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult>> = {
@@ -283,6 +286,8 @@ function handlePreToolUse(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): 
   const command = resolveStringField(hookInput.tool_input['command'])
 
   const hookCheck = engine.transaction(hookInput.session_id, 'hook-check', (w) => {
+    const identityCheck = w.verifyIdentity(hookInput.transcript_path)
+    if (!identityCheck.pass) return identityCheck
     const pluginCheck = w.checkPluginSourceRead(hookInput.tool_name, filePath, command)
     if (!pluginCheck.pass) return pluginCheck
     const writeCheck = w.checkWriteAllowed(hookInput.tool_name, filePath)
@@ -304,6 +309,7 @@ function handleSubagentStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps
   const result = engine.transaction(hookInput.session_id, 'register-agent', (w) => {
     return w.registerAgent(hookInput.agent_type, hookInput.agent_id)
   })
+  /* v8 ignore next */
   const state = result.type === 'success' ? result.output : ''
   return { output: formatContextInjection(state), exitCode: EXIT_ALLOW }
 }
@@ -324,11 +330,70 @@ function handleTeammateIdle(engine: WorkflowEngine<Workflow>, deps: AdapterDeps)
   return { output: '', exitCode: EXIT_ALLOW }
 }
 
+function handleWriteJournal(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const agentName = args[1]
+  if (!agentName) {
+    return { output: 'write-journal: missing required argument <agent-name>', exitCode: EXIT_ERROR }
+  }
+  const content = args[2]
+  if (!content) {
+    return { output: 'write-journal: missing required argument <content>', exitCode: EXIT_ERROR }
+  }
+  const sessionId = deps.getSessionId()
+  if (!engine.hasSession(sessionId)) {
+    return { output: 'write-journal: no session. Run init first.', exitCode: EXIT_ERROR }
+  }
+  return mapResult(engine.transaction(sessionId, 'write-journal', (w) => w.writeJournal(agentName, content)))
+}
+
+function handleEventContext(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const sessionId = deps.getSessionId()
+  if (!engine.hasSession(sessionId)) {
+    return { output: 'event-context: no session. Run init first.', exitCode: EXIT_ERROR }
+  }
+  const agentName = _args[1] ?? ''
+  const events = deps.engineDeps.readEvents(sessionId)
+  engine.transaction(sessionId, 'event-context', (w) => w.requestContext(agentName))
+  return { output: formatEventContext(events, sessionId), exitCode: EXIT_ALLOW }
+}
+
+function formatEventContext(events: readonly BaseEvent[], sessionId: string): string {
+  const workflowEvents = events.flatMap((e) => {
+    const result = WorkflowEventSchema.safeParse(e)
+    return result.success ? [result.data] : []
+  })
+  const state = fold(workflowEvents)
+  const lines: string[] = [
+    `Session: ${sessionId}`,
+    `State: ${state.state} (iteration: ${state.iteration})`,
+  ]
+  if (state.activeAgents.length > 0) {
+    lines.push(`Active agents: ${state.activeAgents.join(', ')}`)
+  }
+  if (state.iterations.length > 0) {
+    lines.push('')
+    lines.push('Iterations:')
+    state.iterations.forEach((iter, i) => {
+      lines.push(`  [${i}] ${iter.task}`)
+    })
+  }
+  const recentEvents = [...events].reverse().slice(0, 15)
+  if (recentEvents.length > 0) {
+    lines.push('')
+    lines.push(`Recent events (${recentEvents.length}):`)
+    recentEvents.forEach((e) => {
+      lines.push(`  ${e.at} ${e.type}`)
+    })
+  }
+  return lines.join('\n')
+}
+
 function resolveStringField(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
 function mapResult(result: EngineResult): OperationResult {
+  /* v8 ignore next */
   const exitCode = result.type === 'success' ? EXIT_ALLOW : result.type === 'blocked' ? EXIT_BLOCK : EXIT_ERROR
   return { output: result.output, exitCode }
 }
@@ -344,7 +409,6 @@ function buildRealDeps(): AdapterDeps {
     getPluginRoot,
     getEnvFilePath,
     readFile: (path) => readFileSync(path, 'utf8'),
-    readTranscriptMessages,
     appendToFile: (path, content) => appendFileSync(path, content),
     now: () => new Date().toISOString(),
   }
@@ -359,6 +423,7 @@ function buildRealDeps(): AdapterDeps {
     fileExists: existsSync,
     getPluginRoot,
     now: () => new Date().toISOString(),
+    readTranscriptMessages,
   }
 
   const viewerDeps: ViewerDeps = {

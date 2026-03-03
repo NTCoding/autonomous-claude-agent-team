@@ -12,3 +12,6 @@ export {
 // Workflow events
 export type { WorkflowEvent } from './domain/workflow-events.js'
 export { WorkflowEventSchema } from './domain/workflow-events.js'
+
+// Fold
+export { fold } from './domain/fold.js'
