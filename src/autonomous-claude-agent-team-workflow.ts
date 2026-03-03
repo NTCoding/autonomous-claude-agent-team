@@ -6,7 +6,7 @@ import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/
 import { WorkflowAdapter, StateNameSchema } from './workflow-definition/index.js'
 import { Workflow } from './workflow-definition/index.js'
 import { readState, writeState, stateFileExists } from './infra/state-store.js'
-import { getSessionId, getPluginRoot, getEnvFilePath, getStateFilePath } from './infra/environment.js'
+import { getSessionId, getPluginRoot, getEnvFilePath, getStateFilePath, getDbPath } from './infra/environment.js'
 import { getGitInfo } from './infra/git.js'
 import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './infra/github.js'
 import { readStdinSync } from './infra/stdin.js'
@@ -23,19 +23,28 @@ import {
   EXIT_ERROR,
   EXIT_BLOCK,
 } from './infra/hook-io.js'
+import type { ViewerServer } from './infra/workflow-viewer-server.js'
+import { startViewerServer } from './infra/workflow-viewer-server.js'
+import { createStore } from './infra/sqlite-event-store.js'
 
 type OperationResult = { readonly output: string; readonly exitCode: number }
+
+export type ViewerDeps = {
+  readonly startViewer: (dbPath: string) => ViewerServer
+}
 
 export type AdapterDeps = {
   readonly getSessionId: () => string
   readonly readStdin: () => string
   readonly engineDeps: WorkflowEngineDeps
   readonly workflowDeps: WorkflowRuntimeDeps
+  readonly viewerDeps: ViewerDeps
 }
 
 type CommandHandler = (args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult
 
 const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
+  view: handleView,
   init: handleInit,
   transition: handleTransition,
   'record-issue': handleRecordIssue,
@@ -84,6 +93,11 @@ function runHookMode(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): Opera
     return { output: `Unknown hook event: ${common.hook_event_name}`, exitCode: EXIT_ERROR }
   }
   return handler(engine, cachedDeps)
+}
+
+function handleView(_args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const server = deps.viewerDeps.startViewer(getDbPath())
+  return { output: server.url, exitCode: EXIT_ALLOW }
 }
 
 function handleInit(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -316,11 +330,20 @@ function buildRealDeps(): AdapterDeps {
     now: () => new Date().toISOString(),
   }
 
+  const viewerDeps: ViewerDeps = {
+    startViewer: (dbPath) => startViewerServer(createStore(dbPath), {
+      openBrowser: (url) => { import('node:child_process').then(({ exec }) => { exec(`open ${url}`) }) },
+      scheduleTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+      cancelTimeout: (id) => { globalThis.clearTimeout(id) },
+    }),
+  }
+
   return {
     getSessionId,
     readStdin: readStdinSync,
     engineDeps,
     workflowDeps,
+    viewerDeps,
   }
 }
 

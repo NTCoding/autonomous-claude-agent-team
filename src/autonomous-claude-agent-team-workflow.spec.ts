@@ -1,5 +1,5 @@
 import { runWorkflow } from './autonomous-claude-agent-team-workflow.js'
-import type { AdapterDeps } from './autonomous-claude-agent-team-workflow.js'
+import type { AdapterDeps, ViewerDeps } from './autonomous-claude-agent-team-workflow.js'
 import type { WorkflowState } from './workflow-engine/index.js'
 import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/index.js'
 import { INITIAL_STATE } from './workflow-definition/index.js'
@@ -72,9 +72,20 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
   }
 }
 
+function makeViewerDeps(overrides?: Partial<ViewerDeps>): ViewerDeps {
+  return {
+    startViewer: (_dbPath: string) => ({
+      url: 'http://localhost:9999',
+      close: () => undefined,
+    }),
+    ...overrides,
+  }
+}
+
 function makeDeps(overrides?: {
   engineDeps?: Partial<WorkflowEngineDeps>
   workflowDeps?: Partial<WorkflowRuntimeDeps>
+  viewerDeps?: Partial<ViewerDeps>
   getSessionId?: () => string
   readStdin?: () => string
 }): AdapterDeps {
@@ -83,6 +94,7 @@ function makeDeps(overrides?: {
     readStdin: overrides?.readStdin ?? (() => makeHookStdin()),
     engineDeps: makeEngineDeps(overrides?.engineDeps),
     workflowDeps: makeWorkflowDeps(overrides?.workflowDeps),
+    viewerDeps: makeViewerDeps(overrides?.viewerDeps),
   }
 }
 
@@ -601,5 +613,36 @@ describe('runWorkflow — new review and coderabbit commands', () => {
   it('dispatches coderabbit-feedback-ignored and returns gate error for SPAWN state', () => {
     const result = runWorkflow(['coderabbit-feedback-ignored'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+})
+
+describe('runWorkflow — view command', () => {
+  it('returns EXIT_ALLOW and outputs the server URL', () => {
+    const result = runWorkflow(['view'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(result.output).toStrictEqual('http://localhost:9999')
+  })
+
+  it('calls startViewer with the db path', () => {
+    const calledWith: string[] = []
+    const result = runWorkflow(['view'], makeDeps({
+      viewerDeps: {
+        startViewer: (dbPath) => {
+          calledWith.push(dbPath)
+          return { url: 'http://localhost:1234', close: () => undefined }
+        },
+      },
+    }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(calledWith).toHaveLength(1)
+  })
+
+  it('outputs the URL returned by startViewer', () => {
+    const result = runWorkflow(['view'], makeDeps({
+      viewerDeps: {
+        startViewer: (_dbPath) => ({ url: 'http://localhost:5678', close: () => undefined }),
+      },
+    }))
+    expect(result.output).toStrictEqual('http://localhost:5678')
   })
 })
