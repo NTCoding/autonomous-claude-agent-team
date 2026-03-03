@@ -9,7 +9,6 @@ export default defineConfig({
       exclude: [
         'src/**/*.spec.ts',
         'src/workflow-dsl/domain/types.ts',
-        'src/workflow-analysis/viewer/**',
       ],
       thresholds: {
         lines: 100,
