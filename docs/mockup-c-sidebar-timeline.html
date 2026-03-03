@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Session Report — abc-1234 (Sidebar Nav)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; line-height: 1.5; color: #1a1a1a; background: #f5f5f5; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    a { color: #3498db; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Header ── */
+    .header { background: white; border-bottom: 1px solid #ddd; padding: 8px 20px; flex-shrink: 0; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+    .header h1 { font-size: 15px; font-weight: 600; }
+    .status { padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 500; background: #d4edda; color: #155724; }
+    .ml { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.3px; margin-right: 2px; }
+    .sep { color: #ddd; }
+
+    /* ── Layout ── */
+    .layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    .sidebar { width: 260px; background: white; border-right: 1px solid #ddd; overflow-y: auto; flex-shrink: 0; display: flex; flex-direction: column; }
+    .sb-section { padding: 10px 14px; border-bottom: 1px solid #eee; }
+    .sb-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: #999; margin-bottom: 6px; }
+
+    /* Sidebar metrics */
+    .sb-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .sb-metric { text-align: center; padding: 4px; }
+    .sb-metric-val { font-size: 18px; font-weight: 600; }
+    .sb-metric-label { font-size: 10px; color: #888; }
+    .sb-metric.warn .sb-metric-val { color: #d35400; }
+
+    /* Sidebar vertical timeline */
+    .vtl { padding: 0; }
+    .vtl-seg { display: flex; align-items: stretch; cursor: pointer; position: relative; }
+    .vtl-seg:hover { background: #f5f5f5; }
+    .vtl-seg.active { background: #eef5ff; }
+    .vtl-rail { width: 24px; display: flex; flex-direction: column; align-items: center; flex-shrink: 0; padding: 0 0 0 10px; }
+    .vtl-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; margin-top: 6px; }
+    .vtl-line { width: 2px; flex: 1; background: #ddd; min-height: 4px; }
+    .vtl-info { padding: 4px 8px; font-size: 12px; flex: 1; min-height: 28px; display: flex; align-items: center; gap: 6px; }
+    .vtl-state { font-weight: 500; min-width: 50px; }
+    .vtl-dur { color: #aaa; font-size: 11px; }
+    .vtl-flag { font-size: 11px; }
+    .vtl-flag.bad { color: #c0392b; }
+    .vtl-flag.ok { color: #27ae60; }
+
+    .s-spawn { background: #9b59b6; } .s-plan { background: #95a5a6; } .s-respawn { background: #1abc9c; }
+    .s-dev { background: #3498db; } .s-review { background: #e67e22; } .s-commit { background: #2ecc71; }
+    .s-cr { background: #e91e63; } .s-pr { background: #f39c12; } .s-done { background: #27ae60; }
+
+    /* Sidebar nav */
+    .sb-nav a { display: block; padding: 6px 0; font-size: 13px; color: #555; cursor: pointer; }
+    .sb-nav a:hover { color: #000; text-decoration: none; }
+    .sb-nav a.active { color: #3498db; font-weight: 500; }
+
+    /* ── Main content ── */
+    .main { flex: 1; overflow-y: auto; padding: 20px 24px; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .slabel { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #999; margin-bottom: 8px; }
+
+    /* ── Insight cards ── */
+    .insight { background: white; border: 1px solid #ddd; border-left: 4px solid #ccc; margin-bottom: 6px; border-radius: 2px; }
+    .insight.warning { border-left-color: #e67e22; }
+    .insight.info { border-left-color: #3498db; }
+    .insight.success { border-left-color: #27ae60; }
+    .insight-head { padding: 8px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .insight-head:hover { background: #fafafa; }
+    .insight-title { font-size: 13px; font-weight: 600; }
+    .insight-arrow { color: #999; font-size: 12px; }
+    .insight-body { display: none; padding: 0 14px 10px; border-top: 1px solid #f0f0f0; }
+    .insight-body.open { display: block; }
+    .insight-evidence { font-size: 13px; color: #555; margin: 8px 0; }
+    .insight-prompt { margin-top: 8px; background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 10px; font-size: 12px; font-family: monospace; color: #444; position: relative; white-space: pre-wrap; }
+
+    /* ── Suggestions ── */
+    .suggestion { background: white; border: 1px solid #ddd; border-left: 4px solid #8e44ad; margin-bottom: 6px; border-radius: 2px; }
+    .suggestion-head { padding: 8px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .suggestion-head:hover { background: #fafafa; }
+    .suggestion-title { font-size: 13px; font-weight: 600; }
+    .suggestion-arrow { color: #999; font-size: 12px; }
+    .suggestion-body { display: none; padding: 0 14px 10px; border-top: 1px solid #f0f0f0; }
+    .suggestion-body.open { display: block; }
+    .suggestion-rationale { font-size: 13px; color: #555; margin: 8px 0; }
+    .suggestion-change { margin: 8px 0; padding: 8px 10px; background: #f5f0fa; border: 1px solid #e0d5eb; border-radius: 3px; font-size: 13px; }
+    .suggestion-change strong { color: #6c3483; }
+    .suggestion-tradeoff { font-size: 12px; color: #888; margin: 6px 0; }
+    .copy-btn { background: #f0f7ff; border: 1px solid #b8d4f0; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: 500; color: #2c6faa; position: absolute; top: 6px; right: 6px; }
+    .copy-btn:hover { background: #eee; }
+
+    /* ── Event rows ── */
+    .ev { padding: 5px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; display: flex; flex-wrap: wrap; gap: 3px 8px; align-items: baseline; }
+    .ev-time { color: #aaa; font-size: 12px; font-family: monospace; min-width: 60px; }
+    .ev-badge { font-size: 10px; padding: 1px 5px; border-radius: 2px; color: white; white-space: nowrap; }
+    .ev-name { font-weight: 500; }
+    .ev-outcome { font-size: 11px; padding: 1px 6px; border-radius: 2px; font-weight: 500; }
+    .ev-outcome.denied { background: #fde8e8; color: #c0392b; }
+    .ev-outcome.rejected { background: #fde8e8; color: #c0392b; }
+    .ev-outcome.approved { background: #d5f5e3; color: #1e8449; }
+    .ev-f { font-size: 12px; color: #666; }
+    .ev-fk { color: #aaa; }
+    .ev-fv { color: #333; }
+    .ev-content { font-size: 12px; color: #555; font-style: italic; flex-basis: 100%; padding-left: 68px; }
+
+    /* ── State detail panel ── */
+    .state-events { background: white; border: 1px solid #ddd; padding: 10px 14px; border-radius: 2px; }
+    .state-header { font-size: 14px; font-weight: 600; margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
+    .state-header .ev-badge { font-size: 11px; padding: 2px 8px; }
+
+    /* ── Journal ── */
+    .journal-entry { background: white; border: 1px solid #ddd; border-left: 3px solid #95a5a6; padding: 12px 16px; margin-bottom: 8px; border-radius: 2px; }
+    .journal-meta { display: flex; gap: 12px; font-size: 12px; color: #888; margin-bottom: 6px; }
+    .journal-agent { font-weight: 600; color: #555; }
+    .journal-text { font-size: 14px; color: #333; line-height: 1.6; }
+
+    /* ── Prompts ── */
+    .prompt-block { padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+    .prompt-block:last-child { border-bottom: none; }
+    .prompt-q { font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+    .prompt-cmd { background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 10px; font-size: 12px; font-family: monospace; color: #444; position: relative; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>nicko/autonomous-claude-agent-team</h1>
+  <span class="status">✅ COMPLETE</span>
+  <span class="sep">│</span>
+  <span><span class="ml">Session</span> abc-1234</span>
+  <span class="sep">│</span>
+  <span><span class="ml">Started</span> Mar 3, 2:14 PM → <span class="ml">Ended</span> 3:01 PM (47m)</span>
+  <span class="sep">│</span>
+  <span><span class="ml">Issue</span> <a href="#">#142</a></span>
+  <span><span class="ml">PR</span> <a href="#">#89</a></span>
+  <span class="sep">│</span>
+  <span><span class="ml">Transcript</span> <a href="#">abc-1234.jsonl</a></span>
+</div>
+
+<div class="layout">
+<!-- SIDEBAR -->
+<div class="sidebar">
+
+  <!-- Metrics -->
+  <div class="sb-section">
+    <div class="sb-label">Session</div>
+    <div class="sb-metrics">
+      <div class="sb-metric"><div class="sb-metric-val">47m</div><div class="sb-metric-label">Duration</div></div>
+      <div class="sb-metric"><div class="sb-metric-val">3</div><div class="sb-metric-label">Iterations</div></div>
+      <div class="sb-metric warn"><div class="sb-metric-val">2</div><div class="sb-metric-label">Rejections</div></div>
+      <div class="sb-metric warn"><div class="sb-metric-val">5</div><div class="sb-metric-label">Denials</div></div>
+      <div class="sb-metric"><div class="sb-metric-val">67%</div><div class="sb-metric-label">1st-pass</div></div>
+      <div class="sb-metric"><div class="sb-metric-val">0</div><div class="sb-metric-label">Blocked</div></div>
+    </div>
+  </div>
+
+  <!-- Vertical Timeline -->
+  <div class="sb-section" style="flex:1;padding:10px 0">
+    <div style="padding:0 14px"><div class="sb-label">Timeline — click to filter</div></div>
+    <div class="vtl">
+      <div class="vtl-seg" onclick="showState(this,'spawn')">
+        <div class="vtl-rail"><div class="vtl-dot s-spawn"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">SPAWN</span><span class="vtl-dur">0:30</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'plan')">
+        <div class="vtl-rail"><div class="vtl-dot s-plan"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">PLANNING</span><span class="vtl-dur">3:00</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'resp1')">
+        <div class="vtl-rail"><div class="vtl-dot s-respawn"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">RESPAWN</span><span class="vtl-dur">0:45</span><span style="color:#888;font-size:11px">→ iter 1</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'dev1')">
+        <div class="vtl-rail"><div class="vtl-dot s-dev"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">DEV</span><span class="vtl-dur">8:00</span><span style="color:#888;font-size:11px">iter 1</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'rev1')">
+        <div class="vtl-rail"><div class="vtl-dot s-review"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">REVIEW</span><span class="vtl-dur">2:00</span><span class="vtl-flag ok">✓</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'com1')">
+        <div class="vtl-rail"><div class="vtl-dot s-commit"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">COMMIT</span><span class="vtl-dur">1:00</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'resp2')">
+        <div class="vtl-rail"><div class="vtl-dot s-respawn"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">RESPAWN</span><span class="vtl-dur">0:30</span><span style="color:#888;font-size:11px">→ iter 2</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'dev2a')">
+        <div class="vtl-rail"><div class="vtl-dot s-dev"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">DEV</span><span class="vtl-dur">5:00</span><span style="color:#888;font-size:11px">iter 2 pass 1</span><span class="vtl-flag bad">⚠ 3 denials</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'rev2a')">
+        <div class="vtl-rail"><div class="vtl-dot s-review"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">REVIEW</span><span class="vtl-dur">1:30</span><span class="vtl-flag bad">✗ rejected</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'dev2b')">
+        <div class="vtl-rail"><div class="vtl-dot s-dev"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">DEV</span><span class="vtl-dur">4:00</span><span style="color:#888;font-size:11px">rework 1</span><span class="vtl-flag bad">⚠ 2 denials</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'rev2b')">
+        <div class="vtl-rail"><div class="vtl-dot s-review"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">REVIEW</span><span class="vtl-dur">1:30</span><span class="vtl-flag bad">✗ rejected</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'dev2c')">
+        <div class="vtl-rail"><div class="vtl-dot s-dev"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">DEV</span><span class="vtl-dur">3:00</span><span style="color:#888;font-size:11px">rework 2</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'rev2c')">
+        <div class="vtl-rail"><div class="vtl-dot s-review"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">REVIEW</span><span class="vtl-dur">1:00</span><span class="vtl-flag ok">✓</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'com2')">
+        <div class="vtl-rail"><div class="vtl-dot s-commit"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">COMMIT</span><span class="vtl-dur">1:00</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'resp3')">
+        <div class="vtl-rail"><div class="vtl-dot s-respawn"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">RESPAWN</span><span class="vtl-dur">0:30</span><span style="color:#888;font-size:11px">→ iter 3</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'dev3')">
+        <div class="vtl-rail"><div class="vtl-dot s-dev"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">DEV</span><span class="vtl-dur">6:00</span><span style="color:#888;font-size:11px">iter 3</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'rev3')">
+        <div class="vtl-rail"><div class="vtl-dot s-review"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">REVIEW</span><span class="vtl-dur">1:30</span><span class="vtl-flag ok">✓</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'com3')">
+        <div class="vtl-rail"><div class="vtl-dot s-commit"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">COMMIT</span><span class="vtl-dur">1:00</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'cr')">
+        <div class="vtl-rail"><div class="vtl-dot s-cr"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">CR</span><span class="vtl-dur">2:00</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'prstate')">
+        <div class="vtl-rail"><div class="vtl-dot s-pr"></div><div class="vtl-line"></div></div>
+        <div class="vtl-info"><span class="vtl-state">PR</span><span class="vtl-dur">1:30</span></div>
+      </div>
+      <div class="vtl-seg" onclick="showState(this,'complete')">
+        <div class="vtl-rail"><div class="vtl-dot s-done"></div></div>
+        <div class="vtl-info"><span class="vtl-state">DONE</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nav -->
+  <div class="sb-section">
+    <div class="sb-nav">
+      <a class="active" onclick="showPanel('insights',this)">Insights (4)</a>
+      <a onclick="showPanel('journal',this)">Journal (3)</a>
+      <a onclick="showPanel('continue',this)">Continue in Claude Code</a>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="main">
+
+  <!-- Default: Insights panel -->
+  <div class="panel active" id="panel-insights">
+    <div class="slabel">Insights</div>
+
+    <div class="insight warning">
+      <div class="insight-head" onclick="toggleBody(this)">
+        <span class="insight-title">⚠ 2 review rejections in iteration 2 — rework dominated the session</span>
+        <span class="insight-arrow">▶</span>
+      </div>
+      <div class="insight-body">
+        <div class="insight-evidence">Task "Implement retry backoff" required 3 review cycles. Iteration 2 consumed 22 of 47 minutes (47%). Root cause in transcript: developer blocked from writing config files → hardcoded → reviewer rejected for non-configurable design. Twice.</div>
+        <div class="insight-prompt"><button class="copy-btn" onclick="copyCmd(this)">Continue with Claude</button>workflow analyze abc-1234
+
+Read the transcript at /tmp/transcripts/abc-1234.jsonl focusing on iteration 2. Developer was blocked from writing src/config/ by guardrails, hardcoded values, reviewer rejected twice. Is this a guardrail scope problem, a task decomposition problem, or both?</div>
+      </div>
+    </div>
+
+    <div class="insight warning">
+      <div class="insight-head" onclick="toggleBody(this)">
+        <span class="insight-title">⚠ 5 hook denials clustered in DEVELOPING — guardrail/task mismatch</span>
+        <span class="insight-arrow">▶</span>
+      </div>
+      <div class="insight-body">
+        <div class="insight-evidence">3× write denied for src/config/, 2× bash denied for npm install. All iteration 2. Developer journal: "Implementing with hardcoded values instead." This workaround directly caused the rejections.</div>
+        <div class="insight-prompt"><button class="copy-btn" onclick="copyCmd(this)">Continue with Claude</button>workflow analyze abc-1234
+
+5 hook denials in iteration 2 DEVELOPING. Developer's journal shows they worked around it with hardcoded values → reviewer rejected. Should src/config/ be in developer write scope? What are the trade-offs?</div>
+      </div>
+    </div>
+
+    <div class="insight info">
+      <div class="insight-head" onclick="toggleBody(this)">
+        <span class="insight-title">ℹ Iteration velocity: 8m → 22m → 9m — iteration 2 was 2.5× slower</span>
+        <span class="insight-arrow">▶</span>
+      </div>
+      <div class="insight-body">
+        <div class="insight-evidence">Iterations 1 and 3: ~8-9m with first-pass approval. Iteration 2: 22m — first-pass dev was ~5m (comparable). Excess time entirely review rework. Transcript confirms developer spent rework re-attempting same blocked writes.</div>
+      </div>
+    </div>
+
+    <div class="insight success">
+      <div class="insight-head" onclick="toggleBody(this)">
+        <span class="insight-title">✓ Session completed — 3 iterations, PR #89 created</span>
+        <span class="insight-arrow">▶</span>
+      </div>
+      <div class="insight-body">
+        <div class="insight-evidence">Despite friction, outcome clean. First-pass 67% (2/3). Zero blocked episodes. Guardrails caught 5 out-of-scope actions without stalling workflow.</div>
+      </div>
+    </div>
+
+    <div class="slabel" style="margin-top:16px">Suggestions</div>
+
+    <div class="suggestion">
+      <div class="suggestion-head" onclick="toggleSuggestion(this)">
+        <span class="suggestion-title">💡 Add <code>src/config/</code> to developer write scope</span>
+        <span class="suggestion-arrow">▶</span>
+      </div>
+      <div class="suggestion-body">
+        <div class="suggestion-rationale">The write guard in <code>workflow-definition/hooks/write-guard.ts</code> blocks all writes outside the implementation directory. Developer needed <code>src/config/retry-config.ts</code> and <code>src/config/defaults.ts</code> — forced to hardcode → 2 rejections → 22 minutes wasted.</div>
+        <div class="suggestion-change"><strong>Change:</strong> In <code>write-guard.ts</code>, add <code>src/config/</code> to allowed write paths during DEVELOPING.</div>
+        <div class="suggestion-tradeoff">⚖ Wider scope means developer could touch unrelated config. Mitigated by reviewer. Consider scoping to <code>src/config/*-config.ts</code> only.</div>
+        <div class="insight-prompt"><button class="copy-btn" onclick="copyCmd(this)">Continue with Claude</button>workflow analyze abc-1234
+
+Read workflow-definition/hooks/write-guard.ts. Add src/config/ to the developer's allowed write paths. Show the specific code change and security implications.</div>
+      </div>
+    </div>
+
+    <div class="suggestion">
+      <div class="suggestion-head" onclick="toggleSuggestion(this)">
+        <span class="suggestion-title">💡 Detect guardrail conflicts during planning</span>
+        <span class="suggestion-arrow">▶</span>
+      </div>
+      <div class="suggestion-body">
+        <div class="suggestion-rationale">Iteration 2 task required config writes outside developer scope. Not discovered until runtime. <code>states/planning.md</code> doesn't check task requirements against write scope.</div>
+        <div class="suggestion-change"><strong>Change:</strong> Add checklist item to <code>states/planning.md</code>: "For each task, verify required file paths fall within developer write scope. If not, split task or note scope expansion."</div>
+        <div class="suggestion-tradeoff">⚖ Slightly slower planning. Prevents 22-minute rework loops.</div>
+        <div class="insight-prompt"><button class="copy-btn" onclick="copyCmd(this)">Continue with Claude</button>workflow analyze abc-1234
+
+Read states/planning.md and write-guard.ts. Add a planning checklist item that verifies file path alignment with developer write scope. Draft the specific wording.</div>
+      </div>
+    </div>
+
+    <div class="suggestion">
+      <div class="suggestion-head" onclick="toggleSuggestion(this)">
+        <span class="suggestion-title">💡 Issue #142 didn't specify config file requirements</span>
+        <span class="suggestion-arrow">▶</span>
+      </div>
+      <div class="suggestion-body">
+        <div class="suggestion-rationale">Issue said "configurable backoff" but didn't mention config file writes. Lead agent decomposed iterations without realizing iteration 2 crossed a guardrail boundary.</div>
+        <div class="suggestion-change"><strong>Change:</strong> Update planning prompt: "List file paths each iteration will modify. Flag paths outside developer write scope."</div>
+        <div class="suggestion-tradeoff">⚖ Adds planning overhead. But lead already reads codebase — this makes output more explicit about where changes land.</div>
+        <div class="insight-prompt"><button class="copy-btn" onclick="copyCmd(this)">Continue with Claude</button>workflow analyze abc-1234
+
+Read the planning prompt and issue template. How can planning surface file path requirements earlier? Should this be in the issue template, the planning prompt, or both?</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- State-detail panel (shown when clicking timeline segments) -->
+  <div class="panel" id="panel-state">
+    <div class="state-header" id="state-title"></div>
+    <div class="state-events" id="state-events"></div>
+  </div>
+
+  <!-- Journal panel -->
+  <div class="panel" id="panel-journal">
+    <div class="slabel">Journal Entries</div>
+    <p style="font-size:13px;color:#666;margin-bottom:12px">Agent reasoning that numbers can't show. Read alongside the <a href="#">transcript</a>.</p>
+
+    <div class="journal-entry" style="border-left-color:#3498db">
+      <div class="journal-meta"><span class="journal-agent">developer</span><span>14:36:00</span><span>Iteration 2 · DEVELOPING</span><span style="color:#c0392b">⚠ after 3 hook denials</span></div>
+      <div class="journal-text">"Attempted to modify config files for backoff settings but blocked by write hooks. Implementing with hardcoded values instead."</div>
+    </div>
+
+    <div class="journal-entry" style="border-left-color:#e67e22">
+      <div class="journal-meta"><span class="journal-agent">reviewer</span><span>14:40:46</span><span>Iteration 2 · REVIEWING · 1st rejection</span></div>
+      <div class="journal-text">"Backoff values are hardcoded. Should be configurable. Missing tests for max retry limit."</div>
+    </div>
+
+    <div class="journal-entry" style="border-left-color:#e67e22">
+      <div class="journal-meta"><span class="journal-agent">reviewer</span><span>14:46:31</span><span>Iteration 2 · REVIEWING · 2nd rejection</span></div>
+      <div class="journal-text">"Added env var approach but tests don't cover edge cases. Still not properly configurable."</div>
+    </div>
+
+    <div style="margin-top:12px;padding:10px;background:white;border:1px solid #ddd;border-radius:2px;font-size:13px">
+      <strong>Full transcript:</strong> <a href="#" style="font-family:monospace;font-size:12px">/tmp/transcripts/abc-1234.jsonl</a>
+    </div>
+  </div>
+
+  <!-- Continue panel -->
+  <div class="panel" id="panel-continue">
+    <div class="slabel">Continue in Claude Code</div>
+    <p style="font-size:13px;color:#666;margin-bottom:12px">Each prompt includes CLI commands + analytical questions grounded in journal and transcript data.</p>
+
+    <div class="prompt-block">
+      <div class="prompt-q">Why did guardrails and review conflict in iteration 2?</div>
+      <div class="prompt-cmd"><button class="copy-btn" onclick="copyCmd(this)">Continue with Claude</button>workflow analyze abc-1234
+
+Read the transcript at /tmp/transcripts/abc-1234.jsonl focusing on iteration 2. Developer journal says "blocked by write hooks, implementing with hardcoded values" — reviewer rejected twice for "not configurable." Is this a guardrail scope problem, a task decomposition problem, or both?</div>
+    </div>
+
+    <div class="prompt-block">
+      <div class="prompt-q">Should developer write scope include config files?</div>
+      <div class="prompt-cmd"><button class="copy-btn" onclick="copyCmd(this)">Continue with Claude</button>workflow analyze abc-1234
+
+3 write denials for src/config/ paths. Developer's journal and transcript show they attempted the right approach first but were forced to hardcode. Should src/config/ be in developer write scope? What are the security trade-offs?</div>
+    </div>
+
+    <div class="prompt-block">
+      <div class="prompt-q">How does this session compare to recent baselines?</div>
+      <div class="prompt-cmd"><button class="copy-btn" onclick="copyCmd(this)">Continue with Claude</button>workflow analyze abc-1234
+workflow analyze --all
+
+Compare this session (67% first-pass, 5 denials, 8m/22m/9m iterations) against recent sessions. Is the guardrail-denial-causing-rework pattern unique or recurring?</div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+</div><!-- /layout -->
+
+<script>
+// Event data for timeline segments
+const stateEvents = {
+  spawn: {title:'SPAWN', badge:'s-spawn', events:[
+    {t:'14:14:00',n:'session-started',f:'sessionId=abc-1234 transcriptPath=/tmp/transcripts/abc-1234.jsonl'},
+    {t:'14:14:05',n:'transitioned',f:'to=SPAWN'},
+    {t:'14:14:10',n:'agent-registered',f:'agentType=lead agentId=agent-lead-1'},
+    {t:'14:14:20',n:'issue-recorded',f:'issueNumber=142'},
+    {t:'14:14:25',n:'branch-recorded',f:'branch=feature/add-retry-logic'},
+    {t:'14:14:30',n:'transitioned',f:'from=SPAWN to=PLANNING'},
+  ]},
+  plan: {title:'PLANNING', badge:'s-plan', events:[
+    {t:'14:17:00',n:'plan-approval-recorded',f:''},
+    {t:'14:17:15',n:'transitioned',f:'from=PLANNING to=RESPAWN'},
+  ]},
+  resp1: {title:'RESPAWN → iter 1', badge:'s-respawn', events:[
+    {t:'14:17:20',n:'agent-registered',f:'agentType=developer agentId=agent-dev-1'},
+    {t:'14:17:25',n:'agent-registered',f:'agentType=reviewer agentId=agent-rev-1'},
+    {t:'14:17:30',n:'iteration-task-assigned',f:'task="Add retry wrapper function"'},
+    {t:'14:18:00',n:'transitioned',f:'from=RESPAWN to=DEVELOPING iteration=1'},
+  ]},
+  dev1: {title:'DEVELOPING — iter 1', badge:'s-dev', events:[
+    {t:'14:25:30',n:'developer-done-signaled',f:''},
+    {t:'14:25:31',n:'transitioned',f:'from=DEVELOPING to=REVIEWING'},
+  ]},
+  rev1: {title:'REVIEWING — iter 1 ✓', badge:'s-review', events:[
+    {t:'14:27:30',n:'review-approved',f:'',o:'approved'},
+    {t:'14:27:31',n:'transitioned',f:'from=REVIEWING to=COMMITTING'},
+  ]},
+  com1: {title:'COMMITTING — iter 1', badge:'s-commit', events:[
+    {t:'14:28:00',n:'lint-ran',f:'files=3 passed=true'},
+    {t:'14:28:25',n:'iteration-ticked',f:'issueNumber=142'},
+    {t:'14:28:30',n:'transitioned',f:'from=COMMITTING to=RESPAWN'},
+  ]},
+  resp2: {title:'RESPAWN → iter 2', badge:'s-respawn', events:[
+    {t:'14:29:00',n:'agent-shut-down',f:'agentName=agent-dev-1'},
+    {t:'14:29:05',n:'agent-registered',f:'agentType=developer agentId=agent-dev-2'},
+    {t:'14:29:15',n:'iteration-task-assigned',f:'task="Implement retry backoff with exponential delay"'},
+    {t:'14:29:30',n:'transitioned',f:'from=RESPAWN to=DEVELOPING iteration=2'},
+  ]},
+  dev2a: {title:'DEVELOPING — iter 2 pass 1 ⚠', badge:'s-dev', events:[
+    {t:'14:32:10',n:'write-checked',f:'tool=Write filePath=src/config/retry-config.ts reason=outside developer scope',o:'denied'},
+    {t:'14:33:45',n:'write-checked',f:'tool=Write filePath=src/config/defaults.ts reason=outside developer scope',o:'denied'},
+    {t:'14:34:20',n:'bash-checked',f:'command="npm install retry-backoff" reason=not permitted in DEVELOPING',o:'denied'},
+    {t:'14:36:00',n:'journal-entry',f:'agent=developer',c:'"Attempted to modify config files for backoff settings but blocked by write hooks. Implementing with hardcoded values instead."'},
+    {t:'14:39:15',n:'developer-done-signaled',f:''},
+    {t:'14:39:16',n:'transitioned',f:'from=DEVELOPING to=REVIEWING'},
+  ]},
+  rev2a: {title:'REVIEWING — iter 2 ✗ rejected', badge:'s-review', events:[
+    {t:'14:40:45',n:'review-rejected',f:'',o:'rejected'},
+    {t:'14:40:46',n:'journal-entry',f:'agent=reviewer',c:'"Backoff values are hardcoded. Should be configurable. Missing tests for max retry limit."'},
+    {t:'14:41:00',n:'transitioned',f:'from=REVIEWING to=DEVELOPING'},
+  ]},
+  dev2b: {title:'DEVELOPING — iter 2 rework 1 ⚠', badge:'s-dev', events:[
+    {t:'14:42:30',n:'write-checked',f:'tool=Write filePath=src/config/retry-config.ts reason=outside developer scope',o:'denied'},
+    {t:'14:42:45',n:'bash-checked',f:'command="npm install retry-backoff" reason=not permitted in DEVELOPING',o:'denied'},
+    {t:'14:45:00',n:'developer-done-signaled',f:''},
+    {t:'14:45:01',n:'transitioned',f:'from=DEVELOPING to=REVIEWING'},
+  ]},
+  rev2b: {title:'REVIEWING — iter 2 ✗ rejected', badge:'s-review', events:[
+    {t:'14:46:30',n:'review-rejected',f:'',o:'rejected'},
+    {t:'14:46:31',n:'journal-entry',f:'agent=reviewer',c:'"Added env var approach but tests don\'t cover edge cases. Still not properly configurable."'},
+    {t:'14:46:45',n:'transitioned',f:'from=REVIEWING to=DEVELOPING'},
+  ]},
+  dev2c: {title:'DEVELOPING — iter 2 rework 2', badge:'s-dev', events:[
+    {t:'14:49:45',n:'developer-done-signaled',f:''},
+    {t:'14:49:46',n:'transitioned',f:'from=DEVELOPING to=REVIEWING'},
+  ]},
+  rev2c: {title:'REVIEWING — iter 2 ✓', badge:'s-review', events:[
+    {t:'14:50:45',n:'review-approved',f:'',o:'approved'},
+    {t:'14:50:46',n:'transitioned',f:'from=REVIEWING to=COMMITTING'},
+  ]},
+  com2: {title:'COMMITTING — iter 2', badge:'s-commit', events:[
+    {t:'14:51:00',n:'lint-ran',f:'files=5 passed=true'},
+    {t:'14:51:25',n:'iteration-ticked',f:'issueNumber=142'},
+    {t:'14:51:30',n:'transitioned',f:'from=COMMITTING to=RESPAWN'},
+  ]},
+  resp3: {title:'RESPAWN → iter 3', badge:'s-respawn', events:[
+    {t:'14:51:35',n:'agent-shut-down',f:'agentName=agent-dev-2'},
+    {t:'14:51:40',n:'agent-registered',f:'agentType=developer agentId=agent-dev-3'},
+    {t:'14:52:00',n:'iteration-task-assigned',f:'task="Add integration tests for retry behavior"'},
+    {t:'14:52:10',n:'transitioned',f:'from=RESPAWN to=DEVELOPING iteration=3'},
+  ]},
+  dev3: {title:'DEVELOPING — iter 3', badge:'s-dev', events:[
+    {t:'14:58:00',n:'developer-done-signaled',f:''},
+    {t:'14:58:01',n:'transitioned',f:'from=DEVELOPING to=REVIEWING'},
+  ]},
+  rev3: {title:'REVIEWING — iter 3 ✓', badge:'s-review', events:[
+    {t:'14:59:30',n:'review-approved',f:'',o:'approved'},
+    {t:'14:59:31',n:'transitioned',f:'from=REVIEWING to=COMMITTING'},
+  ]},
+  com3: {title:'COMMITTING — iter 3', badge:'s-commit', events:[
+    {t:'14:59:45',n:'lint-ran',f:'files=4 passed=true'},
+    {t:'15:00:00',n:'iteration-ticked',f:'issueNumber=142'},
+    {t:'15:00:05',n:'issue-checklist-appended',f:'issueNumber=142'},
+    {t:'15:00:10',n:'transitioned',f:'from=COMMITTING to=CR_REVIEW'},
+  ]},
+  cr: {title:'CR_REVIEW', badge:'s-cr', events:[
+    {t:'15:00:15',n:'coderabbit-addressed',f:''},
+    {t:'15:00:20',n:'transitioned',f:'from=CR_REVIEW to=PR_CREATION'},
+  ]},
+  prstate: {title:'PR_CREATION', badge:'s-pr', events:[
+    {t:'15:00:25',n:'pr-created',f:'prNumber=89'},
+    {t:'15:01:00',n:'transitioned',f:'from=PR_CREATION to=COMPLETE'},
+  ]},
+  complete: {title:'COMPLETE', badge:'s-done', events:[
+    {t:'15:01:05',n:'agent-shut-down',f:'agentName=agent-dev-3'},
+    {t:'15:01:10',n:'agent-shut-down',f:'agentName=agent-rev-1'},
+    {t:'15:01:15',n:'agent-shut-down',f:'agentName=agent-lead-1'},
+  ]},
+};
+
+function showState(seg, key) {
+  // Highlight timeline segment
+  document.querySelectorAll('.vtl-seg').forEach(s => s.classList.remove('active'));
+  seg.classList.add('active');
+  // Deactivate nav links
+  document.querySelectorAll('.sb-nav a').forEach(a => a.classList.remove('active'));
+  // Show state panel
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-state').classList.add('active');
+
+  const data = stateEvents[key];
+  document.getElementById('state-title').innerHTML =
+    '<span class="ev-badge ' + data.badge + '">' + data.title.split(' ')[0] + '</span> ' + data.title;
+
+  let html = '';
+  data.events.forEach(e => {
+    const outcomeHtml = e.o ? ' <span class="ev-outcome ' + e.o + '">' + e.o.toUpperCase() + '</span>' : '';
+    const fieldsHtml = e.f ? e.f.split(' ').map(pair => {
+      const eq = pair.indexOf('=');
+      if (eq === -1) return '';
+      return '<span class="ev-f"><span class="ev-fk">' + pair.substring(0,eq) + '</span> <span class="ev-fv">' + pair.substring(eq+1).replace(/"/g,'') + '</span></span>';
+    }).join(' ') : '';
+    const contentHtml = e.c ? '<div class="ev-content">' + e.c + '</div>' : '';
+    html += '<div class="ev"><span class="ev-time">' + e.t + '</span><span class="ev-name">' + e.n + '</span>' + outcomeHtml + '<span class="ev-fields">' + fieldsHtml + '</span>' + contentHtml + '</div>';
+  });
+  document.getElementById('state-events').innerHTML = html;
+}
+
+function showPanel(id, navEl) {
+  // Deactivate timeline
+  document.querySelectorAll('.vtl-seg').forEach(s => s.classList.remove('active'));
+  // Activate nav
+  document.querySelectorAll('.sb-nav a').forEach(a => a.classList.remove('active'));
+  if (navEl) navEl.classList.add('active');
+  // Show panel
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+}
+
+function toggleBody(head) {
+  const body = head.nextElementSibling;
+  body.classList.toggle('open');
+  head.querySelector('.insight-arrow').textContent = body.classList.contains('open') ? '▼' : '▶';
+}
+
+function toggleSuggestion(head) {
+  const body = head.nextElementSibling;
+  body.classList.toggle('open');
+  head.querySelector('.suggestion-arrow').textContent = body.classList.contains('open') ? '▼' : '▶';
+}
+
+function copyCmd(btn) {
+  const text = btn.parentElement.textContent.replace('Continue with Claude', '').trim();
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Continue with Claude', 1200);
+  });
+}
+</script>
+
+</body>
+</html>
