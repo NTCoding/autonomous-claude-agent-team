@@ -18,6 +18,11 @@ export { enrichJournalEntries, assembleReportData } from './report-assembly.js'
 
 export { generateReportHtml } from './report-html.js'
 
+export type { ParsedInsight, ParsedSuggestion, ParsedAnalysis } from './parse-analysis.js'
+export { parseAnalysis } from './parse-analysis.js'
+
+export { formatAnalysisContext } from './analysis-context.js'
+
 export type { SessionSummary, CrossSessionSummary } from './workflow-analytics.js'
 export {
   renderBar,

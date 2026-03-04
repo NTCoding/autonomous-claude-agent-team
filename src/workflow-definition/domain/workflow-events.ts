@@ -4,6 +4,7 @@ const SessionStartedSchema = z.object({
   type: z.literal('session-started'),
   at: z.string(),
   transcriptPath: z.string().optional(),
+  repository: z.string().optional(),
 })
 
 const IssueRecordedSchema = z.object({

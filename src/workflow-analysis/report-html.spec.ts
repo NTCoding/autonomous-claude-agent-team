@@ -21,6 +21,7 @@ function buildMinimalReportData(overrides: Partial<ReportData> = {}): ReportData
     totalDenials: 0,
     velocityTrend: [],
     transcriptPath: undefined,
+    repository: undefined,
     githubIssue: undefined,
     featureBranch: undefined,
     prNumber: undefined,
@@ -68,14 +69,20 @@ describe('generateReportHtml — document structure', () => {
 
 describe('generateReportHtml — tab structure', () => {
   it.each([
-    ['overview'], ['iterations'], ['log'], ['journal'], ['continue'],
+    ['overview'], ['iterations'], ['log'], ['journal'],
   ] as const)('contains switchTab call for %s', (tab) => {
     const html = generateReportHtml(buildMinimalReportData())
     expect(html).toContain(`switchTab('${tab}')`)
   })
 
+  it('does not contain continue tab when no analysis', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).not.toContain(`switchTab('continue')`)
+    expect(html).not.toContain('id="tab-continue"')
+  })
+
   it.each([
-    ['tab-overview'], ['tab-iterations'], ['tab-log'], ['tab-journal'], ['tab-continue'],
+    ['tab-overview'], ['tab-iterations'], ['tab-log'], ['tab-journal'],
   ] as const)('contains tab pane container %s', (id) => {
     const html = generateReportHtml(buildMinimalReportData())
     expect(html).toContain(`id="${id}"`)
@@ -103,9 +110,16 @@ describe('generateReportHtml — JavaScript functions', () => {
   it('contains client-side rendering functions', () => {
     const html = generateReportHtml(buildMinimalReportData())
     expect(html).toContain('function switchTab')
-    expect(html).toContain('function toggleBody')
     expect(html).toContain('function searchLog')
     expect(html).toContain('function toggleFacet')
+    expect(html).toContain('function toggleTimelineState')
+  })
+
+  it('contains insight/suggestion JS functions', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).toContain('function toggleBody')
+    expect(html).toContain('function toggleSuggestion')
+    expect(html).toContain('function copyCmd')
   })
 })
 
@@ -122,76 +136,42 @@ describe('generateReportHtml — XSS safety', () => {
   })
 })
 
-describe('generateReportHtml — header metadata', () => {
-  it('displays session metadata in header', () => {
-    const data = buildMinimalReportData()
-    const withMeta: ReportData = {
-      ...data,
-      summary: {
-        ...data.summary,
-        githubIssue: 142,
-        featureBranch: 'feature/retry',
-        prNumber: 89,
-        transcriptPath: '/tmp/transcripts/abc.jsonl',
-      },
-    }
-    const html = generateReportHtml(withMeta)
-    expect(html).toContain('test-session-123')
-    expect(html).toContain('#142')
-    expect(html).toContain('feature/retry')
-    expect(html).toContain('#89')
-  })
-
-  it('shows COMPLETE status when session has COMPLETE state duration', () => {
-    const data = buildMinimalReportData()
-    const withComplete: ReportData = {
-      ...data,
-      summary: { ...data.summary, stateDurations: { COMPLETE: 1000, DEVELOPING: 60000 } },
-    }
-    const html = generateReportHtml(withComplete)
-    expect(html).toContain('status-complete')
-  })
-
-  it('shows current state when session is not complete', () => {
-    const data = buildMinimalReportData()
-    const inProgress: ReportData = {
-      ...data,
-      viewData: { ...data.viewData, currentState: 'DEVELOPING' },
-      summary: { ...data.summary, stateDurations: { DEVELOPING: 60000 } },
-    }
-    const html = generateReportHtml(inProgress)
-    expect(html).toContain('DEVELOPING')
-  })
-})
-
 describe('generateReportHtml — overview tab rendering', () => {
-  it('renders insight cards with severity classes', () => {
-    const data = buildMinimalReportData({
-      insights: [
-        { severity: 'warning', title: '⚠ Test warning', evidence: 'Evidence here', prompt: 'analyze session' },
-        { severity: 'success', title: '✓ Test success', evidence: 'Clean run', prompt: undefined },
-      ],
-    })
-    const html = generateReportHtml(data)
-    expect(html).toContain('class="insight warning"')
-    expect(html).toContain('class="insight success"')
-    expect(html).toContain('⚠ Test warning')
+  it('does not render insight or suggestion cards when no analysis provided', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).not.toContain('class="insight ')
+    expect(html).not.toContain('class="suggestion"')
   })
 
-  it('renders suggestion cards with rationale and change', () => {
-    const data = buildMinimalReportData({
-      suggestions: [{
-        title: '💡 Expand scope',
-        rationale: 'Developer was blocked',
-        change: 'Add src/config/',
-        tradeoff: 'Wider access',
-        prompt: 'analyze and fix',
-      }],
-    })
-    const html = generateReportHtml(data)
+  it('renders insight cards on overview when analysis is provided', () => {
+    const analysis = '## ⚠ Test warning\nEvidence here\n\nContinue: analyze session'
+    const html = generateReportHtml(buildMinimalReportData(), analysis)
+    expect(html).toContain('class="insight warning"')
+    expect(html).toContain('class="insight-title"')
+    expect(html).toContain('Test warning')
+    expect(html).toContain('Evidence here')
+  })
+
+  it('renders suggestion cards on overview when analysis is provided', () => {
+    const analysis = '## 💡 Expand scope\nRationale text\n\n**Change:** Add src/config/\n\n**Trade-off:** Wider access\n\nContinue: fix it'
+    const html = generateReportHtml(buildMinimalReportData(), analysis)
     expect(html).toContain('class="suggestion"')
+    expect(html).toContain('class="suggestion-title"')
     expect(html).toContain('Expand scope')
-    expect(html).toContain('Developer was blocked')
+  })
+
+  it('renders continue tab when analysis has prompts', () => {
+    const analysis = '## ⚠ Test warning\nEvidence\n\nContinue: do something'
+    const html = generateReportHtml(buildMinimalReportData(), analysis)
+    expect(html).toContain("switchTab('continue')")
+    expect(html).toContain('id="tab-continue"')
+    expect(html).toContain('class="prompt-block"')
+  })
+
+  it('does not render continue tab when no analysis', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).not.toContain("switchTab('continue')")
+    expect(html).not.toContain('id="tab-continue"')
   })
 
   it('renders metrics with warning classes when rejections or denials present', () => {
@@ -205,7 +185,7 @@ describe('generateReportHtml — overview tab rendering', () => {
       },
     }
     const html = generateReportHtml(withRejections)
-    expect(html).toContain('class="metric warn"')
+    expect(html).toContain('class="metric warn metric-link"')
   })
 
   it('renders timeline bar segments from state periods', () => {
@@ -221,6 +201,63 @@ describe('generateReportHtml — overview tab rendering', () => {
     const html = generateReportHtml(data)
     expect(html).toContain('class="tl-seg s-dev"')
     expect(html).toContain('class="tl-seg s-review"')
+  })
+
+  it('renders timeline segment title with duration', () => {
+    const data = buildMinimalReportData({
+      viewData: {
+        ...buildMinimalReportData().viewData,
+        statePeriods: [
+          { state: 'DEVELOPING', startedAt: T0, endedAt: T1, durationMs: 60000, proportionOfTotal: 1 },
+        ],
+      },
+    })
+    const html = generateReportHtml(data)
+    expect(html).toContain('title="DEVELOPING — 1m 0s"')
+  })
+
+  it('renders aggregated durations inline in legend labels', () => {
+    const data = buildMinimalReportData({
+      viewData: {
+        ...buildMinimalReportData().viewData,
+        statePeriods: [
+          { state: 'DEVELOPING', startedAt: T0, durationMs: 30000, proportionOfTotal: 0.4 },
+          { state: 'REVIEWING', startedAt: T0, durationMs: 15000, proportionOfTotal: 0.2 },
+          { state: 'DEVELOPING', startedAt: T0, durationMs: 30000, proportionOfTotal: 0.4 },
+        ],
+      },
+    })
+    const html = generateReportHtml(data)
+    expect(html).not.toContain('class="tl-summary"')
+    expect(html).toContain('DEVELOPING <span class="tl-dur">1m 0s</span>')
+    expect(html).toContain('REVIEWING <span class="tl-dur">0m 15s</span>')
+  })
+})
+
+describe('generateReportHtml — clickable metric tiles', () => {
+  it('adds drillDown onclick to rejection metric', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).toContain("onclick=\"drillDown('outcome','rejected')\"")
+  })
+
+  it('adds drillDown onclick to denial metric', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).toContain("onclick=\"drillDown('outcome','denied')\"")
+  })
+
+  it('adds drillDown onclick to blocked episodes metric', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).toContain("onclick=\"drillDown('cat','transition')\"")
+  })
+
+  it('contains drillDown function in JavaScript', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).toContain('function drillDown')
+  })
+
+  it('contains metric-link CSS class', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).toContain('.metric-link')
   })
 })
 
@@ -282,3 +319,43 @@ describe('generateReportHtml — iterations tab', () => {
     expect(html).toContain('2 rejections')
   })
 })
+
+describe('generateReportHtml — clickable event log', () => {
+  it('adds data-idx attributes to log entries with sequential indices', () => {
+    const data = buildMinimalReportData({
+      annotatedEvents: [
+        { event: { type: 'transitioned' as const, at: T0, from: 'SPAWN', to: 'PLANNING' }, state: 'PLANNING', iteration: 0 },
+        { event: { type: 'transitioned' as const, at: T1, from: 'PLANNING', to: 'DEVELOPING' }, state: 'DEVELOPING', iteration: 1 },
+      ],
+    })
+    const html = generateReportHtml(data)
+    expect(html).toContain('data-idx="0"')
+    expect(html).toContain('data-idx="1"')
+  })
+
+  it('adds onclick="toggleEvent(this)" to log entries', () => {
+    const data = buildMinimalReportData({
+      annotatedEvents: [
+        { event: { type: 'transitioned' as const, at: T0, from: 'SPAWN', to: 'PLANNING' }, state: 'PLANNING', iteration: 0 },
+      ],
+    })
+    const html = generateReportHtml(data)
+    expect(html).toContain('onclick="toggleEvent(this)"')
+  })
+
+  it('contains toggleEvent function in JavaScript', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).toContain('function toggleEvent')
+  })
+
+  it('contains le-detail CSS class for expanded panels', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).toContain('.le-detail')
+  })
+
+  it('contains le expanded CSS class', () => {
+    const html = generateReportHtml(buildMinimalReportData())
+    expect(html).toContain('.le.expanded')
+  })
+})
+

@@ -81,6 +81,22 @@ export function createStore(dbPath: string): SqliteEventStore {
   }
 }
 
+export function resolveSessionId(store: SqliteEventStore, input: string): string {
+  if (store.sessionExists(input)) return input
+  const allSessions = store.listSessions()
+  const prefixMatches = allSessions.filter((s) => s.startsWith(input))
+  const singleMatch = prefixMatches.length === 1 ? prefixMatches[0] : undefined
+  if (singleMatch !== undefined) return singleMatch
+  if (prefixMatches.length > 1) {
+    throw new WorkflowError(
+      `Ambiguous session prefix "${input}". Matches:\n${prefixMatches.map((s) => `  ${s}`).join('\n')}`,
+    )
+  }
+  throw new WorkflowError(
+    `No events found for session "${input}". Run "analyze --all" to list available sessions.`,
+  )
+}
+
 function tryParsePayload(payload: string, index: number): unknown {
   try {
     return JSON.parse(payload)

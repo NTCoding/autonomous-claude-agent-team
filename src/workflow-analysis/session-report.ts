@@ -31,6 +31,7 @@ export type EnhancedSessionSummary = SessionSummary & {
   totalDenials: number
   velocityTrend: readonly number[]
   transcriptPath: string | undefined
+  repository: string | undefined
   githubIssue: number | undefined
   featureBranch: string | undefined
   prNumber: number | undefined
@@ -46,6 +47,12 @@ function extractTranscriptPath(events: readonly WorkflowEvent[]): string | undef
   const found = events.find((e) => e.type === 'session-started')
   if (found === undefined || found.type !== 'session-started') return undefined
   return found.transcriptPath
+}
+
+function extractRepository(events: readonly WorkflowEvent[]): string | undefined {
+  const found = events.find((e) => e.type === 'session-started')
+  if (found === undefined || found.type !== 'session-started') return undefined
+  return found.repository
 }
 
 function extractGithubIssue(events: readonly WorkflowEvent[]): number | undefined {
@@ -241,6 +248,7 @@ export function computeEnhancedSessionSummary(
     totalDenials: computeTotalDenials(baseSummary),
     velocityTrend: iterationMetrics.map((m) => m.durationMs),
     transcriptPath: extractTranscriptPath(events),
+    repository: extractRepository(events),
     githubIssue: extractGithubIssue(events),
     featureBranch: extractFeatureBranch(events),
     prNumber: extractPrNumber(events),

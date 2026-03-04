@@ -22,6 +22,7 @@ function buildMinimalReportData(overrides: Partial<ReportData> = {}): ReportData
     totalDenials: 0,
     velocityTrend: [],
     transcriptPath: undefined,
+    repository: undefined,
     githubIssue: undefined,
     featureBranch: undefined,
     prNumber: undefined,
@@ -163,32 +164,26 @@ describe('generateReportHtml — journal tab', () => {
   })
 })
 
-describe('generateReportHtml — continue tab', () => {
-  it('renders prompt blocks from insights and suggestions', () => {
+describe('generateReportHtml — no continue tab', () => {
+  it('does not render continue tab pane when no analysis provided', () => {
     const data = buildMinimalReportData({
       insights: [{ severity: 'warning', title: 'Insight prompt', evidence: 'test', prompt: 'analyze this' }],
       suggestions: [{ title: 'Suggestion prompt', rationale: 'r', change: 'c', tradeoff: 't', prompt: 'fix this' }],
     })
     const html = generateReportHtml(data)
-    expect(html).toContain('prompt-block')
-    expect(html).toContain('analyze this')
-    expect(html).toContain('fix this')
-  })
-
-  it('shows no prompts message when none available', () => {
-    const html = generateReportHtml(buildMinimalReportData())
-    expect(html).toContain('No prompts available')
+    expect(html).not.toContain('tab-continue')
+    expect(html).not.toContain('No prompts available')
+    expect(html).not.toContain("switchTab('continue')")
   })
 })
 
 describe('generateReportHtml — edge cases', () => {
-  it('renders insight without prompt (success case)', () => {
+  it('does not render insight cards even when insights provided', () => {
     const data = buildMinimalReportData({
       insights: [{ severity: 'success', title: '✓ Clean', evidence: 'No issues', prompt: undefined }],
     })
     const html = generateReportHtml(data)
-    expect(html).toContain('insight success')
-    expect(html).toContain('No issues</div></div></div>')
+    expect(html).not.toContain('insight success')
   })
 
   it('renders log tab with empty events uses fallback facet counts', () => {

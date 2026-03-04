@@ -140,11 +140,12 @@ function makeDeps(overrides?: {
 }): AdapterDeps {
   return {
     getSessionId: overrides?.getSessionId ?? (() => 'test-session'),
+    getRepositoryName: () => undefined,
     readStdin: overrides?.readStdin ?? (() => makeHookStdin()),
     engineDeps: makeEngineDeps(overrides?.engineDeps),
     workflowDeps: makeWorkflowDeps(overrides?.workflowDeps),
     analyticsDeps: makeAnalyticsDeps(overrides?.analyticsDeps),
-    reportDeps: { generateReport: () => '/tmp/report.html' },
+    reportDeps: { getAnalysisContext: () => '', generateReport: () => ({ path: '/tmp/report.html' }), readAnalysisFile: () => '' },
   }
 }
 

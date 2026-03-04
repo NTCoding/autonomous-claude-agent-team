@@ -12,6 +12,11 @@ describe('WorkflowEventSchema — session-started', () => {
     const result = WorkflowEventSchema.parse({ type: 'session-started', at: AT, transcriptPath: '/tmp/t.json' })
     expect(result.type).toStrictEqual('session-started')
   })
+
+  it('accepts optional repository', () => {
+    const result = WorkflowEventSchema.parse({ type: 'session-started', at: AT, repository: 'owner/repo' })
+    expect(result.type).toStrictEqual('session-started')
+  })
 })
 
 describe('WorkflowEventSchema — issue-recorded', () => {

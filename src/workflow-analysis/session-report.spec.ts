@@ -39,10 +39,13 @@ function bashDenied(at: string, command: string): WorkflowEvent {
   return { type: 'bash-checked' as const, at, tool: 'Bash', command, allowed: false, reason: 'blocked' }
 }
 
-function sessionStarted(at: string, _sessionId: string, transcriptPath?: string): WorkflowEvent {
+function sessionStarted(at: string, _sessionId: string, transcriptPath?: string, repository?: string): WorkflowEvent {
   const base = { type: 'session-started' as const, at }
-  if (transcriptPath !== undefined) return { ...base, transcriptPath }
-  return base
+  return {
+    ...base,
+    ...(transcriptPath === undefined ? {} : { transcriptPath }),
+    ...(repository === undefined ? {} : { repository }),
+  }
 }
 
 function issueRecorded(at: string, issueNumber: number): WorkflowEvent {
@@ -131,11 +134,24 @@ describe('computeEnhancedSessionSummary — metadata extraction', () => {
     expect(result.prNumber).toStrictEqual(99)
   })
 
+  it('extracts repository from session-started event', () => {
+    const events: readonly WorkflowEvent[] = [sessionStarted(T0, 'sess-1', undefined, 'owner/repo')]
+    const result = computeEnhancedSessionSummary(baseSummary(), baseViewData(), events)
+    expect(result.repository).toStrictEqual('owner/repo')
+  })
+
+  it('returns undefined repository when session-started has no repository', () => {
+    const events: readonly WorkflowEvent[] = [sessionStarted(T0, 'sess-1')]
+    const result = computeEnhancedSessionSummary(baseSummary(), baseViewData(), events)
+    expect(result.repository).toBeUndefined()
+  })
+
   it('returns undefined for all metadata when no relevant events exist', () => {
     const result = computeEnhancedSessionSummary(baseSummary(), baseViewData(), [])
     expect(result.transcriptPath).toBeUndefined()
     expect(result.githubIssue).toBeUndefined()
     expect(result.featureBranch).toBeUndefined()
+    expect(result.repository).toBeUndefined()
   })
 })
 

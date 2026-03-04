@@ -74,8 +74,8 @@ export class Workflow {
     return `${pluginRoot}/${getStateDefinition(this.state.state).agentInstructions}`
   }
 
-  startSession(transcriptPath: string | undefined): void {
-    this.append({ type: 'session-started', at: this.deps.now(), ...(transcriptPath === undefined ? {} : { transcriptPath }) })
+  startSession(transcriptPath: string | undefined, repository: string | undefined): void {
+    this.append({ type: 'session-started', at: this.deps.now(), ...(transcriptPath === undefined ? {} : { transcriptPath }), ...(repository === undefined ? {} : { repository }) })
   }
 
   recordIssue(issueNumber: number): PreconditionResult {

@@ -1,7 +1,7 @@
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createStore } from './sqlite-event-store.js'
+import { createStore, resolveSessionId } from './sqlite-event-store.js'
 
 const tmpDb = (name: string): string => join(tmpdir(), `sqlite-event-store-spec-${name}.db`)
 
@@ -93,6 +93,38 @@ describe('listSessions', () => {
     store.appendEvents('beta', [{ type: 'ev', at: '2026-01-01T00:01:00.000Z' }])
     store.appendEvents('gamma', [{ type: 'ev', at: '2026-01-01T00:02:00.000Z' }])
     expect(store.listSessions()).toStrictEqual(['alpha', 'beta', 'gamma'])
+  })
+})
+
+describe('resolveSessionId', () => {
+  const dbPath = tmpDb('resolveSessionId')
+  afterAll(() => { cleanup(dbPath) })
+
+  it('returns input when exact match exists', () => {
+    const store = createStore(dbPath)
+    store.appendEvents('abc-123-full', [{ type: 'ev', at: '2026-01-01T00:00:00.000Z' }])
+    expect(resolveSessionId(store, 'abc-123-full')).toStrictEqual('abc-123-full')
+  })
+
+  it('resolves unique prefix to full session ID', () => {
+    const store = createStore(dbPath)
+    store.appendEvents('unique-prefix-xyz789', [{ type: 'ev', at: '2026-01-01T00:00:00.000Z' }])
+    expect(resolveSessionId(store, 'unique-prefix')).toStrictEqual('unique-prefix-xyz789')
+  })
+
+  it('throws with candidates when prefix is ambiguous', () => {
+    const store = createStore(dbPath)
+    store.appendEvents('ambig-aaa', [{ type: 'ev', at: '2026-01-01T00:00:00.000Z' }])
+    store.appendEvents('ambig-bbb', [{ type: 'ev', at: '2026-01-01T00:01:00.000Z' }])
+    expect(() => resolveSessionId(store, 'ambig')).toThrow('Ambiguous session prefix "ambig"')
+    expect(() => resolveSessionId(store, 'ambig')).toThrow('ambig-aaa')
+    expect(() => resolveSessionId(store, 'ambig')).toThrow('ambig-bbb')
+  })
+
+  it('throws with guidance when no match at all', () => {
+    const store = createStore(dbPath)
+    expect(() => resolveSessionId(store, 'nonexistent-zzz')).toThrow('No events found for session "nonexistent-zzz"')
+    expect(() => resolveSessionId(store, 'nonexistent-zzz')).toThrow('analyze --all')
   })
 })
 

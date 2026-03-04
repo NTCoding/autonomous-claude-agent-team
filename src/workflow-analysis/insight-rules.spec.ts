@@ -39,6 +39,7 @@ function baseSummary(overrides: Partial<EnhancedSessionSummary> = {}): EnhancedS
     totalDenials: 0,
     velocityTrend: [ms(5), ms(5)],
     transcriptPath: '/tmp/transcript.jsonl',
+    repository: 'owner/repo',
     githubIssue: 42,
     featureBranch: 'feature/x',
     prNumber: 99,

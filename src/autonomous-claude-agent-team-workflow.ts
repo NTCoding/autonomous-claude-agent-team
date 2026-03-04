@@ -17,8 +17,8 @@ import {
 } from './infra/hook-io.js'
 import { WorkflowError } from './infra/workflow-error.js'
 import { buildRealDeps } from './infra/composition-root.js'
-import type { AnalyticsDeps, ReportDeps, AdapterDeps } from './infra/composition-root.js'
-export type { AnalyticsDeps, ReportDeps, AdapterDeps }
+import type { AnalyticsDeps, ReportDeps, ReportResult, AdapterDeps } from './infra/composition-root.js'
+export type { AnalyticsDeps, ReportDeps, ReportResult, AdapterDeps }
 
 type OperationResult = { readonly output: string; readonly exitCode: number }
 
@@ -82,13 +82,41 @@ function runHookMode(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): Opera
   return handler(engine, cachedDeps)
 }
 
+function extractPositionalArgs(args: readonly string[]): readonly string[] {
+  const renderIdx = args.indexOf('--render')
+  const renderValueIdx = renderIdx === -1 ? -1 : renderIdx + 1
+  return args.filter((a, i) => !a.startsWith('--') && i !== renderValueIdx)
+}
+
 function handleViewReport(args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
-  const sessionId = args[1]
+  const positionalArgs = extractPositionalArgs(args)
+  const sessionId = positionalArgs[1]
   if (!sessionId) {
     return { output: 'view-report: missing required argument <sessionId>', exitCode: EXIT_ERROR }
   }
-  const path = deps.reportDeps.generateReport(sessionId)
-  return { output: path, exitCode: EXIT_ALLOW }
+  const simple = args.includes('--simple')
+  const renderIdx = args.indexOf('--render')
+  const analysisFile = renderIdx === -1 ? undefined : args[renderIdx + 1]
+
+  try {
+    if (simple) {
+      const result = deps.reportDeps.generateReport(sessionId)
+      return { output: result.path, exitCode: EXIT_ALLOW }
+    }
+
+    if (analysisFile) {
+      const analysis = deps.reportDeps.readAnalysisFile(analysisFile)
+      const result = deps.reportDeps.generateReport(sessionId, { analysis })
+      return { output: result.path, exitCode: EXIT_ALLOW }
+    }
+
+    return { output: deps.reportDeps.getAnalysisContext(sessionId), exitCode: EXIT_ALLOW }
+  } catch (error) {
+    if (error instanceof WorkflowError) {
+      return { output: `view-report: ${error.message}`, exitCode: EXIT_ERROR }
+    }
+    throw error
+  }
 }
 
 function handleAnalyze(args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -103,7 +131,7 @@ function handleAnalyze(args: readonly string[], _engine: WorkflowEngine<Workflow
 }
 
 function handleInit(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
-  return mapResult(engine.startSession(deps.getSessionId()))
+  return mapResult(engine.startSession(deps.getSessionId(), undefined, deps.getRepositoryName()))
 }
 
 function handleTransition(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {

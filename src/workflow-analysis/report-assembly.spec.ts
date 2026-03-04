@@ -147,6 +147,7 @@ describe('assembleReportData', () => {
     totalDenials: 0,
     velocityTrend: [],
     transcriptPath: undefined,
+    repository: undefined,
     githubIssue: undefined,
     featureBranch: undefined,
     prNumber: undefined,

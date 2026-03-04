@@ -22,7 +22,7 @@ export interface RehydratableWorkflow {
   transitionTo(target: string): PreconditionResult
   getPendingEvents(): readonly BaseEvent[]
   verifyIdentity(transcriptPath: string): PreconditionResult
-  startSession(transcriptPath: string | undefined): void
+  startSession(transcriptPath: string | undefined, repository: string | undefined): void
 }
 
 export type WorkflowDeps = {
@@ -78,12 +78,12 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     this.workflowDeps = workflowDeps
   }
 
-  startSession(sessionId: string, transcriptPath?: string): EngineResult {
+  startSession(sessionId: string, transcriptPath?: string, repository?: string): EngineResult {
     if (this.engineDeps.store.sessionExists(sessionId)) {
       return { type: 'success', output: '' }
     }
     const workflow = this.factory.createFresh(this.workflowDeps)
-    workflow.startSession(transcriptPath)
+    workflow.startSession(transcriptPath, repository)
     this.engineDeps.store.appendEvents(sessionId, workflow.getPendingEvents())
     const initial = this.factory.initialState()
     const procedurePath = this.factory.procedurePath(initial.state, this.engineDeps.getPluginRoot())

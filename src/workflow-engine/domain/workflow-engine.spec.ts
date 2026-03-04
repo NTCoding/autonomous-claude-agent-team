@@ -58,11 +58,12 @@ class StubWorkflow implements RehydratableWorkflow {
     return pass()
   }
 
-  startSession(transcriptPath: string | undefined): void {
+  startSession(transcriptPath: string | undefined, repository: string | undefined): void {
     const event: BaseEvent = {
       type: 'session-started',
       at: '2026-01-01T00:00:00.000Z',
       ...(transcriptPath === undefined ? {} : { transcriptPath }),
+      ...(repository === undefined ? {} : { repository }),
     }
     this.pending = [...this.pending, event]
   }
@@ -173,6 +174,15 @@ describe('WorkflowEngine.startSession', () => {
     engine.startSession('sess1')
     expect(appended[0]?.sessionId).toStrictEqual('sess1')
     expect(appended[0]?.events[0]?.type).toStrictEqual('session-started')
+  })
+
+  it('forwards repository to session-started event', () => {
+    const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
+    const engine = makeEngine({
+      store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
+    })
+    engine.startSession('sess1', undefined, 'owner/repo')
+    expect(appended[0]?.events[0]).toMatchObject({ repository: 'owner/repo' })
   })
 
   it('returns empty output when session already exists', () => {

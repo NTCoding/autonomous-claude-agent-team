@@ -60,7 +60,7 @@ describe('Workflow', () => {
   describe('startSession', () => {
     it('appends session-started event with transcriptPath', () => {
       const wf = Workflow.createFresh(makeDeps())
-      wf.startSession('/tmp/transcript.jsonl')
+      wf.startSession('/tmp/transcript.jsonl', undefined)
       const pending = wf.getPendingEvents()
       expect(pending).toHaveLength(1)
       expect(pending[0]).toMatchObject({ type: 'session-started', transcriptPath: '/tmp/transcript.jsonl' })
@@ -68,11 +68,21 @@ describe('Workflow', () => {
 
     it('appends session-started event without transcriptPath when undefined', () => {
       const wf = Workflow.createFresh(makeDeps())
-      wf.startSession(undefined)
-      const pending = wf.getPendingEvents()
-      expect(pending).toHaveLength(1)
-      expect(pending[0]).toMatchObject({ type: 'session-started' })
-      expect(pending[0]).not.toHaveProperty('transcriptPath')
+      wf.startSession(undefined, undefined)
+      expect(wf.getPendingEvents()).toHaveLength(1)
+      expect(wf.getPendingEvents()[0]).not.toHaveProperty('transcriptPath')
+    })
+
+    it('appends session-started event with repository when provided', () => {
+      const wf = Workflow.createFresh(makeDeps())
+      wf.startSession(undefined, 'owner/repo')
+      expect(wf.getPendingEvents()[0]).toMatchObject({ type: 'session-started', repository: 'owner/repo' })
+    })
+
+    it('omits repository from event when undefined', () => {
+      const wf = Workflow.createFresh(makeDeps())
+      wf.startSession(undefined, undefined)
+      expect(wf.getPendingEvents()[0]).not.toHaveProperty('repository')
     })
   })
 

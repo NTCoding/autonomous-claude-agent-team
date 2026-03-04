@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from '../workflow-engine/index.js'
@@ -10,15 +11,14 @@ import {
   formatCrossSessionSummary,
   computeEnhancedSessionSummary,
   buildSessionViewData,
-  evaluateInsightRules,
-  evaluateSuggestionRules,
   assembleReportData,
   generateReportHtml,
+  formatAnalysisContext,
 } from '../workflow-analysis/index.js'
-import { createStore } from '../workflow-event-store/index.js'
+import { createStore, resolveSessionId } from '../workflow-event-store/index.js'
 import { WorkflowEventSchema } from '../workflow-definition/index.js'
 import { getSessionId, getPluginRoot, getEnvFilePath, getDbPath } from './environment.js'
-import { getGitInfo } from './git.js'
+import { getGitInfo, getRepositoryName } from './git.js'
 import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './github.js'
 import { readStdinSync } from './stdin.js'
 import { readTranscriptMessages } from './transcript.js'
@@ -30,12 +30,19 @@ export type AnalyticsDeps = {
   readonly computeEventContext: (sessionId: string) => string
 }
 
+export type ReportResult = {
+  readonly path: string
+}
+
 export type ReportDeps = {
-  readonly generateReport: (sessionId: string) => string
+  readonly getAnalysisContext: (sessionId: string) => string
+  readonly generateReport: (sessionId: string, options?: { analysis?: string }) => ReportResult
+  readonly readAnalysisFile: (filePath: string) => string
 }
 
 export type AdapterDeps = {
   readonly getSessionId: () => string
+  readonly getRepositoryName: () => string | undefined
   readonly readStdin: () => string
   readonly engineDeps: WorkflowEngineDeps
   readonly workflowDeps: WorkflowRuntimeDeps
@@ -76,26 +83,40 @@ export function buildRealDeps(): AdapterDeps {
   }
 
   const reportDeps: ReportDeps = {
-    generateReport: (sessionId) => {
+    getAnalysisContext: (sessionId) => {
       const eventStore = createStore(getDbPath())
-      const rawEvents = eventStore.readEvents(sessionId)
+      const resolvedId = resolveSessionId(eventStore, sessionId)
+      const rawEvents = eventStore.readEvents(resolvedId)
       const events = rawEvents.map((e) => WorkflowEventSchema.parse(e))
-      const baseSummary = computeSessionSummary(eventStore, sessionId)
-      const viewData = buildSessionViewData(sessionId, rawEvents)
+      const baseSummary = computeSessionSummary(eventStore, resolvedId)
+      const viewData = buildSessionViewData(resolvedId, rawEvents)
       const enhanced = computeEnhancedSessionSummary(baseSummary, viewData, events)
-      const insights = evaluateInsightRules(enhanced, events)
-      const suggestions = evaluateSuggestionRules(enhanced, events)
-      const data = assembleReportData(enhanced, viewData, insights, suggestions, events)
-      const html = generateReportHtml(data)
-      const htmlPath = join(tmpdir(), `session-report-${sessionId}.html`)
-      writeFileSync(htmlPath, html)
-      import('node:child_process').then(({ exec }) => { exec(`open ${htmlPath}`) })
-      return htmlPath
+      const enhancedWithRepo = { ...enhanced, repository: enhanced.repository ?? getRepositoryName() }
+      const data = assembleReportData(enhancedWithRepo, viewData, [], [], events)
+      return formatAnalysisContext(data)
     },
+    generateReport: (sessionId, options) => {
+      const eventStore = createStore(getDbPath())
+      const resolvedId = resolveSessionId(eventStore, sessionId)
+      const rawEvents = eventStore.readEvents(resolvedId)
+      const events = rawEvents.map((e) => WorkflowEventSchema.parse(e))
+      const baseSummary = computeSessionSummary(eventStore, resolvedId)
+      const viewData = buildSessionViewData(resolvedId, rawEvents)
+      const enhanced = computeEnhancedSessionSummary(baseSummary, viewData, events)
+      const enhancedWithRepo = { ...enhanced, repository: enhanced.repository ?? getRepositoryName() }
+      const data = assembleReportData(enhancedWithRepo, viewData, [], [], events)
+      const html = generateReportHtml(data, options?.analysis)
+      const htmlPath = join(tmpdir(), `session-report-${resolvedId}.html`)
+      writeFileSync(htmlPath, html)
+      try { execSync(`open ${JSON.stringify(htmlPath)}`) } catch { }
+      return { path: htmlPath }
+    },
+    readAnalysisFile: (filePath) => readFileSync(filePath, 'utf8'),
   }
 
   return {
     getSessionId,
+    getRepositoryName,
     readStdin: readStdinSync,
     engineDeps,
     workflowDeps,

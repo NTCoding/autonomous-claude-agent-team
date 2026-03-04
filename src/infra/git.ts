@@ -47,3 +47,16 @@ function getChangedFilesVsDefault(defaultBranch: string): readonly string[] {
 function hasCommitsVsDefault(defaultBranch: string): boolean {
   return execSync(`git rev-list HEAD ^${defaultBranch}`, { encoding: 'utf-8' }).trim().length > 0
 }
+
+export function getRepositoryName(): string | undefined {
+  try {
+    const url = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
+    const httpsMatch = url.match(/github\.com\/([^/]+\/[^/.]+?)(?:\.git)?$/)
+    if (httpsMatch?.[1] !== undefined) return httpsMatch[1]
+    const sshMatch = url.match(/github\.com:([^/]+\/[^/.]+?)(?:\.git)?$/)
+    if (sshMatch?.[1] !== undefined) return sshMatch[1]
+    return undefined
+  } catch {
+    return undefined
+  }
+}

@@ -8,6 +8,7 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: [
         'src/**/*.spec.ts',
+        'src/**/*-test-fixtures.ts',
         'src/workflow-dsl/domain/types.ts',
       ],
       thresholds: {
