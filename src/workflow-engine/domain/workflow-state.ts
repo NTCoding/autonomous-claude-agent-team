@@ -7,14 +7,6 @@ export class WorkflowStateError extends Error {
   }
 }
 
-export const EventLogEntry = z.object({
-  op: z.string(),
-  at: z.string(),
-  detail: z.record(z.unknown()).optional(),
-})
-
-export type EventLogEntry = z.infer<typeof EventLogEntry>
-
 const IterationStateSchema = z.object({
   task: z.string(),
   developerDone: z.boolean(),
@@ -41,7 +33,7 @@ export function createWorkflowStateSchema(stateNames: readonly [string, ...strin
     userApprovedPlan: z.boolean(),
     activeAgents: z.array(z.string()),
     transcriptPath: z.string().optional(),
-    eventLog: z.array(EventLogEntry),
+    preBlockedState: z.string().optional(),
   })
 }
 
@@ -55,5 +47,5 @@ export type WorkflowState = {
   userApprovedPlan: boolean
   activeAgents: string[]
   transcriptPath?: string | undefined
-  eventLog: EventLogEntry[]
+  preBlockedState?: string | undefined
 }

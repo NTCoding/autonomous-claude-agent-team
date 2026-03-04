@@ -12,9 +12,8 @@ describe('getOperationBody', () => {
     expect(body).toContain('#42')
   })
 
-  it('returns fallback for record-issue without issue', () => {
-    const body = getOperationBody('record-issue', makeState())
-    expect(body).toContain('#?')
+  it('throws when record-issue called without issue', () => {
+    expect(() => getOperationBody('record-issue', makeState())).toThrow("Expected 'githubIssue' to be set")
   })
 
   it('returns branch name for record-branch', () => {
@@ -22,9 +21,8 @@ describe('getOperationBody', () => {
     expect(body).toContain('feature/x')
   })
 
-  it('returns fallback for record-branch without branch', () => {
-    const body = getOperationBody('record-branch', makeState())
-    expect(body).toContain("'?'")
+  it('throws when record-branch called without branch', () => {
+    expect(() => getOperationBody('record-branch', makeState())).toThrow("Expected 'featureBranch' to be set")
   })
 
   it('returns approval message for record-plan-approval', () => {
@@ -40,9 +38,8 @@ describe('getOperationBody', () => {
     expect(body).toContain('Add foo')
   })
 
-  it('returns fallback for assign-iteration-task without iterations', () => {
-    const body = getOperationBody('assign-iteration-task', makeState())
-    expect(body).toContain("'?'")
+  it('throws when assign-iteration-task called without iterations', () => {
+    expect(() => getOperationBody('assign-iteration-task', makeState())).toThrow("Expected 'current iteration task' to be set")
   })
 
   it('returns signal-done message', () => {
@@ -56,9 +53,8 @@ describe('getOperationBody', () => {
     expect(body).toContain('#7')
   })
 
-  it('returns fallback for record-pr without pr number', () => {
-    const body = getOperationBody('record-pr', makeState())
-    expect(body).toContain('#?')
+  it('throws when record-pr called without pr number', () => {
+    expect(() => getOperationBody('record-pr', makeState())).toThrow("Expected 'prNumber' to be set")
   })
 
   it('returns draft pr message for create-pr', () => {
@@ -66,9 +62,8 @@ describe('getOperationBody', () => {
     expect(body).toContain('Draft PR #10')
   })
 
-  it('returns fallback for create-pr without pr number', () => {
-    const body = getOperationBody('create-pr', makeState())
-    expect(body).toContain('#?')
+  it('throws when create-pr called without pr number', () => {
+    expect(() => getOperationBody('create-pr', makeState())).toThrow("Expected 'prNumber' to be set")
   })
 
   it('returns checklist message for append-issue-checklist', () => {
@@ -79,6 +74,14 @@ describe('getOperationBody', () => {
   it('returns tick message for tick-iteration', () => {
     const body = getOperationBody('tick-iteration', makeState({ githubIssue: 5 }))
     expect(body).toContain('#5')
+  })
+
+  it('throws when append-issue-checklist called without issue', () => {
+    expect(() => getOperationBody('append-issue-checklist', makeState())).toThrow("Expected 'githubIssue' to be set")
+  })
+
+  it('throws when tick-iteration called without issue', () => {
+    expect(() => getOperationBody('tick-iteration', makeState())).toThrow("Expected 'githubIssue' to be set")
   })
 
   it('returns review-approved message', () => {

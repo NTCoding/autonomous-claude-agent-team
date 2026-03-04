@@ -1,6 +1,7 @@
 import tseslint from 'typescript-eslint'
 import vitestPlugin from '@vitest/eslint-plugin'
 import noGenericNames from './lint/no-generic-names.js'
+import noLineComments from './lint/no-line-comments.js'
 
 export default tseslint.config(
   {
@@ -8,6 +9,7 @@ export default tseslint.config(
       custom: {
         rules: {
           'no-generic-names': noGenericNames,
+          'no-line-comments': noLineComments,
         },
       },
     },
@@ -37,8 +39,10 @@ export default tseslint.config(
         },
       ],
       'prefer-const': 'error',
+      'max-lines': ['error', 400],
       'max-depth': ['error', 3],
       complexity: ['error', 12],
+      'custom/no-line-comments': 'error',
       'no-inline-comments': 'error',
       'no-negated-condition': 'error',
     },

@@ -1,4 +1,5 @@
-import { getSessionId, getPluginRoot, getEnvFilePath, getStateFilePath } from './environment.js'
+import { homedir } from 'node:os'
+import { getSessionId, getPluginRoot, getEnvFilePath, getStateFilePath, getDbPath } from './environment.js'
 
 describe('getSessionId', () => {
   it('returns value when CLAUDE_SESSION_ID is set', () => {
@@ -46,5 +47,11 @@ describe('getStateFilePath', () => {
 
   it('uses different session ID correctly', () => {
     expect(getStateFilePath('xyz-789')).toStrictEqual('/tmp/feature-team-state-xyz-789.json')
+  })
+})
+
+describe('getDbPath', () => {
+  it('returns path under home directory', () => {
+    expect(getDbPath()).toStrictEqual(`${homedir()}/.claude/workflow-events.db`)
   })
 })

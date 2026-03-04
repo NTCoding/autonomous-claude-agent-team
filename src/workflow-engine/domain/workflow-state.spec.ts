@@ -1,4 +1,4 @@
-import { EventLogEntry, createWorkflowStateSchema } from './workflow-state.js'
+import { createWorkflowStateSchema } from './workflow-state.js'
 
 const STATE_NAMES = ['SPAWN', 'PLANNING', 'RESPAWN', 'DEVELOPING', 'REVIEWING',
   'COMMITTING', 'CR_REVIEW', 'PR_CREATION', 'FEEDBACK', 'BLOCKED', 'COMPLETE'] as const
@@ -20,29 +20,11 @@ describe('createWorkflowStateSchema — StateName', () => {
   })
 })
 
-describe('EventLogEntry', () => {
-  it('parses entry with required fields', () => {
-    const entry = EventLogEntry.parse({ op: 'init', at: '2026-01-01T00:00:00Z' })
-    expect(entry.op).toStrictEqual('init')
-    expect(entry.at).toStrictEqual('2026-01-01T00:00:00Z')
-  })
-
-  it('parses entry with optional detail', () => {
-    const entry = EventLogEntry.parse({ op: 'transition', at: '2026-01-01T00:00:00Z', detail: { to: 'PLANNING' } })
-    expect(entry.detail).toStrictEqual({ to: 'PLANNING' })
-  })
-
-  it('rejects entry missing op', () => {
-    expect(() => EventLogEntry.parse({ at: '2026-01-01T00:00:00Z' })).toThrow('Required')
-  })
-})
-
 describe('createWorkflowStateSchema — WorkflowState', () => {
   it('parses valid minimal state', () => {
     const raw = {
       state: 'SPAWN', iteration: 0, iterations: [],
       userApprovedPlan: false, activeAgents: [],
-      eventLog: [],
     }
     const parsed = WorkflowState.parse(raw)
     expect(parsed.state).toStrictEqual('SPAWN')
@@ -62,20 +44,19 @@ describe('createWorkflowStateSchema — WorkflowState', () => {
         developingHeadCommit: 'abc123',
       }],
       userApprovedPlan: true, activeAgents: ['dev-1'],
-      eventLog: [],
       githubIssue: 42, featureBranch: 'feature/foo',
-      prNumber: 7,
+      prNumber: 7, preBlockedState: 'DEVELOPING',
     }
     const parsed = WorkflowState.parse(raw)
     expect(parsed.githubIssue).toStrictEqual(42)
     expect(parsed.prNumber).toStrictEqual(7)
+    expect(parsed.preBlockedState).toStrictEqual('DEVELOPING')
   })
 
   it('rejects invalid state name', () => {
     const raw = {
       state: 'INVALID', iteration: 0, iterations: [],
       userApprovedPlan: false, activeAgents: [],
-      eventLog: [],
     }
     expect(() => WorkflowState.parse(raw)).toThrow('Invalid enum value')
   })
@@ -84,7 +65,6 @@ describe('createWorkflowStateSchema — WorkflowState', () => {
     const raw = {
       state: 'SPAWN', iteration: -1, iterations: [],
       userApprovedPlan: false, activeAgents: [],
-      eventLog: [],
     }
     expect(() => WorkflowState.parse(raw)).toThrow('greater than or equal to')
   })
@@ -93,8 +73,18 @@ describe('createWorkflowStateSchema — WorkflowState', () => {
     const raw = {
       state: 'SPAWN', iteration: 0, iterations: [],
       userApprovedPlan: false, activeAgents: [],
-      eventLog: [], githubIssue: -1,
+      githubIssue: -1,
     }
     expect(() => WorkflowState.parse(raw)).toThrow('greater than 0')
+  })
+
+  it('accepts optional preBlockedState', () => {
+    const raw = {
+      state: 'BLOCKED', iteration: 0, iterations: [],
+      userApprovedPlan: false, activeAgents: [],
+      preBlockedState: 'PLANNING',
+    }
+    const parsed = WorkflowState.parse(raw)
+    expect(parsed.preBlockedState).toStrictEqual('PLANNING')
   })
 })

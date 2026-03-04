@@ -65,7 +65,7 @@ module.exports = {
       name: 'entrypoint-allowed-imports',
       severity: 'error',
       comment:
-        'Entrypoint must import from workflow-definition/, workflow-engine/, or infra/ — never from internal domain/ paths',
+        'Entrypoint must import from workflow-definition/, workflow-engine/, or infra/ — never from internal domain/ paths or other modules directly',
       from: { path: '^src/autonomous-claude-agent-team-workflow\\.ts$' },
       to: {
         path: '^src/(?!workflow-definition/|workflow-engine/|infra/)',

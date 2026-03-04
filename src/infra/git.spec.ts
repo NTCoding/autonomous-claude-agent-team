@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import { execSync } from 'node:child_process'
-import { getGitInfo } from './git.js'
+import { getGitInfo, getRepositoryName } from './git.js'
 import { WorkflowError } from './workflow-error.js'
 
 vi.mock('node:child_process', () => ({
@@ -97,5 +97,37 @@ describe('getGitInfo — has commits', () => {
   it('returns true when commits exist beyond default branch', () => {
     setupMocks({ revList: 'abc123\ndef456\n' })
     expect(getGitInfo().hasCommitsVsDefault).toStrictEqual(true)
+  })
+})
+
+describe('getRepositoryName', () => {
+  it('parses owner/repo from HTTPS URL', () => {
+    mockExecSync.mockReturnValueOnce('https://github.com/owner/repo.git\n')
+    expect(getRepositoryName()).toStrictEqual('owner/repo')
+  })
+
+  it('parses owner/repo from HTTPS URL without .git suffix', () => {
+    mockExecSync.mockReturnValueOnce('https://github.com/owner/repo\n')
+    expect(getRepositoryName()).toStrictEqual('owner/repo')
+  })
+
+  it('parses owner/repo from SSH URL', () => {
+    mockExecSync.mockReturnValueOnce('git@github.com:owner/repo.git\n')
+    expect(getRepositoryName()).toStrictEqual('owner/repo')
+  })
+
+  it('parses owner/repo from SSH URL without .git suffix', () => {
+    mockExecSync.mockReturnValueOnce('git@github.com:owner/repo\n')
+    expect(getRepositoryName()).toStrictEqual('owner/repo')
+  })
+
+  it('returns undefined when remote command fails', () => {
+    mockExecSync.mockImplementationOnce(() => { throw new WorkflowError('no remote') })
+    expect(getRepositoryName()).toBeUndefined()
+  })
+
+  it('returns undefined for unrecognized URL format', () => {
+    mockExecSync.mockReturnValueOnce('https://gitlab.com/owner/repo.git\n')
+    expect(getRepositoryName()).toBeUndefined()
   })
 })

@@ -220,3 +220,16 @@ See [`docs/architecture.md`](docs/architecture.md) for dependency rules, module 
 **Why the GitHub issue is mandatory:** `/autonomous-claude-agent-team:workflow transition` blocks `Any → DEVELOPING` without `githubIssue` set. Every session must have a ticket before a line of code is written.
 
 **Why the PR must be a draft:** The workflow never opens the PR. It creates a draft and hands off to you. What you do with it is your decision.
+
+## Analytics & Session Reports
+
+All workflow events are persisted to SQLite at `~/.claude/workflow-events.db`. Four commands provide observability:
+
+| Command | Description |
+|---|---|
+| `/autonomous-claude-agent-team:workflow analyze <session-id>` | Session summary: duration, iterations, state durations, hook denials, review outcomes |
+| `/autonomous-claude-agent-team:workflow analyze --all` | Cross-session summary: totals, averages, hook denial hotspots |
+| `/autonomous-claude-agent-team:workflow event-context` | Current session context: state, iterations, active agents, recent events |
+| `/autonomous-claude-agent-team:workflow view-report <session-id>` | Opens a self-contained HTML session report with insights, faceted event log, journal, and iteration analysis |
+
+The session report includes heuristic insights (rework patterns, hook denial clusters, velocity anomalies), actionable suggestions pointing at specific files, and "Continue with Claude" prompts for deeper analysis.

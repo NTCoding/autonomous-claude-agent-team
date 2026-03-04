@@ -50,14 +50,13 @@ export const INITIAL_STATE: WorkflowState = {
   iterations: [],
   userApprovedPlan: false,
   activeAgents: [],
-  eventLog: [],
 }
 
 export function parseStateName(value: string): StateName {
   return StateNameSchema.parse(value)
 }
 
-export const STATE_EMOJI_MAP: Readonly<Record<string, string | undefined>> = {
+export const STATE_EMOJI_MAP: Readonly<Record<StateName, string>> = {
   SPAWN: '🟣',
   PLANNING: '⚪',
   RESPAWN: '🔄',
@@ -69,4 +68,4 @@ export const STATE_EMOJI_MAP: Readonly<Record<string, string | undefined>> = {
   FEEDBACK: '💬',
   BLOCKED: '⚠️',
   COMPLETE: '✅',
-} satisfies Readonly<Record<StateName, string>>
+}

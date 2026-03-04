@@ -1,17 +1,9 @@
-import { readFileSync, existsSync, appendFileSync } from 'node:fs'
+import { appendFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { EngineResult } from './workflow-engine/index.js'
 import { WorkflowEngine } from './workflow-engine/index.js'
-import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from './workflow-engine/index.js'
 import { WorkflowAdapter, StateNameSchema } from './workflow-definition/index.js'
-import { Workflow } from './workflow-definition/index.js'
-import { readState, writeState, stateFileExists } from './infra/state-store.js'
-import { getSessionId, getPluginRoot, getEnvFilePath, getStateFilePath } from './infra/environment.js'
-import { getGitInfo } from './infra/git.js'
-import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './infra/github.js'
-import { readStdinSync } from './infra/stdin.js'
-import { readTranscriptMessages } from './infra/transcript.js'
-import { runEslintOnFiles } from './infra/linter.js'
+import type { Workflow } from './workflow-definition/index.js'
 import {
   parsePreToolUseInput,
   parseSubagentStartInput,
@@ -23,19 +15,17 @@ import {
   EXIT_ERROR,
   EXIT_BLOCK,
 } from './infra/hook-io.js'
+import { WorkflowError } from './infra/workflow-error.js'
+import { buildRealDeps } from './infra/composition-root.js'
+import type { AnalyticsDeps, ReportDeps, ReportResult, AdapterDeps } from './infra/composition-root.js'
+export type { AnalyticsDeps, ReportDeps, ReportResult, AdapterDeps }
 
 type OperationResult = { readonly output: string; readonly exitCode: number }
-
-export type AdapterDeps = {
-  readonly getSessionId: () => string
-  readonly readStdin: () => string
-  readonly engineDeps: WorkflowEngineDeps
-  readonly workflowDeps: WorkflowRuntimeDeps
-}
 
 type CommandHandler = (args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult
 
 const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
+  analyze: handleAnalyze,
   init: handleInit,
   transition: handleTransition,
   'record-issue': handleRecordIssue,
@@ -53,6 +43,9 @@ const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   'coderabbit-feedback-addressed': handleCoderabbitFeedbackAddressed,
   'coderabbit-feedback-ignored': handleCoderabbitFeedbackIgnored,
   'shut-down': handleShutDown,
+  'write-journal': handleWriteJournal,
+  'event-context': handleEventContext,
+  'view-report': handleViewReport,
 }
 
 const HOOK_HANDLERS: Readonly<Record<string, (engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult>> = {
@@ -83,11 +76,62 @@ function runHookMode(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): Opera
   if (!handler) {
     return { output: `Unknown hook event: ${common.hook_event_name}`, exitCode: EXIT_ERROR }
   }
+  if (common.hook_event_name !== 'SessionStart' && !engine.hasSession(common.session_id)) {
+    return { output: '', exitCode: EXIT_ALLOW }
+  }
   return handler(engine, cachedDeps)
 }
 
+function extractPositionalArgs(args: readonly string[]): readonly string[] {
+  const renderIdx = args.indexOf('--render')
+  const renderValueIdx = renderIdx === -1 ? -1 : renderIdx + 1
+  return args.filter((a, i) => !a.startsWith('--') && i !== renderValueIdx)
+}
+
+function handleViewReport(args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const positionalArgs = extractPositionalArgs(args)
+  const sessionId = positionalArgs[1]
+  if (!sessionId) {
+    return { output: 'view-report: missing required argument <sessionId>', exitCode: EXIT_ERROR }
+  }
+  const simple = args.includes('--simple')
+  const renderIdx = args.indexOf('--render')
+  const analysisFile = renderIdx === -1 ? undefined : args[renderIdx + 1]
+
+  try {
+    if (simple) {
+      const result = deps.reportDeps.generateReport(sessionId)
+      return { output: result.path, exitCode: EXIT_ALLOW }
+    }
+
+    if (analysisFile) {
+      const analysis = deps.reportDeps.readAnalysisFile(analysisFile)
+      const result = deps.reportDeps.generateReport(sessionId, { analysis })
+      return { output: result.path, exitCode: EXIT_ALLOW }
+    }
+
+    return { output: deps.reportDeps.getAnalysisContext(sessionId), exitCode: EXIT_ALLOW }
+  } catch (error) {
+    if (error instanceof WorkflowError) {
+      return { output: `view-report: ${error.message}`, exitCode: EXIT_ERROR }
+    }
+    throw error
+  }
+}
+
+function handleAnalyze(args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  if (args[1] === '--all') {
+    return { output: deps.analyticsDeps.computeAll(), exitCode: EXIT_ALLOW }
+  }
+  const sessionId = args[1]
+  if (!sessionId) {
+    return { output: 'analyze: missing required argument <sessionId> or --all', exitCode: EXIT_ERROR }
+  }
+  return { output: deps.analyticsDeps.computeSession(sessionId), exitCode: EXIT_ALLOW }
+}
+
 function handleInit(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
-  return mapResult(engine.startSession(deps.getSessionId()))
+  return mapResult(engine.startSession(deps.getSessionId(), undefined, deps.getRepositoryName()))
 }
 
 function handleTransition(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -191,7 +235,11 @@ function handleTickIteration(args: readonly string[], engine: WorkflowEngine<Wor
 }
 
 function handleRunLint(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
-  return mapResult(engine.runLint(deps.getSessionId(), args.slice(1)))
+  const sessionId = deps.getSessionId()
+  if (!engine.hasSession(sessionId)) {
+    return { output: 'run-lint: no state file. Run init first.', exitCode: EXIT_ALLOW }
+  }
+  return mapResult(engine.transaction(sessionId, 'run-lint', (w) => w.runLint(args.slice(1))))
 }
 
 function handleReviewApproved(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -215,7 +263,7 @@ function handleShutDown(args: readonly string[], engine: WorkflowEngine<Workflow
   if (!agentName) {
     return { output: 'shut-down: missing required argument <agent-name>', exitCode: EXIT_ERROR }
   }
-  return mapResult(engine.shutDown(deps.getSessionId(), agentName))
+  return mapResult(engine.transaction(deps.getSessionId(), 'shut-down', (w) => w.shutDown(agentName)))
 }
 
 function handleSessionStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
@@ -226,10 +274,6 @@ function handleSessionStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps)
 
 function handlePreToolUse(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const hookInput = parsePreToolUseInput(deps.readStdin())
-
-  if (!engine.hasSession(hookInput.session_id)) {
-    return { output: '', exitCode: EXIT_ALLOW }
-  }
 
   const filePath = resolveStringField(hookInput.tool_input['file_path'])
     || resolveStringField(hookInput.tool_input['path'])
@@ -242,13 +286,8 @@ function handlePreToolUse(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): 
     const writeCheck = w.checkWriteAllowed(hookInput.tool_name, filePath)
     if (!writeCheck.pass) return writeCheck
     return w.checkBashAllowed(hookInput.tool_name, command)
-  })
+  }, hookInput.transcript_path)
   if (hookCheck.type === 'blocked') return { output: formatDenyDecision(hookCheck.output), exitCode: EXIT_BLOCK }
-
-  const identityResult = engine.verifyIdentity(hookInput.session_id, hookInput.transcript_path)
-  if (identityResult.output) {
-    return { output: formatContextInjection(identityResult.output), exitCode: EXIT_ALLOW }
-  }
 
   return { output: '', exitCode: EXIT_ALLOW }
 }
@@ -256,23 +295,19 @@ function handlePreToolUse(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): 
 function handleSubagentStart(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const hookInput = parseSubagentStartInput(deps.readStdin())
 
-  if (!engine.hasSession(hookInput.session_id)) {
-    return { output: '', exitCode: EXIT_ALLOW }
-  }
-
-  const result = engine.registerAgent(hookInput.session_id, hookInput.agent_type, hookInput.agent_id)
-  return { output: formatContextInjection(result.output), exitCode: EXIT_ALLOW }
+  const result = engine.transaction(hookInput.session_id, 'register-agent', (w) => {
+    return w.registerAgent(hookInput.agent_type, hookInput.agent_id)
+  })
+  /* v8 ignore next */
+  const state = result.type === 'success' ? result.output : ''
+  return { output: formatContextInjection(state), exitCode: EXIT_ALLOW }
 }
 
 function handleTeammateIdle(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const hookInput = parseTeammateIdleInput(deps.readStdin())
 
-  if (!engine.hasSession(hookInput.session_id)) {
-    return { output: '', exitCode: EXIT_ALLOW }
-  }
-
   const agentName = hookInput.teammate_name ?? ''
-  const result = engine.checkIdleAllowed(hookInput.session_id, agentName)
+  const result = engine.transaction(hookInput.session_id, 'check-idle', (w) => w.checkIdleAllowed(agentName))
   if (result.type === 'blocked') {
     return { output: result.output, exitCode: EXIT_BLOCK }
   }
@@ -280,50 +315,38 @@ function handleTeammateIdle(engine: WorkflowEngine<Workflow>, deps: AdapterDeps)
   return { output: '', exitCode: EXIT_ALLOW }
 }
 
+function handleWriteJournal(args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const agentName = args[1]
+  if (!agentName) {
+    return { output: 'write-journal: missing required argument <agent-name>', exitCode: EXIT_ERROR }
+  }
+  const content = args[2]
+  if (!content) {
+    return { output: 'write-journal: missing required argument <content>', exitCode: EXIT_ERROR }
+  }
+  return mapResult(engine.transaction(deps.getSessionId(), 'write-journal', (w) => w.writeJournal(agentName, content)))
+}
+
+function handleEventContext(_args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const sessionId = deps.getSessionId()
+  const agentName = _args[1] ?? ''
+  engine.transaction(sessionId, 'event-context', (w) => w.requestContext(agentName))
+  return { output: deps.analyticsDeps.computeEventContext(sessionId), exitCode: EXIT_ALLOW }
+}
+
 function resolveStringField(value: unknown): string {
-  return typeof value === 'string' ? value : ''
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  throw new WorkflowError(`Expected string or undefined. Got ${typeof value}: ${String(value)}`)
 }
 
 function mapResult(result: EngineResult): OperationResult {
+  /* v8 ignore next */
   const exitCode = result.type === 'success' ? EXIT_ALLOW : result.type === 'blocked' ? EXIT_BLOCK : EXIT_ERROR
   return { output: result.output, exitCode }
 }
 
 /* v8 ignore start */
-function buildRealDeps(): AdapterDeps {
-  const engineDeps: WorkflowEngineDeps = {
-    readState,
-    writeState,
-    stateFileExists,
-    getStateFilePath,
-    getPluginRoot,
-    getEnvFilePath,
-    readFile: (path) => readFileSync(path, 'utf8'),
-    readTranscriptMessages,
-    appendToFile: (path, content) => appendFileSync(path, content),
-    now: () => new Date().toISOString(),
-  }
-
-  const workflowDeps: WorkflowRuntimeDeps = {
-    getGitInfo,
-    checkPrChecks,
-    createDraftPr,
-    appendIssueChecklist,
-    tickFirstUncheckedIteration,
-    runEslintOnFiles,
-    fileExists: existsSync,
-    getPluginRoot,
-    now: () => new Date().toISOString(),
-  }
-
-  return {
-    getSessionId,
-    readStdin: readStdinSync,
-    engineDeps,
-    workflowDeps,
-  }
-}
-
 function main(): void {
   try {
     const result = runWorkflow(process.argv.slice(2), buildRealDeps())

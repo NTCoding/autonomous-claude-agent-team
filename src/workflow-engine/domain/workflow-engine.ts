@@ -1,8 +1,8 @@
 import type { PreconditionResult } from '../../workflow-dsl/index.js'
 import type { WorkflowState } from './workflow-state.js'
+import { WorkflowStateError } from './workflow-state.js'
+import type { BaseEvent } from './base-event.js'
 import type { AssistantMessage } from './identity-rules.js'
-import { createEventEntry } from './event-log.js'
-import { checkLeadIdentity } from './identity-rules.js'
 import {
   formatTransitionSuccess,
   formatTransitionError,
@@ -20,10 +20,9 @@ export interface RehydratableWorkflow {
   getState(): WorkflowState
   getAgentInstructions(pluginRoot: string): string
   transitionTo(target: string): PreconditionResult
-  registerAgent(agentType: string, agentId: string): PreconditionResult
-  checkIdleAllowed(agentName: string): PreconditionResult
-  shutDown(agentName: string): PreconditionResult
-  runLint(files: readonly string[]): PreconditionResult
+  getPendingEvents(): readonly BaseEvent[]
+  verifyIdentity(transcriptPath: string): PreconditionResult
+  startSession(transcriptPath: string | undefined, repository: string | undefined): void
 }
 
 export type WorkflowDeps = {
@@ -36,10 +35,12 @@ export type WorkflowDeps = {
   readonly fileExists: (path: string) => boolean
   readonly getPluginRoot: () => string
   readonly now: () => string
+  readonly readTranscriptMessages: (path: string) => readonly AssistantMessage[]
 }
 
 export interface WorkflowFactory<TWorkflow extends RehydratableWorkflow> {
-  rehydrate(state: WorkflowState, deps: WorkflowDeps): TWorkflow
+  rehydrate(events: readonly BaseEvent[], deps: WorkflowDeps): TWorkflow
+  createFresh(deps: WorkflowDeps): TWorkflow
   procedurePath(state: string, pluginRoot: string): string
   initialState(): WorkflowState
   getEmojiForState(state: string): string
@@ -47,20 +48,20 @@ export interface WorkflowFactory<TWorkflow extends RehydratableWorkflow> {
   getTransitionTitle(to: string, state: WorkflowState): string
 }
 
+export interface WorkflowEventStore {
+  readEvents(sessionId: string): readonly BaseEvent[]
+  appendEvents(sessionId: string, events: readonly BaseEvent[]): void
+  sessionExists(sessionId: string): boolean
+}
+
 export type WorkflowEngineDeps = {
-  readonly readState: (path: string) => WorkflowState
-  readonly writeState: (path: string, state: WorkflowState) => void
-  readonly stateFileExists: (path: string) => boolean
-  readonly getStateFilePath: (sessionId: string) => string
+  readonly store: WorkflowEventStore
   readonly getPluginRoot: () => string
   readonly getEnvFilePath: () => string
   readonly readFile: (path: string) => string
-  readonly readTranscriptMessages: (path: string) => readonly AssistantMessage[]
   readonly appendToFile: (filePath: string, content: string) => void
   readonly now: () => string
 }
-
-const SUBAGENT_CMD = '/autonomous-claude-agent-team:workflow'
 
 export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
   private readonly factory: WorkflowFactory<TWorkflow>
@@ -77,18 +78,14 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     this.workflowDeps = workflowDeps
   }
 
-  startSession(sessionId: string, transcriptPath?: string): EngineResult {
-    const statePath = this.engineDeps.getStateFilePath(sessionId)
-    if (this.engineDeps.stateFileExists(statePath)) {
+  startSession(sessionId: string, transcriptPath?: string, repository?: string): EngineResult {
+    if (this.engineDeps.store.sessionExists(sessionId)) {
       return { type: 'success', output: '' }
     }
+    const workflow = this.factory.createFresh(this.workflowDeps)
+    workflow.startSession(transcriptPath, repository)
+    this.engineDeps.store.appendEvents(sessionId, workflow.getPendingEvents())
     const initial = this.factory.initialState()
-    const state: WorkflowState = {
-      ...initial,
-      transcriptPath,
-      eventLog: [createEventEntry('init', this.engineDeps.now())],
-    }
-    this.engineDeps.writeState(statePath, state)
     const procedurePath = this.factory.procedurePath(initial.state, this.engineDeps.getPluginRoot())
     const procedureContent = this.engineDeps.readFile(procedurePath)
     return { type: 'success', output: formatInitSuccess(procedureContent) }
@@ -98,75 +95,39 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     sessionId: string,
     op: string,
     fn: (w: TWorkflow) => PreconditionResult,
+    transcriptPath?: string,
   ): EngineResult {
-    const workflow = this.rehydrate(sessionId)
+    this.requireSession(sessionId)
+    const workflow = this.rehydrateFromEvents(sessionId)
+    if (transcriptPath !== undefined) {
+      const identityCheck = workflow.verifyIdentity(transcriptPath)
+      if (!identityCheck.pass) {
+        this.persistEvents(sessionId, workflow)
+        return { type: 'blocked', output: formatOperationGateError(op, identityCheck.reason) }
+      }
+    }
     const result = fn(workflow)
+    this.persistEvents(sessionId, workflow)
     if (!result.pass) {
       return { type: 'blocked', output: formatOperationGateError(op, result.reason) }
     }
-    this.persist(sessionId, workflow)
     const body = this.factory.getOperationBody(op, workflow.getState())
     return { type: 'success', output: formatOperationSuccess(op, body) }
   }
 
   transition(sessionId: string, target: string): EngineResult {
-    const workflow = this.rehydrate(sessionId)
+    this.requireSession(sessionId)
+    const workflow = this.rehydrateFromEvents(sessionId)
     const result = workflow.transitionTo(target)
     if (!result.pass) {
       const currentProcedure = this.readProcedure(workflow)
       return { type: 'blocked', output: formatTransitionError(target, result.reason, currentProcedure) }
     }
-    this.persist(sessionId, workflow)
+    this.persistEvents(sessionId, workflow)
     const state = workflow.getState()
     const title = this.factory.getTransitionTitle(state.state, state)
     const procedure = this.readProcedure(workflow)
     return { type: 'success', output: formatTransitionSuccess(title, procedure) }
-  }
-
-  registerAgent(sessionId: string, agentType: string, agentId: string): EngineResult {
-    const workflow = this.rehydrate(sessionId)
-    workflow.registerAgent(agentType, agentId)
-    this.persist(sessionId, workflow)
-    const context = buildSubagentContext(workflow.getState())
-    return { type: 'success', output: context }
-  }
-
-  checkIdleAllowed(sessionId: string, agentName: string): EngineResult {
-    const workflow = this.rehydrate(sessionId)
-    const result = workflow.checkIdleAllowed(agentName)
-    if (!result.pass) {
-      return { type: 'blocked', output: result.reason }
-    }
-    return { type: 'success', output: '' }
-  }
-
-  shutDown(sessionId: string, agentName: string): EngineResult {
-    const statePath = this.engineDeps.getStateFilePath(sessionId)
-    if (!this.engineDeps.stateFileExists(statePath)) {
-      return { type: 'error', output: `shut-down: no state file for session '${sessionId}'` }
-    }
-    const workflow = this.rehydrate(sessionId)
-    workflow.shutDown(agentName)
-    this.persist(sessionId, workflow)
-    const state = workflow.getState()
-    return {
-      type: 'success',
-      output: `shut-down: agent '${agentName}' deregistered. Active agents: [${state.activeAgents.join(', ')}]`,
-    }
-  }
-
-  runLint(sessionId: string, files: readonly string[]): EngineResult {
-    const statePath = this.engineDeps.getStateFilePath(sessionId)
-    if (!this.engineDeps.stateFileExists(statePath)) {
-      return { type: 'success', output: 'run-lint: no state file. Run init first.' }
-    }
-    const workflow = this.rehydrate(sessionId)
-    const result = workflow.runLint(files)
-    if (!result.pass) {
-      return { type: 'blocked', output: result.reason }
-    }
-    this.persist(sessionId, workflow)
-    return { type: 'success', output: 'Lint passed.' }
   }
 
   persistSessionId(sessionId: string): void {
@@ -174,54 +135,30 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     this.engineDeps.appendToFile(envFilePath, `export CLAUDE_SESSION_ID='${sessionId}'\n`)
   }
 
-  verifyIdentity(sessionId: string, transcriptPath: string): EngineResult {
-    const statePath = this.engineDeps.getStateFilePath(sessionId)
-    if (!this.engineDeps.stateFileExists(statePath)) {
-      return { type: 'success', output: '' }
-    }
-    const state = this.engineDeps.readState(statePath)
-    const messages = this.engineDeps.readTranscriptMessages(transcriptPath)
-    const emoji = this.factory.getEmojiForState(state.state)
-    const result = checkLeadIdentity(messages, state.state, emoji)
-
-    if (result.status === 'lost') {
-      const procedurePath = this.factory.procedurePath(state.state, this.engineDeps.getPluginRoot())
-      const procedureContent = this.engineDeps.readFile(procedurePath)
-      return { type: 'success', output: `${result.recoveryMessage}\n\n${procedureContent}` }
-    }
-
-    return { type: 'success', output: '' }
-  }
-
   hasSession(sessionId: string): boolean {
-    const statePath = this.engineDeps.getStateFilePath(sessionId)
-    return this.engineDeps.stateFileExists(statePath)
+    return this.engineDeps.store.sessionExists(sessionId)
   }
 
-  private rehydrate(sessionId: string): TWorkflow {
-    const statePath = this.engineDeps.getStateFilePath(sessionId)
-    const state = this.engineDeps.readState(statePath)
-    return this.factory.rehydrate(state, this.workflowDeps)
+  private requireSession(sessionId: string): void {
+    if (!this.engineDeps.store.sessionExists(sessionId)) {
+      throw new WorkflowStateError(`No session found for '${sessionId}'. Run init first.`)
+    }
   }
 
-  private persist(sessionId: string, workflow: TWorkflow): void {
-    const statePath = this.engineDeps.getStateFilePath(sessionId)
-    this.engineDeps.writeState(statePath, workflow.getState())
+  private rehydrateFromEvents(sessionId: string): TWorkflow {
+    const events = this.engineDeps.store.readEvents(sessionId)
+    return this.factory.rehydrate(events, this.workflowDeps)
+  }
+
+  private persistEvents(sessionId: string, workflow: TWorkflow): void {
+    const pending = workflow.getPendingEvents()
+    if (pending.length > 0) {
+      this.engineDeps.store.appendEvents(sessionId, pending)
+    }
   }
 
   private readProcedure(workflow: TWorkflow): string {
     const path = workflow.getAgentInstructions(this.engineDeps.getPluginRoot())
     return this.engineDeps.readFile(path)
   }
-}
-
-function buildSubagentContext(state: WorkflowState): string {
-  return (
-    `Current workflow state: ${state.state}\n` +
-    `Active agents: [${state.activeAgents.join(', ')}]\n\n` +
-    `CLI commands:\n` +
-    `  signal-done:  ${SUBAGENT_CMD} signal-done\n` +
-    `  run-lint:     ${SUBAGENT_CMD} run-lint <files>\n` +
-    `  record-pr:    ${SUBAGENT_CMD} record-pr <number>`
-  )
 }
