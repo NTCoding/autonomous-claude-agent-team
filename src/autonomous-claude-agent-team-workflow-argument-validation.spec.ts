@@ -153,6 +153,7 @@ function makeDeps(overrides?: {
     workflowDeps: makeWorkflowDeps(overrides?.workflowDeps),
     viewerDeps: makeViewerDeps(overrides?.viewerDeps),
     analyticsDeps: makeAnalyticsDeps(overrides?.analyticsDeps),
+    reportDeps: { generateReport: () => '/tmp/report.html' },
   }
 }
 

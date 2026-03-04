@@ -17,8 +17,8 @@ import {
 } from './infra/hook-io.js'
 import { WorkflowError } from './infra/workflow-error.js'
 import { buildRealDeps } from './infra/composition-root.js'
-import type { ViewerDeps, AnalyticsDeps, AdapterDeps } from './infra/composition-root.js'
-export type { ViewerDeps, AnalyticsDeps, AdapterDeps }
+import type { ViewerDeps, AnalyticsDeps, ReportDeps, AdapterDeps } from './infra/composition-root.js'
+export type { ViewerDeps, AnalyticsDeps, ReportDeps, AdapterDeps }
 
 type OperationResult = { readonly output: string; readonly exitCode: number }
 
@@ -46,6 +46,7 @@ const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   'shut-down': handleShutDown,
   'write-journal': handleWriteJournal,
   'event-context': handleEventContext,
+  'view-report': handleViewReport,
 }
 
 const HOOK_HANDLERS: Readonly<Record<string, (engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult>> = {
@@ -84,6 +85,15 @@ function runHookMode(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): Opera
 
 function handleView(_args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
   const path = deps.viewerDeps.openViewer()
+  return { output: path, exitCode: EXIT_ALLOW }
+}
+
+function handleViewReport(args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
+  const sessionId = args[1]
+  if (!sessionId) {
+    return { output: 'view-report: missing required argument <sessionId>', exitCode: EXIT_ERROR }
+  }
+  const path = deps.reportDeps.generateReport(sessionId)
   return { output: path, exitCode: EXIT_ALLOW }
 }
 

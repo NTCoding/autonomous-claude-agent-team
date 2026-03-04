@@ -1,5 +1,5 @@
 import { runWorkflow } from './autonomous-claude-agent-team-workflow.js'
-import type { AdapterDeps, ViewerDeps, AnalyticsDeps } from './autonomous-claude-agent-team-workflow.js'
+import type { AdapterDeps, ViewerDeps, AnalyticsDeps, ReportDeps } from './autonomous-claude-agent-team-workflow.js'
 import type { WorkflowEngineDeps, WorkflowEventStore, WorkflowRuntimeDeps } from './workflow-engine/index.js'
 import type { WorkflowEvent } from './workflow-definition/index.js'
 import { EXIT_ERROR, EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
@@ -143,6 +143,7 @@ function makeDeps(overrides?: {
   workflowDeps?: Partial<WorkflowRuntimeDeps>
   viewerDeps?: Partial<ViewerDeps>
   analyticsDeps?: Partial<AnalyticsDeps>
+  reportDeps?: Partial<ReportDeps>
   getSessionId?: () => string
   readStdin?: () => string
 }): AdapterDeps {
@@ -153,6 +154,7 @@ function makeDeps(overrides?: {
     workflowDeps: makeWorkflowDeps(overrides?.workflowDeps),
     viewerDeps: makeViewerDeps(overrides?.viewerDeps),
     analyticsDeps: makeAnalyticsDeps(overrides?.analyticsDeps),
+    reportDeps: { generateReport: () => '/tmp/session-report-test.html', ...overrides?.reportDeps },
   }
 }
 
@@ -357,5 +359,36 @@ describe('runWorkflow - analyze command', () => {
     }))
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
     expect(computeAllCalls).toHaveLength(1)
+  })
+})
+
+describe('runWorkflow - view-report command', () => {
+  it('returns EXIT_ERROR when no sessionId is given', () => {
+    const result = runWorkflow(['view-report'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
+    expect(result.output).toContain('missing required argument')
+  })
+
+  it('returns EXIT_ALLOW and calls generateReport with sessionId', () => {
+    const calledWith: string[] = []
+    const result = runWorkflow(['view-report', 'my-session'], makeDeps({
+      reportDeps: {
+        generateReport: (sessionId) => {
+          calledWith.push(sessionId)
+          return '/tmp/session-report-my-session.html'
+        },
+      },
+    }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(calledWith[0]).toStrictEqual('my-session')
+  })
+
+  it('returns the path from generateReport', () => {
+    const result = runWorkflow(['view-report', 'abc-123'], makeDeps({
+      reportDeps: {
+        generateReport: () => '/tmp/session-report-abc-123.html',
+      },
+    }))
+    expect(result.output).toStrictEqual('/tmp/session-report-abc-123.html')
   })
 })

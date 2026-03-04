@@ -2,15 +2,22 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from '../workflow-engine/index.js'
-import { generateViewerHtml } from '../workflow-analysis/index.js'
-import { createStore } from '../workflow-event-store/index.js'
 import {
+  generateViewerHtml,
   computeSessionSummary,
   computeCrossSessionSummary,
   computeEventContext,
   formatSessionSummary,
   formatCrossSessionSummary,
+  computeEnhancedSessionSummary,
+  buildSessionViewData,
+  evaluateInsightRules,
+  evaluateSuggestionRules,
+  assembleReportData,
+  generateReportHtml,
 } from '../workflow-analysis/index.js'
+import { createStore } from '../workflow-event-store/index.js'
+import { WorkflowEventSchema } from '../workflow-definition/index.js'
 import { getSessionId, getPluginRoot, getEnvFilePath, getDbPath } from './environment.js'
 import { getGitInfo } from './git.js'
 import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './github.js'
@@ -28,6 +35,10 @@ export type AnalyticsDeps = {
   readonly computeEventContext: (sessionId: string) => string
 }
 
+export type ReportDeps = {
+  readonly generateReport: (sessionId: string) => string
+}
+
 export type AdapterDeps = {
   readonly getSessionId: () => string
   readonly readStdin: () => string
@@ -35,6 +46,7 @@ export type AdapterDeps = {
   readonly workflowDeps: WorkflowRuntimeDeps
   readonly viewerDeps: ViewerDeps
   readonly analyticsDeps: AnalyticsDeps
+  readonly reportDeps: ReportDeps
 }
 
 /* v8 ignore start */
@@ -79,6 +91,25 @@ export function buildRealDeps(): AdapterDeps {
     computeEventContext: (sessionId) => computeEventContext(createStore(getDbPath()), sessionId),
   }
 
+  const reportDeps: ReportDeps = {
+    generateReport: (sessionId) => {
+      const eventStore = createStore(getDbPath())
+      const rawEvents = eventStore.readEvents(sessionId)
+      const events = rawEvents.map((e) => WorkflowEventSchema.parse(e))
+      const baseSummary = computeSessionSummary(eventStore, sessionId)
+      const viewData = buildSessionViewData(sessionId, rawEvents)
+      const enhanced = computeEnhancedSessionSummary(baseSummary, viewData, events)
+      const insights = evaluateInsightRules(enhanced, events)
+      const suggestions = evaluateSuggestionRules(enhanced, events)
+      const data = assembleReportData(enhanced, viewData, insights, suggestions, events)
+      const html = generateReportHtml(data)
+      const htmlPath = join(tmpdir(), `session-report-${sessionId}.html`)
+      writeFileSync(htmlPath, html)
+      import('node:child_process').then(({ exec }) => { exec(`open ${htmlPath}`) })
+      return htmlPath
+    },
+  }
+
   return {
     getSessionId,
     readStdin: readStdinSync,
@@ -86,6 +117,7 @@ export function buildRealDeps(): AdapterDeps {
     workflowDeps,
     viewerDeps,
     analyticsDeps,
+    reportDeps,
   }
 }
 /* v8 ignore stop */
