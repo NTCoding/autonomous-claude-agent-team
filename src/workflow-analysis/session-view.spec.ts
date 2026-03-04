@@ -1,5 +1,5 @@
 import type { BaseEvent } from '../workflow-engine/index.js'
-import { buildSessionViewData, buildSessionListItem } from './session-view.js'
+import { buildSessionViewData } from './session-view.js'
 
 function ev(type: string, at: string, extra: Record<string, unknown> = {}): BaseEvent {
   const base: BaseEvent = { type, at }
@@ -305,78 +305,3 @@ describe('buildSessionViewData', () => {
   })
 })
 
-describe('buildSessionListItem', () => {
-  describe('empty events', () => {
-    it('returns idle state and zero counts when events is empty', () => {
-      const result = buildSessionListItem('sess-2', [])
-      expect(result.sessionId).toStrictEqual('sess-2')
-      expect(result.durationMs).toStrictEqual(0)
-      expect(result.iterationCount).toStrictEqual(0)
-      expect(result.currentState).toStrictEqual('idle')
-    })
-
-    it('returns epoch startedAt when events is empty', () => {
-      const result = buildSessionListItem('sess-2', [])
-      expect(result.startedAt).toStrictEqual(new Date(0).toISOString())
-    })
-
-    it('returns no endedAt when events is empty', () => {
-      const result = buildSessionListItem('sess-2', [])
-      expect(result.endedAt).toBeUndefined()
-    })
-  })
-
-  describe('with events', () => {
-    it('startedAt is the first event timestamp', () => {
-      const events = [sessionStarted(T0), planApproval(T2)]
-      const result = buildSessionListItem('sess-2', events)
-      expect(result.startedAt).toStrictEqual(T0)
-    })
-
-    it('durationMs is computed from first to last event', () => {
-      const events = [sessionStarted(T0), planApproval(T2)]
-      const result = buildSessionListItem('sess-2', events)
-      expect(result.durationMs).toStrictEqual(2 * 60 * 1000)
-    })
-
-    it('iterationCount counts task-assigned events', () => {
-      const events = [
-        taskAssigned(T0, 'task-1'),
-        planApproval(T1),
-        taskAssigned(T2, 'task-2'),
-      ]
-      const result = buildSessionListItem('sess-2', events)
-      expect(result.iterationCount).toStrictEqual(2)
-    })
-
-    it('currentState is last to-state from transition events', () => {
-      const events = [
-        transition(T0, 'SPAWN', 'PLANNING'),
-        transition(T1, 'PLANNING', 'DEVELOPING'),
-      ]
-      const result = buildSessionListItem('sess-2', events)
-      expect(result.currentState).toStrictEqual('DEVELOPING')
-    })
-
-    it('endedAt is COMPLETE transition timestamp', () => {
-      const events = [
-        sessionStarted(T0),
-        transition(T2, 'PR_CREATION', 'COMPLETE'),
-      ]
-      const result = buildSessionListItem('sess-2', events)
-      expect(result.endedAt).toStrictEqual(T2)
-    })
-
-    it('endedAt is undefined when session not completed', () => {
-      const events = [sessionStarted(T0), planApproval(T1)]
-      const result = buildSessionListItem('sess-2', events)
-      expect(result.endedAt).toBeUndefined()
-    })
-
-    it('returns 0 iterationCount when no task-assigned events', () => {
-      const events = [sessionStarted(T0), planApproval(T1)]
-      const result = buildSessionListItem('sess-2', events)
-      expect(result.iterationCount).toStrictEqual(0)
-    })
-  })
-})

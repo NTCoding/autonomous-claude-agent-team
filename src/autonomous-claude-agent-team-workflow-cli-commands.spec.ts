@@ -1,5 +1,5 @@
 import { runWorkflow } from './autonomous-claude-agent-team-workflow.js'
-import type { AdapterDeps, ViewerDeps, AnalyticsDeps, ReportDeps } from './autonomous-claude-agent-team-workflow.js'
+import type { AdapterDeps, AnalyticsDeps, ReportDeps } from './autonomous-claude-agent-team-workflow.js'
 import type { WorkflowEngineDeps, WorkflowEventStore, WorkflowRuntimeDeps } from './workflow-engine/index.js'
 import type { WorkflowEvent } from './workflow-definition/index.js'
 import { EXIT_ERROR, EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
@@ -122,13 +122,6 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
   }
 }
 
-function makeViewerDeps(overrides?: Partial<ViewerDeps>): ViewerDeps {
-  return {
-    openViewer: () => '/tmp/workflow-viewer.html',
-    ...overrides,
-  }
-}
-
 function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
   return {
     computeSession: (_sessionId: string) => 'Session: test-session\n===',
@@ -141,7 +134,6 @@ function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
 function makeDeps(overrides?: {
   engineDeps?: EngineDepsOverrides
   workflowDeps?: Partial<WorkflowRuntimeDeps>
-  viewerDeps?: Partial<ViewerDeps>
   analyticsDeps?: Partial<AnalyticsDeps>
   reportDeps?: Partial<ReportDeps>
   getSessionId?: () => string
@@ -152,7 +144,6 @@ function makeDeps(overrides?: {
     readStdin: overrides?.readStdin ?? (() => makeHookStdin()),
     engineDeps: makeEngineDeps(overrides?.engineDeps),
     workflowDeps: makeWorkflowDeps(overrides?.workflowDeps),
-    viewerDeps: makeViewerDeps(overrides?.viewerDeps),
     analyticsDeps: makeAnalyticsDeps(overrides?.analyticsDeps),
     reportDeps: { generateReport: () => '/tmp/session-report-test.html', ...overrides?.reportDeps },
   }
@@ -293,36 +284,6 @@ describe('runWorkflow - new review and coderabbit commands', () => {
   it('dispatches coderabbit-feedback-ignored and returns gate error for SPAWN state', () => {
     const result = runWorkflow(['coderabbit-feedback-ignored'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
-  })
-})
-
-describe('runWorkflow - view command', () => {
-  it('returns EXIT_ALLOW and outputs the file path', () => {
-    const result = runWorkflow(['view'], makeDeps())
-    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(result.output).toStrictEqual('/tmp/workflow-viewer.html')
-  })
-
-  it('calls openViewer', () => {
-    const calls: string[] = []
-    runWorkflow(['view'], makeDeps({
-      viewerDeps: {
-        openViewer: () => {
-          calls.push('called')
-          return '/tmp/workflow-viewer.html'
-        },
-      },
-    }))
-    expect(calls).toHaveLength(1)
-  })
-
-  it('returns the path from openViewer', () => {
-    const result = runWorkflow(['view'], makeDeps({
-      viewerDeps: {
-        openViewer: () => '/tmp/custom-viewer.html',
-      },
-    }))
-    expect(result.output).toStrictEqual('/tmp/custom-viewer.html')
   })
 })
 

@@ -1,5 +1,5 @@
 import { runWorkflow } from './autonomous-claude-agent-team-workflow.js'
-import type { AdapterDeps, ViewerDeps, AnalyticsDeps } from './autonomous-claude-agent-team-workflow.js'
+import type { AdapterDeps, AnalyticsDeps } from './autonomous-claude-agent-team-workflow.js'
 import type { WorkflowEngineDeps, WorkflowEventStore, WorkflowRuntimeDeps } from './workflow-engine/index.js'
 import type { WorkflowEvent } from './workflow-definition/index.js'
 import { EXIT_ERROR, EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
@@ -122,13 +122,6 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRun
   }
 }
 
-function makeViewerDeps(overrides?: Partial<ViewerDeps>): ViewerDeps {
-  return {
-    openViewer: () => '/tmp/workflow-viewer.html',
-    ...overrides,
-  }
-}
-
 function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
   return {
     computeSession: (_sessionId: string) => 'Session: test-session\n===',
@@ -141,7 +134,6 @@ function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
 function makeDeps(overrides?: {
   engineDeps?: EngineDepsOverrides
   workflowDeps?: Partial<WorkflowRuntimeDeps>
-  viewerDeps?: Partial<ViewerDeps>
   analyticsDeps?: Partial<AnalyticsDeps>
   getSessionId?: () => string
   readStdin?: () => string
@@ -151,7 +143,6 @@ function makeDeps(overrides?: {
     readStdin: overrides?.readStdin ?? (() => makeHookStdin()),
     engineDeps: makeEngineDeps(overrides?.engineDeps),
     workflowDeps: makeWorkflowDeps(overrides?.workflowDeps),
-    viewerDeps: makeViewerDeps(overrides?.viewerDeps),
     analyticsDeps: makeAnalyticsDeps(overrides?.analyticsDeps),
     reportDeps: { generateReport: () => '/tmp/report.html' },
   }

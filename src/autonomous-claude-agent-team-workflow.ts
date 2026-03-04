@@ -17,15 +17,14 @@ import {
 } from './infra/hook-io.js'
 import { WorkflowError } from './infra/workflow-error.js'
 import { buildRealDeps } from './infra/composition-root.js'
-import type { ViewerDeps, AnalyticsDeps, ReportDeps, AdapterDeps } from './infra/composition-root.js'
-export type { ViewerDeps, AnalyticsDeps, ReportDeps, AdapterDeps }
+import type { AnalyticsDeps, ReportDeps, AdapterDeps } from './infra/composition-root.js'
+export type { AnalyticsDeps, ReportDeps, AdapterDeps }
 
 type OperationResult = { readonly output: string; readonly exitCode: number }
 
 type CommandHandler = (args: readonly string[], engine: WorkflowEngine<Workflow>, deps: AdapterDeps) => OperationResult
 
 const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
-  view: handleView,
   analyze: handleAnalyze,
   init: handleInit,
   transition: handleTransition,
@@ -81,11 +80,6 @@ function runHookMode(engine: WorkflowEngine<Workflow>, deps: AdapterDeps): Opera
     return { output: '', exitCode: EXIT_ALLOW }
   }
   return handler(engine, cachedDeps)
-}
-
-function handleView(_args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {
-  const path = deps.viewerDeps.openViewer()
-  return { output: path, exitCode: EXIT_ALLOW }
 }
 
 function handleViewReport(args: readonly string[], _engine: WorkflowEngine<Workflow>, deps: AdapterDeps): OperationResult {

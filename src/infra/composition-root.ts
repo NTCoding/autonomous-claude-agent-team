@@ -3,7 +3,6 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from '../workflow-engine/index.js'
 import {
-  generateViewerHtml,
   computeSessionSummary,
   computeCrossSessionSummary,
   computeEventContext,
@@ -25,10 +24,6 @@ import { readStdinSync } from './stdin.js'
 import { readTranscriptMessages } from './transcript.js'
 import { runEslintOnFiles } from './linter.js'
 
-export type ViewerDeps = {
-  readonly openViewer: () => string
-}
-
 export type AnalyticsDeps = {
   readonly computeSession: (sessionId: string) => string
   readonly computeAll: () => string
@@ -44,7 +39,6 @@ export type AdapterDeps = {
   readonly readStdin: () => string
   readonly engineDeps: WorkflowEngineDeps
   readonly workflowDeps: WorkflowRuntimeDeps
-  readonly viewerDeps: ViewerDeps
   readonly analyticsDeps: AnalyticsDeps
   readonly reportDeps: ReportDeps
 }
@@ -73,16 +67,6 @@ export function buildRealDeps(): AdapterDeps {
     getPluginRoot,
     now: () => new Date().toISOString(),
     readTranscriptMessages,
-  }
-
-  const viewerDeps: ViewerDeps = {
-    openViewer: () => {
-      const html = generateViewerHtml(createStore(getDbPath()))
-      const htmlPath = join(tmpdir(), `workflow-viewer-${Date.now()}.html`)
-      writeFileSync(htmlPath, html)
-      import('node:child_process').then(({ exec }) => { exec(`open ${htmlPath}`) })
-      return htmlPath
-    },
   }
 
   const analyticsDeps: AnalyticsDeps = {
@@ -115,7 +99,6 @@ export function buildRealDeps(): AdapterDeps {
     readStdin: readStdinSync,
     engineDeps,
     workflowDeps,
-    viewerDeps,
     analyticsDeps,
     reportDeps,
   }

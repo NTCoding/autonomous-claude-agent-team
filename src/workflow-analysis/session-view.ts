@@ -29,15 +29,6 @@ export type SessionViewData = {
   recentEvents: readonly WorkflowEvent[]
 }
 
-export type SessionListItem = {
-  sessionId: string
-  startedAt: string
-  endedAt?: string | undefined
-  durationMs: number
-  iterationCount: number
-  currentState: string
-}
-
 type Transitioned = Extract<WorkflowEvent, { type: 'transitioned' }>
 type IterationTaskAssigned = Extract<WorkflowEvent, { type: 'iteration-task-assigned' }>
 
@@ -266,39 +257,4 @@ export function buildSessionViewData(sessionId: string, events: readonly BaseEve
     groupEventsByIteration(parsed),
     parsed.slice(-RECENT_EVENT_COUNT)
   )
-}
-
-export function buildSessionListItem(sessionId: string, events: readonly BaseEvent[]): SessionListItem {
-  const parsed = parseWorkflowEvents(events)
-  if (parsed.length === 0) {
-    return {
-      sessionId,
-      startedAt: new Date(0).toISOString(),
-      durationMs: 0,
-      iterationCount: 0,
-      currentState: DEFAULT_STATE,
-    }
-  }
-
-  const firstAt = firstEventAt(parsed)
-  const endedAt = extractSessionEndedAt(parsed)
-  const lastAt = lastEventAt(parsed)
-  const durationMs = new Date(lastAt).getTime() - new Date(firstAt).getTime()
-  const iterationCount = parsed.filter(isIterationTaskAssigned).length
-
-  return makeSessionListItem(sessionId, firstAt, endedAt, durationMs, iterationCount, extractCurrentState(parsed))
-}
-
-function makeSessionListItem(
-  sessionId: string,
-  startedAt: string,
-  endedAt: string | undefined,
-  durationMs: number,
-  iterationCount: number,
-  currentState: string
-): SessionListItem {
-  if (endedAt !== undefined) {
-    return { sessionId, startedAt, endedAt, durationMs, iterationCount, currentState }
-  }
-  return { sessionId, startedAt, durationMs, iterationCount, currentState }
 }

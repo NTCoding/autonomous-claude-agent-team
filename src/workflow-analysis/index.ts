@@ -1,7 +1,5 @@
-export type { SessionViewData, SessionListItem, StatePeriod, IterationGroup } from './session-view.js'
-export { buildSessionViewData, buildSessionListItem } from './session-view.js'
-
-export { generateViewerHtml } from './workflow-viewer-html.js'
+export type { SessionViewData, StatePeriod, IterationGroup } from './session-view.js'
+export { buildSessionViewData } from './session-view.js'
 
 export type { EnhancedSessionSummary, IterationMetrics, ReworkAnalysis } from './session-report.js'
 export { computeEnhancedSessionSummary } from './session-report.js'
