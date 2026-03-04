@@ -49,6 +49,33 @@ function stateWith(overrides: Partial<WorkflowState>): WorkflowState {
 }
 
 describe('Workflow', () => {
+  describe('createFresh', () => {
+    it('creates a workflow in SPAWN state with empty pending events', () => {
+      const wf = Workflow.createFresh(makeDeps())
+      expect(wf.getState().state).toBe('SPAWN')
+      expect(wf.getPendingEvents()).toHaveLength(0)
+    })
+  })
+
+  describe('startSession', () => {
+    it('appends session-started event with transcriptPath', () => {
+      const wf = Workflow.createFresh(makeDeps())
+      wf.startSession('/tmp/transcript.jsonl')
+      const pending = wf.getPendingEvents()
+      expect(pending).toHaveLength(1)
+      expect(pending[0]).toMatchObject({ type: 'session-started', transcriptPath: '/tmp/transcript.jsonl' })
+    })
+
+    it('appends session-started event without transcriptPath when undefined', () => {
+      const wf = Workflow.createFresh(makeDeps())
+      wf.startSession(undefined)
+      const pending = wf.getPendingEvents()
+      expect(pending).toHaveLength(1)
+      expect(pending[0]).toMatchObject({ type: 'session-started' })
+      expect(pending[0]).not.toHaveProperty('transcriptPath')
+    })
+  })
+
   describe('getAgentInstructions', () => {
     it('returns path from registry agentInstructions field', () => {
       const wf = Workflow.rehydrate(INITIAL_STATE, makeDeps())

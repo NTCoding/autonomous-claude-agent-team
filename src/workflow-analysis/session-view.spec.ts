@@ -15,7 +15,7 @@ function taskAssigned(at: string, task: string): BaseEvent {
 }
 
 function sessionStarted(at: string): BaseEvent {
-  return ev('session-started', at, { sessionId: 'sess-1' })
+  return ev('session-started', at)
 }
 
 function planApproval(at: string): BaseEvent {

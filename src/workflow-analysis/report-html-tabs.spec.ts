@@ -65,7 +65,7 @@ describe('generateReportHtml — event log tab', () => {
     const data = buildMinimalReportData({
       annotatedEvents: [
         { event: { type: 'transitioned' as const, at: T0, from: 'idle', to: 'SPAWN' }, state: 'idle', iteration: 0 },
-        { event: { type: 'session-started' as const, at: T1, sessionId: 'x' }, state: 'SPAWN', iteration: 0 },
+        { event: { type: 'session-started' as const, at: T1 }, state: 'SPAWN', iteration: 0 },
       ],
     })
     const html = generateReportHtml(data)
@@ -130,7 +130,7 @@ describe('generateReportHtml — event log tab', () => {
   })
 
   it('renders events with unknown state using fallback abbreviation', () => {
-    const event: WorkflowEvent = { type: 'session-started' as const, at: T0, sessionId: 'abc' }
+    const event: WorkflowEvent = { type: 'session-started' as const, at: T0 }
     const data = buildMinimalReportData({
       annotatedEvents: [{ event, state: 'idle', iteration: 0 }],
     })

@@ -8,7 +8,7 @@ import { WORKFLOW_REGISTRY, getStateDefinition } from './registry.js'
 import type { StateName } from './workflow-types.js'
 import { parseStateName, WorkflowStateSchema, STATE_EMOJI_MAP } from './workflow-types.js'
 import type { WorkflowEvent } from './workflow-events.js'
-import { applyEvent } from './fold.js'
+import { applyEvent, EMPTY_STATE } from './fold.js'
 import {
   COMMIT_BLOCKED_STATES,
   FILE_WRITING_TOOLS,
@@ -45,6 +45,10 @@ export class Workflow {
     this.deps = deps
   }
 
+  static createFresh(deps: WorkflowDeps): Workflow {
+    return new Workflow(EMPTY_STATE, deps)
+  }
+
   static rehydrate(state: WorkflowState, deps: WorkflowDeps): Workflow {
     return new Workflow(WorkflowStateSchema.parse(state), deps)
   }
@@ -68,6 +72,10 @@ export class Workflow {
 
   getAgentInstructions(pluginRoot: string): string {
     return `${pluginRoot}/${getStateDefinition(this.state.state).agentInstructions}`
+  }
+
+  startSession(transcriptPath: string | undefined): void {
+    this.append({ type: 'session-started', at: this.deps.now(), ...(transcriptPath === undefined ? {} : { transcriptPath }) })
   }
 
   recordIssue(issueNumber: number): PreconditionResult {

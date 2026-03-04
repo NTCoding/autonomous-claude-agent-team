@@ -45,6 +45,25 @@ describe('computeSessionSummary — empty session', () => {
   })
 })
 
+describe('computeSessionSummary — unknown event filtering', () => {
+  const dbPath = tmpDb('unknown-event-filter')
+  afterAll(() => { cleanup(dbPath) })
+
+  it('silently skips unknown event types during parsing', () => {
+    const store = createStore(dbPath)
+    const at = '2026-01-01T10:00:00.000Z'
+    const endAt = '2026-01-01T10:05:00.000Z'
+    store.appendEvents('filter-session', [
+      ev('session-started', at),
+      ev('unknown-future-event', at, { foo: 'bar' }),
+      ev('agent-shut-down', endAt, { agentName: 'lead' }),
+    ])
+    const summary = computeSessionSummary(store, 'filter-session')
+    expect(summary.eventCount).toStrictEqual(3)
+    expect(summary.iterationCount).toStrictEqual(0)
+  })
+})
+
 describe('computeSessionSummary — in-progress detection', () => {
   const dbPath = tmpDb('in-progress')
   afterAll(() => { cleanup(dbPath) })
@@ -326,7 +345,7 @@ describe('computeEventContext', () => {
   it('shows current state after transitions', () => {
     const store = createStore(dbPath)
     store.appendEvents( 'ctx-session', [
-      ev('session-started', '2026-01-01T00:00:00Z', { sessionId: 'ctx-session' }),
+      ev('session-started', '2026-01-01T00:00:00Z'),
       ev('transitioned', '2026-01-01T00:01:00Z', { from: 'SPAWN', to: 'PLANNING' }),
     ])
     const output = computeEventContext(store, 'ctx-session')
@@ -356,7 +375,7 @@ describe('computeEventContext', () => {
   it('shows recent events', () => {
     const store = createStore(dbPath)
     store.appendEvents( 'ctx-session', [
-      ev('session-started', '2026-01-01T00:00:00Z', { sessionId: 'ctx-session' }),
+      ev('session-started', '2026-01-01T00:00:00Z'),
     ])
     const output = computeEventContext(store, 'ctx-session')
     expect(output).toContain('Recent events')

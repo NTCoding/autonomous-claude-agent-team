@@ -4,17 +4,13 @@ const AT = '2026-01-01T00:00:00.000Z'
 
 describe('WorkflowEventSchema — session-started', () => {
   it('accepts valid payload', () => {
-    const result: WorkflowEvent = WorkflowEventSchema.parse({ type: 'session-started', at: AT, sessionId: 'abc123' })
+    const result: WorkflowEvent = WorkflowEventSchema.parse({ type: 'session-started', at: AT })
     expect(result.type).toStrictEqual('session-started')
   })
 
   it('accepts optional transcriptPath', () => {
-    const result = WorkflowEventSchema.parse({ type: 'session-started', at: AT, sessionId: 'abc123', transcriptPath: '/tmp/t.json' })
+    const result = WorkflowEventSchema.parse({ type: 'session-started', at: AT, transcriptPath: '/tmp/t.json' })
     expect(result.type).toStrictEqual('session-started')
-  })
-
-  it('rejects missing sessionId', () => {
-    expect(() => WorkflowEventSchema.parse({ type: 'session-started', at: AT })).toThrow('Required')
   })
 })
 
@@ -353,10 +349,10 @@ describe('WorkflowEventSchema — discriminant validation', () => {
   })
 
   it('rejects missing at when type is present', () => {
-    expect(() => WorkflowEventSchema.parse({ type: 'session-started', sessionId: 'x' })).toThrow('Required')
+    expect(() => WorkflowEventSchema.parse({ type: 'session-started' })).toThrow('Required')
   })
 
   it('rejects missing type field with only extra fields', () => {
-    expect(() => WorkflowEventSchema.parse({ at: AT, sessionId: 'x' })).toThrow('Invalid discriminator value')
+    expect(() => WorkflowEventSchema.parse({ at: AT, transcriptPath: '/tmp/t.json' })).toThrow('Invalid discriminator value')
   })
 })

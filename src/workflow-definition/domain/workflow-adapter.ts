@@ -7,6 +7,9 @@ import { applyEvents } from './fold.js'
 import { WorkflowEventSchema } from './workflow-events.js'
 
 export const WorkflowAdapter: WorkflowFactory<Workflow> = {
+  createFresh(deps: WorkflowRuntimeDeps): Workflow {
+    return Workflow.createFresh(deps)
+  },
   rehydrate(events: readonly BaseEvent[], deps: WorkflowRuntimeDeps): Workflow {
     const workflowEvents = events.map((e) => {
       const result = WorkflowEventSchema.safeParse(e)

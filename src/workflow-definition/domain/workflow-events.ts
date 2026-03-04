@@ -3,7 +3,6 @@ import { z } from 'zod'
 const SessionStartedSchema = z.object({
   type: z.literal('session-started'),
   at: z.string(),
-  sessionId: z.string(),
   transcriptPath: z.string().optional(),
 })
 

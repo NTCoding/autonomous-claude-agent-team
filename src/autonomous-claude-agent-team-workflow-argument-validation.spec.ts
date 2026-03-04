@@ -284,7 +284,7 @@ describe('runWorkflow - shut-down argument validation', () => {
           store: {
             sessionExists: () => true,
             readEvents: (): readonly WorkflowEvent[] => [
-              { type: 'session-started', at: AT, sessionId: 'test-session' },
+              { type: 'session-started', at: AT },
               { type: 'agent-registered', at: AT, agentType: 'developer-1', agentId: 'agt-1' },
             ],
           },

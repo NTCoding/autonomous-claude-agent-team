@@ -170,7 +170,7 @@ describe('assembleReportData', () => {
   const baseSuggestions: readonly Suggestion[] = []
 
   const baseEvents: readonly WorkflowEvent[] = [
-    { type: 'session-started' as const, at: T0, sessionId: 'test-session' },
+    { type: 'session-started' as const, at: T0 },
     { type: 'transitioned' as const, at: T1, from: 'idle', to: 'SPAWN' },
   ]
 
@@ -195,7 +195,7 @@ describe('assembleReportData', () => {
 
   it('includes enriched journal entries when journal events exist', () => {
     const eventsWithJournal: readonly WorkflowEvent[] = [
-      { type: 'session-started' as const, at: T0, sessionId: 'test-session' },
+      { type: 'session-started' as const, at: T0 },
       { type: 'iteration-task-assigned' as const, at: T1, task: 'Do stuff' },
       { type: 'transitioned' as const, at: T2, from: 'RESPAWN', to: 'DEVELOPING' },
       { type: 'journal-entry' as const, at: T3, agentName: 'developer', content: 'Working' },

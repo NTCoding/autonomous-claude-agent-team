@@ -57,6 +57,15 @@ class StubWorkflow implements RehydratableWorkflow {
   verifyIdentity(_transcriptPath: string): PreconditionResult {
     return pass()
   }
+
+  startSession(transcriptPath: string | undefined): void {
+    const event: BaseEvent = {
+      type: 'session-started',
+      at: '2026-01-01T00:00:00.000Z',
+      ...(transcriptPath === undefined ? {} : { transcriptPath }),
+    }
+    this.pending = [...this.pending, event]
+  }
 }
 
 class FailingWorkflow extends StubWorkflow {
@@ -68,6 +77,7 @@ class FailingWorkflow extends StubWorkflow {
 function makeFactory(workflow?: StubWorkflow): WorkflowFactory<StubWorkflow> {
   return {
     rehydrate: (_events, _deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
+    createFresh: (_deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
     procedurePath: (state, pluginRoot) => `${pluginRoot}/states/${state.toLowerCase()}.md`,
     initialState: () => INITIAL_STATE,
     getEmojiForState: (state) => state === 'SPAWN' ? '🟣' : '🔨',

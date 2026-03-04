@@ -39,8 +39,8 @@ function bashDenied(at: string, command: string): WorkflowEvent {
   return { type: 'bash-checked' as const, at, tool: 'Bash', command, allowed: false, reason: 'blocked' }
 }
 
-function sessionStarted(at: string, sessionId: string, transcriptPath?: string): WorkflowEvent {
-  const base = { type: 'session-started' as const, at, sessionId }
+function sessionStarted(at: string, _sessionId: string, transcriptPath?: string): WorkflowEvent {
+  const base = { type: 'session-started' as const, at }
   if (transcriptPath !== undefined) return { ...base, transcriptPath }
   return base
 }

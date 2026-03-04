@@ -24,6 +24,11 @@ function makeWorkflowDeps(): WorkflowRuntimeDeps {
 }
 
 describe('WorkflowAdapter', () => {
+  it('creates a fresh Workflow with SPAWN state', () => {
+    const workflow = WorkflowAdapter.createFresh(makeWorkflowDeps())
+    expect(workflow.getState().state).toStrictEqual('SPAWN')
+  })
+
   it('rehydrates a Workflow from events and deps', () => {
     const events: readonly BaseEvent[] = []
     const workflow = WorkflowAdapter.rehydrate(events, makeWorkflowDeps())

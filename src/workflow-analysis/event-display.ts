@@ -51,7 +51,7 @@ function extractTransitionFields(event: WorkflowEvent): Record<string, unknown> 
 }
 
 function extractMilestoneFields(event: WorkflowEvent): Record<string, unknown> {
-  if (event.type === 'session-started') return omitUndefined({ sessionId: event.sessionId, transcriptPath: event.transcriptPath })
+  if (event.type === 'session-started') return omitUndefined({ transcriptPath: event.transcriptPath })
   if (event.type === 'issue-recorded') return { issueNumber: event.issueNumber }
   if (event.type === 'branch-recorded') return { branch: event.branch }
   if (event.type === 'pr-created') return { prNumber: event.prNumber }

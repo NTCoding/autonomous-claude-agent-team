@@ -66,14 +66,14 @@ describe('extractStructuredFields', () => {
     expect(extractStructuredFields(event)).toStrictEqual({ from: 'DEVELOPING', to: 'BLOCKED', preBlockedState: 'DEVELOPING' })
   })
 
-  it('extracts sessionId and transcriptPath for session-started', () => {
-    const event: WorkflowEvent = { type: 'session-started' as const, at: '2026-01-01T00:00:00.000Z', sessionId: 'abc', transcriptPath: '/tmp/t.jsonl' }
-    expect(extractStructuredFields(event)).toStrictEqual({ sessionId: 'abc', transcriptPath: '/tmp/t.jsonl' })
+  it('extracts transcriptPath for session-started', () => {
+    const event: WorkflowEvent = { type: 'session-started' as const, at: '2026-01-01T00:00:00.000Z', transcriptPath: '/tmp/t.jsonl' }
+    expect(extractStructuredFields(event)).toStrictEqual({ transcriptPath: '/tmp/t.jsonl' })
   })
 
-  it('omits transcriptPath for session-started when not present', () => {
-    const event: WorkflowEvent = { type: 'session-started' as const, at: '2026-01-01T00:00:00.000Z', sessionId: 'abc' }
-    expect(extractStructuredFields(event)).toStrictEqual({ sessionId: 'abc' })
+  it('returns empty object for session-started when no transcriptPath', () => {
+    const event: WorkflowEvent = { type: 'session-started' as const, at: '2026-01-01T00:00:00.000Z' }
+    expect(extractStructuredFields(event)).toStrictEqual({})
   })
 
   it('extracts issueNumber for issue-recorded', () => {

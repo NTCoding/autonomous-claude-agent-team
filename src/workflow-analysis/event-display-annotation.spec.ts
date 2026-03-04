@@ -18,7 +18,7 @@ function taskAssigned(at: string, task: string): WorkflowEvent {
 describe('annotateEventsWithState', () => {
   it('assigns idle state to events before any transition', () => {
     const events: readonly WorkflowEvent[] = [
-      { type: 'session-started' as const, at: T0, sessionId: 'abc' },
+      { type: 'session-started' as const, at: T0 },
     ]
     const result = annotateEventsWithState(events)
     expect(result[0]?.state).toStrictEqual('idle')
@@ -27,7 +27,7 @@ describe('annotateEventsWithState', () => {
   it('assigns state from most recent transitioned event', () => {
     const events: readonly WorkflowEvent[] = [
       transition(T0, 'idle', 'SPAWN'),
-      { type: 'session-started' as const, at: T1, sessionId: 'abc' },
+      { type: 'session-started' as const, at: T1 },
     ]
     const result = annotateEventsWithState(events)
     expect(result[1]?.state).toStrictEqual('SPAWN')
@@ -131,7 +131,7 @@ describe('annotateEvents', () => {
 
   it('assigns idle state and iteration 0 before any transition or task', () => {
     const events: readonly WorkflowEvent[] = [
-      { type: 'session-started' as const, at: T0, sessionId: 'abc' },
+      { type: 'session-started' as const, at: T0 },
     ]
     const result = annotateEvents(events)
     expect(result[0]).toStrictEqual({ event: events[0], state: 'idle', iteration: 0 })

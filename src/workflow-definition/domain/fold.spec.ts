@@ -36,13 +36,13 @@ describe('EMPTY_STATE', () => {
 
 describe('applyEvent — session-started', () => {
   it('sets transcriptPath', () => {
-    const event: WorkflowEvent = { type: 'session-started', at: AT, sessionId: 'abc', transcriptPath: '/t.jsonl' }
+    const event: WorkflowEvent = { type: 'session-started', at: AT, transcriptPath: '/t.jsonl' }
     const result = applyEvent(EMPTY_STATE, event)
     expect(result.transcriptPath).toStrictEqual('/t.jsonl')
   })
 
   it('sets transcriptPath to undefined when omitted', () => {
-    const event: WorkflowEvent = { type: 'session-started', at: AT, sessionId: 'abc' }
+    const event: WorkflowEvent = { type: 'session-started', at: AT }
     const result = applyEvent(EMPTY_STATE, event)
     expect(result.transcriptPath).toBeUndefined()
   })
@@ -307,7 +307,7 @@ describe('applyEvents', () => {
 
   it('reduces a full event sequence to correct state', () => {
     const events: WorkflowEvent[] = [
-      { type: 'session-started', at: AT, sessionId: 's1', transcriptPath: '/t.jsonl' },
+      { type: 'session-started', at: AT, transcriptPath: '/t.jsonl' },
       { type: 'issue-recorded', at: AT, issueNumber: 10 },
       { type: 'branch-recorded', at: AT, branch: 'feature/foo' },
       { type: 'transitioned', at: AT, from: 'SPAWN', to: 'PLANNING' },
@@ -325,7 +325,7 @@ describe('applyEvents', () => {
 
   it('applies iteration and transcript path from event sequence', () => {
     const events: WorkflowEvent[] = [
-      { type: 'session-started', at: AT, sessionId: 's1', transcriptPath: '/t.jsonl' },
+      { type: 'session-started', at: AT, transcriptPath: '/t.jsonl' },
       { type: 'iteration-task-assigned', at: AT, task: 'Build it' },
       { type: 'transitioned', at: AT, from: 'RESPAWN', to: 'DEVELOPING', iteration: 0, developingHeadCommit: 'abc' },
     ]

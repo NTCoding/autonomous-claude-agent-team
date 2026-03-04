@@ -22,6 +22,7 @@ export interface RehydratableWorkflow {
   transitionTo(target: string): PreconditionResult
   getPendingEvents(): readonly BaseEvent[]
   verifyIdentity(transcriptPath: string): PreconditionResult
+  startSession(transcriptPath: string | undefined): void
 }
 
 export type WorkflowDeps = {
@@ -39,6 +40,7 @@ export type WorkflowDeps = {
 
 export interface WorkflowFactory<TWorkflow extends RehydratableWorkflow> {
   rehydrate(events: readonly BaseEvent[], deps: WorkflowDeps): TWorkflow
+  createFresh(deps: WorkflowDeps): TWorkflow
   procedurePath(state: string, pluginRoot: string): string
   initialState(): WorkflowState
   getEmojiForState(state: string): string
@@ -80,14 +82,10 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     if (this.engineDeps.store.sessionExists(sessionId)) {
       return { type: 'success', output: '' }
     }
+    const workflow = this.factory.createFresh(this.workflowDeps)
+    workflow.startSession(transcriptPath)
+    this.engineDeps.store.appendEvents(sessionId, workflow.getPendingEvents())
     const initial = this.factory.initialState()
-    const sessionStartedEvent: BaseEvent = {
-      type: 'session-started',
-      at: this.engineDeps.now(),
-      ...(transcriptPath === undefined ? {} : { transcriptPath }),
-    }
-    const events: BaseEvent[] = [sessionStartedEvent]
-    this.engineDeps.store.appendEvents(sessionId, events)
     const procedurePath = this.factory.procedurePath(initial.state, this.engineDeps.getPluginRoot())
     const procedureContent = this.engineDeps.readFile(procedurePath)
     return { type: 'success', output: formatInitSuccess(procedureContent) }
