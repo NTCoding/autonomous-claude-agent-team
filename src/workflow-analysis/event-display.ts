@@ -131,6 +131,17 @@ export function annotateEventsWithState(events: readonly WorkflowEvent[]): reado
   ).result
 }
 
+export function annotateEvents(events: readonly WorkflowEvent[]): readonly AnnotatedEvent[] {
+  return events.reduce<{ state: string; iteration: number; result: readonly AnnotatedEvent[] }>(
+    (acc, event) => {
+      const state = event.type === 'transitioned' ? event.to : acc.state
+      const iteration = event.type === 'iteration-task-assigned' ? acc.iteration + 1 : acc.iteration
+      return { state, iteration, result: [...acc.result, { event, state: acc.state, iteration }] }
+    },
+    { state: 'idle', iteration: 0, result: [] },
+  ).result
+}
+
 export function annotateEventsWithIteration(events: readonly WorkflowEvent[]): readonly AnnotatedEvent[] {
   return events.reduce<{ iteration: number; result: readonly AnnotatedEvent[] }>(
     (acc, event) => {

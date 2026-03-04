@@ -1,5 +1,5 @@
 import type { WorkflowEvent } from '../workflow-definition/index.js'
-import { annotateEventsWithState, annotateEventsWithIteration } from './event-display.js'
+import { annotateEventsWithState, annotateEventsWithIteration, annotateEvents } from './event-display.js'
 
 const T0 = '2026-01-01T00:00:00.000Z'
 const T1 = '2026-01-01T00:01:00.000Z'
@@ -105,5 +105,49 @@ describe('annotateEventsWithIteration', () => {
     expect(result[0]?.iteration).toStrictEqual(0)
     expect(result[1]?.iteration).toStrictEqual(1)
     expect(result[4]?.iteration).toStrictEqual(1)
+  })
+})
+
+describe('annotateEvents', () => {
+  it('populates both state and iteration for each event', () => {
+    const events: readonly WorkflowEvent[] = [
+      transition(T0, 'idle', 'SPAWN'),
+      taskAssigned(T1, 'Task A'),
+      transition(T2, 'DEVELOPING', 'REVIEWING'),
+      { type: 'review-approved' as const, at: T3 },
+    ]
+    const result = annotateEvents(events)
+    expect(result).toStrictEqual([
+      { event: events[0], state: 'idle', iteration: 0 },
+      { event: events[1], state: 'SPAWN', iteration: 1 },
+      { event: events[2], state: 'SPAWN', iteration: 1 },
+      { event: events[3], state: 'REVIEWING', iteration: 1 },
+    ])
+  })
+
+  it('returns empty array for empty events', () => {
+    expect(annotateEvents([])).toStrictEqual([])
+  })
+
+  it('assigns idle state and iteration 0 before any transition or task', () => {
+    const events: readonly WorkflowEvent[] = [
+      { type: 'session-started' as const, at: T0, sessionId: 'abc' },
+    ]
+    const result = annotateEvents(events)
+    expect(result[0]).toStrictEqual({ event: events[0], state: 'idle', iteration: 0 })
+  })
+
+  it('tracks multiple iterations with state changes', () => {
+    const events: readonly WorkflowEvent[] = [
+      taskAssigned(T0, 'Task A'),
+      transition(T1, 'RESPAWN', 'DEVELOPING'),
+      taskAssigned(T2, 'Task B'),
+      transition(T3, 'RESPAWN', 'DEVELOPING'),
+    ]
+    const result = annotateEvents(events)
+    expect(result[0]).toStrictEqual({ event: events[0], state: 'idle', iteration: 1 })
+    expect(result[1]).toStrictEqual({ event: events[1], state: 'idle', iteration: 1 })
+    expect(result[2]).toStrictEqual({ event: events[2], state: 'DEVELOPING', iteration: 2 })
+    expect(result[3]).toStrictEqual({ event: events[3], state: 'DEVELOPING', iteration: 2 })
   })
 })
