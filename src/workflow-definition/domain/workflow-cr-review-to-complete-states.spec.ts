@@ -1,281 +1,224 @@
 import { Workflow } from '../index.js'
-import type { WorkflowDeps } from '../index.js'
-import type { WorkflowState, IterationState } from './workflow-types.js'
 import { INITIAL_STATE } from './workflow-types.js'
 import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
-
-const cleanGit: GitInfo = {
-  currentBranch: 'feature/test',
-  workingTreeClean: true,
-  headCommit: 'abc123',
-  changedFilesVsDefault: [],
-  hasCommitsVsDefault: false,
-}
-
-const dirtyGit: GitInfo = {
-  ...cleanGit,
-  workingTreeClean: false,
-}
-
-function makeDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
-  return {
-    getGitInfo: () => cleanGit,
-    checkPrChecks: () => true,
-    createDraftPr: () => 99,
-    appendIssueChecklist: () => undefined,
-    tickFirstUncheckedIteration: () => undefined,
-    runEslintOnFiles: () => true,
-    fileExists: () => true,
-    getPluginRoot: () => '/plugin',
-    now: () => '2026-01-01T00:00:00Z',
-    readTranscriptMessages: () => [],
-    ...overrides,
-  }
-}
-
-const DEFAULT_ITERATION: IterationState = {
-  task: 'test task',
-  developerDone: false,
-  reviewApproved: false,
-  reviewRejected: false,
-  coderabbitFeedbackAddressed: false,
-  coderabbitFeedbackIgnored: false,
-  lintedFiles: [],
-  lintRanIteration: false,
-}
-
-function stateWith(overrides: Partial<WorkflowState>): WorkflowState {
-  return { ...INITIAL_STATE, ...overrides }
-}
+import {
+  spec,
+  makeDeps,
+  cleanGit,
+  DEFAULT_ITERATION,
+  eventsToCrReview,
+  eventsToPrCreation,
+  eventsToFeedback,
+  eventsToDeveloping,
+  eventsToComplete,
+  coderabbitAddressed,
+  coderabbitIgnored,
+  prRecorded,
+  transitioned,
+  iterationTaskAssigned,
+} from './workflow-test-fixtures.js'
 
 describe('Workflow', () => {
   describe('CR_REVIEW state', () => {
     it('transitions to PR_CREATION when feedback addressed and has commits', () => {
-      const state = stateWith({
-        currentStateMachineState: 'CR_REVIEW',
-        iterations: [{ ...DEFAULT_ITERATION, coderabbitFeedbackAddressed: true }],
-      })
       const gitWithCommits: GitInfo = { ...cleanGit, hasCommitsVsDefault: true }
-      const wf = Workflow.rehydrate(state, makeDeps({ getGitInfo: () => gitWithCommits }))
-      const result = wf.transitionTo('PR_CREATION')
+      const { result } = spec
+        .given(...eventsToCrReview(), coderabbitAddressed())
+        .withDeps({ getGitInfo: () => gitWithCommits })
+        .when((wf) => wf.transitionTo('PR_CREATION'))
       expect(result).toStrictEqual({ pass: true })
     })
 
     it('transitions to PR_CREATION when feedback ignored', () => {
-      const state = stateWith({
-        currentStateMachineState: 'CR_REVIEW',
-        iterations: [{ ...DEFAULT_ITERATION, coderabbitFeedbackIgnored: true }],
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('PR_CREATION')
+      const { result } = spec
+        .given(...eventsToCrReview(), coderabbitIgnored())
+        .when((wf) => wf.transitionTo('PR_CREATION'))
       expect(result).toStrictEqual({ pass: true })
     })
 
     it('fails transition when neither addressed nor ignored', () => {
-      const state = stateWith({
-        currentStateMachineState: 'CR_REVIEW',
-        iterations: [DEFAULT_ITERATION],
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('PR_CREATION')
+      const { result } = spec
+        .given(...eventsToCrReview())
+        .when((wf) => wf.transitionTo('PR_CREATION'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition when addressed but no commits', () => {
-      const state = stateWith({
-        currentStateMachineState: 'CR_REVIEW',
-        iterations: [{ ...DEFAULT_ITERATION, coderabbitFeedbackAddressed: true }],
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('PR_CREATION')
+      const { result } = spec
+        .given(...eventsToCrReview(), coderabbitAddressed())
+        .when((wf) => wf.transitionTo('PR_CREATION'))
       expect(result.pass).toBe(false)
     })
 
     it('sets coderabbitFeedbackAddressed when succeeds', () => {
-      const state = stateWith({
-        currentStateMachineState: 'CR_REVIEW',
-        iterations: [DEFAULT_ITERATION],
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.coderabbitFeedbackAddressed()
+      const { result, state } = spec
+        .given(...eventsToCrReview())
+        .when((wf) => wf.coderabbitFeedbackAddressed())
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().iterations[0]?.coderabbitFeedbackAddressed).toBe(true)
+      expect(state.iterations[0]?.coderabbitFeedbackAddressed).toBe(true)
     })
 
     it('fails coderabbitFeedbackAddressed in non-CR_REVIEW states', () => {
-      const wf = Workflow.rehydrate({ ...INITIAL_STATE }, makeDeps())
-      const result = wf.coderabbitFeedbackAddressed()
+      const { result } = spec.given().when((wf) => wf.coderabbitFeedbackAddressed())
       expect(result.pass).toBe(false)
     })
 
     it('throws coderabbitFeedbackAddressed when no iteration', () => {
-      const state = stateWith({ currentStateMachineState: 'CR_REVIEW' })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      expect(() => wf.coderabbitFeedbackAddressed()).toThrow('No iteration at index 0')
+      const { error } = spec
+        .given(transitioned('SPAWN', 'CR_REVIEW'))
+        .whenThrows((wf) => wf.coderabbitFeedbackAddressed())
+      expect(error).toHaveProperty('message', 'No iteration at index 0')
     })
 
     it('sets coderabbitFeedbackIgnored when succeeds', () => {
-      const state = stateWith({
-        currentStateMachineState: 'CR_REVIEW',
-        iterations: [DEFAULT_ITERATION],
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.coderabbitFeedbackIgnored()
+      const { result, state } = spec
+        .given(...eventsToCrReview())
+        .when((wf) => wf.coderabbitFeedbackIgnored())
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().iterations[0]?.coderabbitFeedbackIgnored).toBe(true)
+      expect(state.iterations[0]?.coderabbitFeedbackIgnored).toBe(true)
     })
 
     it('fails coderabbitFeedbackIgnored in non-CR_REVIEW states', () => {
-      const wf = Workflow.rehydrate({ ...INITIAL_STATE }, makeDeps())
-      const result = wf.coderabbitFeedbackIgnored()
+      const { result } = spec.given().when((wf) => wf.coderabbitFeedbackIgnored())
       expect(result.pass).toBe(false)
     })
 
     it('throws coderabbitFeedbackIgnored when no iteration', () => {
-      const state = stateWith({ currentStateMachineState: 'CR_REVIEW' })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      expect(() => wf.coderabbitFeedbackIgnored()).toThrow('No iteration at index 0')
+      const { error } = spec
+        .given(transitioned('SPAWN', 'CR_REVIEW'))
+        .whenThrows((wf) => wf.coderabbitFeedbackIgnored())
+      expect(error).toHaveProperty('message', 'No iteration at index 0')
     })
   })
 
   describe('PR_CREATION state', () => {
     it('transitions to FEEDBACK when prNumber set and PR checks pass', () => {
-      const state = stateWith({
-        currentStateMachineState: 'PR_CREATION',
-        prNumber: 42,
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('FEEDBACK')
+      const { result, state } = spec
+        .given(...eventsToPrCreation(), prRecorded(42))
+        .when((wf) => wf.transitionTo('FEEDBACK'))
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().currentStateMachineState).toBe('FEEDBACK')
+      expect(state.currentStateMachineState).toBe('FEEDBACK')
     })
 
     it('fails transition when no prNumber', () => {
-      const state = stateWith({ currentStateMachineState: 'PR_CREATION' })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('FEEDBACK')
+      const { result } = spec
+        .given(...eventsToPrCreation())
+        .when((wf) => wf.transitionTo('FEEDBACK'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition when PR checks fail', () => {
-      const state = stateWith({
-        currentStateMachineState: 'PR_CREATION',
-        prNumber: 42,
-      })
-      const wf = Workflow.rehydrate(state, makeDeps({ checkPrChecks: () => false }))
-      const result = wf.transitionTo('FEEDBACK')
+      const { result } = spec
+        .given(...eventsToPrCreation(), prRecorded(42))
+        .withDeps({ checkPrChecks: () => false })
+        .when((wf) => wf.transitionTo('FEEDBACK'))
       expect(result.pass).toBe(false)
     })
 
     it('sets prNumber when recordPr succeeds', () => {
-      const state = stateWith({ currentStateMachineState: 'PR_CREATION' })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.recordPr(99)
+      const { result, state } = spec
+        .given(...eventsToPrCreation())
+        .when((wf) => wf.recordPr(99))
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().prNumber).toBe(99)
+      expect(state.prNumber).toBe(99)
     })
 
     it('fails recordPr in non-PR_CREATION states', () => {
-      const wf = Workflow.rehydrate({ ...INITIAL_STATE }, makeDeps())
-      const result = wf.recordPr(99)
+      const { result } = spec.given().when((wf) => wf.recordPr(99))
       expect(result.pass).toBe(false)
     })
 
     it('calls deps.createDraftPr and sets prNumber when createPr succeeds', () => {
       const mockCreate = vi.fn().mockReturnValue(77)
-      const state = stateWith({ currentStateMachineState: 'PR_CREATION' })
-      const wf = Workflow.rehydrate(state, makeDeps({ createDraftPr: mockCreate }))
-      const result = wf.createPr('title', 'body')
+      const { result, state } = spec
+        .given(...eventsToPrCreation())
+        .withDeps({ createDraftPr: mockCreate })
+        .when((wf) => wf.createPr('title', 'body'))
       expect(result).toStrictEqual({ pass: true })
       expect(mockCreate).toHaveBeenCalledWith('title', 'body')
-      expect(wf.getState().prNumber).toBe(77)
+      expect(state.prNumber).toBe(77)
     })
 
     it('fails createPr in non-PR_CREATION states', () => {
-      const wf = Workflow.rehydrate({ ...INITIAL_STATE }, makeDeps())
-      const result = wf.createPr('t', 'b')
+      const { result } = spec.given().when((wf) => wf.createPr('t', 'b'))
       expect(result.pass).toBe(false)
     })
   })
 
   describe('FEEDBACK state', () => {
     it('transitions to COMPLETE when prNumber set and checks pass', () => {
-      const state = stateWith({
-        currentStateMachineState: 'FEEDBACK',
-        prNumber: 42,
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('COMPLETE')
+      const { result, state } = spec
+        .given(...eventsToFeedback())
+        .when((wf) => wf.transitionTo('COMPLETE'))
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().currentStateMachineState).toBe('COMPLETE')
+      expect(state.currentStateMachineState).toBe('COMPLETE')
     })
 
     it('fails transition to COMPLETE when no prNumber', () => {
-      const state = stateWith({ currentStateMachineState: 'FEEDBACK' })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('COMPLETE')
+      const { result } = spec
+        .given(
+          ...eventsToPrCreation(),
+          transitioned('PR_CREATION', 'FEEDBACK'),
+        )
+        .when((wf) => wf.transitionTo('COMPLETE'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition to COMPLETE when PR checks fail', () => {
-      const state = stateWith({
-        currentStateMachineState: 'FEEDBACK',
-        prNumber: 42,
-      })
-      const wf = Workflow.rehydrate(state, makeDeps({ checkPrChecks: () => false }))
-      const result = wf.transitionTo('COMPLETE')
+      const { result } = spec
+        .given(...eventsToFeedback())
+        .withDeps({ checkPrChecks: () => false })
+        .when((wf) => wf.transitionTo('COMPLETE'))
       expect(result.pass).toBe(false)
     })
 
     it('transitions to RESPAWN always', () => {
-      const state = stateWith({ currentStateMachineState: 'FEEDBACK' })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('RESPAWN')
+      const { result } = spec
+        .given(
+          ...eventsToPrCreation(),
+          transitioned('PR_CREATION', 'FEEDBACK'),
+        )
+        .when((wf) => wf.transitionTo('RESPAWN'))
       expect(result).toStrictEqual({ pass: true })
     })
   })
 
   describe('BLOCKED state', () => {
     it('allows transition TO BLOCKED from any state and sets preBlockedState', () => {
-      const state = stateWith({
-        currentStateMachineState: 'DEVELOPING',
-        iterations: [DEFAULT_ITERATION],
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('BLOCKED')
+      const { result, state, events } = spec
+        .given(...eventsToDeveloping())
+        .when((wf) => wf.transitionTo('BLOCKED'))
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().currentStateMachineState).toBe('BLOCKED')
-      expect(wf.getState().preBlockedState).toBe('DEVELOPING')
-      expect(wf.getPendingEvents()).toStrictEqual(
+      expect(state.currentStateMachineState).toBe('BLOCKED')
+      expect(state.preBlockedState).toBe('DEVELOPING')
+      expect(events).toStrictEqual(
         expect.arrayContaining([expect.objectContaining({ type: 'transitioned', from: 'DEVELOPING', to: 'BLOCKED' })])
       )
     })
 
     it('allows transition FROM BLOCKED back to pre-blocked state', () => {
-      const state = stateWith({
-        currentStateMachineState: 'BLOCKED',
-        iterations: [DEFAULT_ITERATION],
-        preBlockedState: 'DEVELOPING',
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('DEVELOPING')
+      const { result, state } = spec
+        .given(
+          ...eventsToDeveloping(),
+          transitioned('DEVELOPING', 'BLOCKED'),
+        )
+        .when((wf) => wf.transitionTo('DEVELOPING'))
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().currentStateMachineState).toBe('DEVELOPING')
+      expect(state.currentStateMachineState).toBe('DEVELOPING')
     })
 
     it('fails transition FROM BLOCKED to wrong state', () => {
-      const state = stateWith({
-        currentStateMachineState: 'BLOCKED',
-        preBlockedState: 'DEVELOPING',
-      })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('PLANNING')
+      const { result } = spec
+        .given(
+          ...eventsToDeveloping(),
+          transitioned('DEVELOPING', 'BLOCKED'),
+        )
+        .when((wf) => wf.transitionTo('PLANNING'))
       expect(result.pass).toBe(false)
     })
 
     it('includes unknown in error when not set', () => {
-      const state = stateWith({ currentStateMachineState: 'BLOCKED' })
-      const wf = Workflow.rehydrate(state, makeDeps())
+      const wf = Workflow.rehydrate({ ...INITIAL_STATE, currentStateMachineState: 'BLOCKED' }, makeDeps())
       const result = wf.transitionTo('PLANNING')
       expect(result.pass).toBe(false)
       if (!result.pass) {
@@ -286,9 +229,9 @@ describe('Workflow', () => {
 
   describe('COMPLETE state', () => {
     it('fails all transitions since canTransitionTo is empty', () => {
-      const state = stateWith({ currentStateMachineState: 'COMPLETE' })
-      const wf = Workflow.rehydrate(state, makeDeps())
-      const result = wf.transitionTo('SPAWN')
+      const { result } = spec
+        .given(...eventsToComplete())
+        .when((wf) => wf.transitionTo('SPAWN'))
       expect(result.pass).toBe(false)
     })
   })
