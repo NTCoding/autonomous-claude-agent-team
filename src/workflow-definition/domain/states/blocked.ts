@@ -1,5 +1,5 @@
 import type { ConcreteStateDefinition } from '../workflow-types.js'
-import { fail, pass } from '../../../workflow-dsl/index.js'
+import { fail, pass } from '@ntcoding/agentic-workflow-builder/dsl'
 
 export const blockedState: ConcreteStateDefinition = {
   emoji: '⚠️',

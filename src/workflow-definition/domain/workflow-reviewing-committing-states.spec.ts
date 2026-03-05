@@ -1,8 +1,8 @@
 import { Workflow } from '../index.js'
 import type { WorkflowDeps } from '../index.js'
-import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
+import type { WorkflowState, IterationState } from './workflow-types.js'
 import { INITIAL_STATE } from './workflow-types.js'
-import type { GitInfo } from '../../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 const cleanGit: GitInfo = {
   currentBranch: 'feature/test',
@@ -52,18 +52,18 @@ describe('Workflow', () => {
   describe('REVIEWING state', () => {
     it('transitions to COMMITTING when reviewApproved', () => {
       const state = stateWith({
-        state: 'REVIEWING',
+        currentStateMachineState: 'REVIEWING',
         iterations: [{ ...DEFAULT_ITERATION, reviewApproved: true }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('COMMITTING')
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().state).toBe('COMMITTING')
+      expect(wf.getState().currentStateMachineState).toBe('COMMITTING')
     })
 
     it('fails transition to COMMITTING when not approved', () => {
       const state = stateWith({
-        state: 'REVIEWING',
+        currentStateMachineState: 'REVIEWING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -73,7 +73,7 @@ describe('Workflow', () => {
 
     it('transitions to DEVELOPING when reviewRejected', () => {
       const state = stateWith({
-        state: 'REVIEWING',
+        currentStateMachineState: 'REVIEWING',
         iterations: [{ ...DEFAULT_ITERATION, reviewRejected: true }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -83,7 +83,7 @@ describe('Workflow', () => {
 
     it('fails transition to DEVELOPING when not rejected', () => {
       const state = stateWith({
-        state: 'REVIEWING',
+        currentStateMachineState: 'REVIEWING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -93,7 +93,7 @@ describe('Workflow', () => {
 
     it('sets reviewApproved when reviewApproved succeeds', () => {
       const state = stateWith({
-        state: 'REVIEWING',
+        currentStateMachineState: 'REVIEWING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -109,14 +109,14 @@ describe('Workflow', () => {
     })
 
     it('throws reviewApproved when no iteration', () => {
-      const state = stateWith({ state: 'REVIEWING' })
+      const state = stateWith({ currentStateMachineState: 'REVIEWING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(() => wf.reviewApproved()).toThrow('No iteration at index 0')
     })
 
     it('sets reviewRejected when reviewRejected succeeds', () => {
       const state = stateWith({
-        state: 'REVIEWING',
+        currentStateMachineState: 'REVIEWING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -132,7 +132,7 @@ describe('Workflow', () => {
     })
 
     it('throws reviewRejected when no iteration', () => {
-      const state = stateWith({ state: 'REVIEWING' })
+      const state = stateWith({ currentStateMachineState: 'REVIEWING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(() => wf.reviewRejected()).toThrow('No iteration at index 0')
     })
@@ -141,7 +141,7 @@ describe('Workflow', () => {
   describe('COMMITTING state', () => {
     it('transitions to RESPAWN when clean tree and linted and has commits', () => {
       const state = stateWith({
-        state: 'COMMITTING',
+        currentStateMachineState: 'COMMITTING',
         iterations: [{ ...DEFAULT_ITERATION, lintRanIteration: true, lintedFiles: ['src/a.ts'] }],
       })
       const gitWithCommits: GitInfo = {
@@ -156,7 +156,7 @@ describe('Workflow', () => {
 
     it('transitions to CR_REVIEW when clean tree and linted and has commits', () => {
       const state = stateWith({
-        state: 'COMMITTING',
+        currentStateMachineState: 'COMMITTING',
         iterations: [{ ...DEFAULT_ITERATION, lintRanIteration: true, lintedFiles: ['src/a.ts'] }],
       })
       const gitWithCommits: GitInfo = {
@@ -171,7 +171,7 @@ describe('Workflow', () => {
 
     it('fails transition when dirty tree', () => {
       const state = stateWith({
-        state: 'COMMITTING',
+        currentStateMachineState: 'COMMITTING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps({ getGitInfo: () => dirtyGit }))
@@ -181,7 +181,7 @@ describe('Workflow', () => {
 
     it('fails transition when lint not run', () => {
       const state = stateWith({
-        state: 'COMMITTING',
+        currentStateMachineState: 'COMMITTING',
         iterations: [DEFAULT_ITERATION],
       })
       const gitWithFiles: GitInfo = {
@@ -196,7 +196,7 @@ describe('Workflow', () => {
 
     it('fails transition when unlinted files exist', () => {
       const state = stateWith({
-        state: 'COMMITTING',
+        currentStateMachineState: 'COMMITTING',
         iterations: [{ ...DEFAULT_ITERATION, lintRanIteration: true, lintedFiles: ['src/a.ts'] }],
       })
       const gitWithFiles: GitInfo = {
@@ -211,7 +211,7 @@ describe('Workflow', () => {
 
     it('fails transition when no commits beyond default', () => {
       const state = stateWith({
-        state: 'COMMITTING',
+        currentStateMachineState: 'COMMITTING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -221,7 +221,7 @@ describe('Workflow', () => {
 
     it('succeeds transition with no TS files even without lint', () => {
       const state = stateWith({
-        state: 'COMMITTING',
+        currentStateMachineState: 'COMMITTING',
         iterations: [DEFAULT_ITERATION],
       })
       const gitWithCommitsNoTs: GitInfo = {
@@ -237,7 +237,7 @@ describe('Workflow', () => {
     it('calls deps.tickFirstUncheckedIteration when tickIteration succeeds', () => {
       const mockTick = vi.fn()
       const state = stateWith({
-        state: 'COMMITTING',
+        currentStateMachineState: 'COMMITTING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps({ tickFirstUncheckedIteration: mockTick }))

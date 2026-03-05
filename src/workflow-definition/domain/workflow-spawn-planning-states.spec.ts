@@ -1,8 +1,8 @@
 import { Workflow } from '../index.js'
 import type { WorkflowDeps } from '../index.js'
-import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
+import type { WorkflowState, IterationState } from './workflow-types.js'
 import { INITIAL_STATE } from './workflow-types.js'
-import type { GitInfo } from '../../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 const cleanGit: GitInfo = {
   currentBranch: 'feature/test',
@@ -52,7 +52,7 @@ describe('Workflow', () => {
   describe('createFresh', () => {
     it('creates a workflow in SPAWN state with empty pending events', () => {
       const wf = Workflow.createFresh(makeDeps())
-      expect(wf.getState().state).toBe('SPAWN')
+      expect(wf.getState().currentStateMachineState).toBe('SPAWN')
       expect(wf.getPendingEvents()).toHaveLength(0)
     })
   })
@@ -102,7 +102,7 @@ describe('Workflow', () => {
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('PLANNING')
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().state).toBe('PLANNING')
+      expect(wf.getState().currentStateMachineState).toBe('PLANNING')
     })
 
     it('fails transition to PLANNING when no githubIssue', () => {
@@ -155,7 +155,7 @@ describe('Workflow', () => {
     })
 
     it('fails recordIssue in non-SPAWN states', () => {
-      const state = stateWith({ state: 'PLANNING' })
+      const state = stateWith({ currentStateMachineState: 'PLANNING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.recordIssue(42)
       expect(result.pass).toBe(false)
@@ -165,17 +165,17 @@ describe('Workflow', () => {
   describe('PLANNING state', () => {
     it('transitions to RESPAWN when plan approved and clean tree', () => {
       const state = stateWith({
-        state: 'PLANNING',
+        currentStateMachineState: 'PLANNING',
         userApprovedPlan: true,
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('RESPAWN')
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().state).toBe('RESPAWN')
+      expect(wf.getState().currentStateMachineState).toBe('RESPAWN')
     })
 
     it('fails transition to RESPAWN when plan not approved', () => {
-      const state = stateWith({ state: 'PLANNING' })
+      const state = stateWith({ currentStateMachineState: 'PLANNING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('RESPAWN')
       expect(result.pass).toBe(false)
@@ -183,7 +183,7 @@ describe('Workflow', () => {
 
     it('fails transition to RESPAWN when dirty tree', () => {
       const state = stateWith({
-        state: 'PLANNING',
+        currentStateMachineState: 'PLANNING',
         userApprovedPlan: true,
       })
       const wf = Workflow.rehydrate(state, makeDeps({ getGitInfo: () => dirtyGit }))
@@ -192,7 +192,7 @@ describe('Workflow', () => {
     })
 
     it('sets featureBranch when recordBranch succeeds', () => {
-      const state = stateWith({ state: 'PLANNING' })
+      const state = stateWith({ currentStateMachineState: 'PLANNING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.recordBranch('feature/x')
       expect(result).toStrictEqual({ pass: true })
@@ -209,7 +209,7 @@ describe('Workflow', () => {
     })
 
     it('sets userApprovedPlan when recordPlanApproval succeeds', () => {
-      const state = stateWith({ state: 'PLANNING' })
+      const state = stateWith({ currentStateMachineState: 'PLANNING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.recordPlanApproval()
       expect(result).toStrictEqual({ pass: true })
@@ -227,7 +227,7 @@ describe('Workflow', () => {
 
     it('calls deps.appendIssueChecklist when appendIssueChecklist succeeds', () => {
       const mockAppend = vi.fn()
-      const state = stateWith({ state: 'PLANNING' })
+      const state = stateWith({ currentStateMachineState: 'PLANNING' })
       const wf = Workflow.rehydrate(state, makeDeps({ appendIssueChecklist: mockAppend }))
       const result = wf.appendIssueChecklist(1, '- [ ] item')
       expect(result).toStrictEqual({ pass: true })
@@ -247,17 +247,17 @@ describe('Workflow', () => {
   describe('RESPAWN state', () => {
     it('transitions to DEVELOPING when iteration prepared and no active agents', () => {
       const state = stateWith({
-        state: 'RESPAWN',
+        currentStateMachineState: 'RESPAWN',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('DEVELOPING')
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().state).toBe('DEVELOPING')
+      expect(wf.getState().currentStateMachineState).toBe('DEVELOPING')
     })
 
     it('fails transition to DEVELOPING when no iteration prepared', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.transitionTo('DEVELOPING')
       expect(result.pass).toBe(false)
@@ -265,7 +265,7 @@ describe('Workflow', () => {
 
     it('fails transition to DEVELOPING when active agents present', () => {
       const state = stateWith({
-        state: 'RESPAWN',
+        currentStateMachineState: 'RESPAWN',
         iterations: [DEFAULT_ITERATION],
         activeAgents: ['developer-1'],
       })
@@ -275,7 +275,7 @@ describe('Workflow', () => {
     })
 
     it('pushes new iteration when assignIterationTask succeeds', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.assignIterationTask('build feature')
       expect(result).toStrictEqual({ pass: true })
@@ -294,18 +294,18 @@ describe('Workflow', () => {
   describe('DEVELOPING state', () => {
     it('transitions to REVIEWING when developerDone and dirty tree and headCommit matches', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [{ ...DEFAULT_ITERATION, developerDone: true, developingHeadCommit: 'abc123' }],
       })
       const wf = Workflow.rehydrate(state, makeDeps({ getGitInfo: () => dirtyGit }))
       const result = wf.transitionTo('REVIEWING')
       expect(result).toStrictEqual({ pass: true })
-      expect(wf.getState().state).toBe('REVIEWING')
+      expect(wf.getState().currentStateMachineState).toBe('REVIEWING')
     })
 
     it('fails transition to REVIEWING when developerDone is false', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps({ getGitInfo: () => dirtyGit }))
@@ -315,7 +315,7 @@ describe('Workflow', () => {
 
     it('fails transition to REVIEWING when tree is clean', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [{ ...DEFAULT_ITERATION, developerDone: true }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -325,7 +325,7 @@ describe('Workflow', () => {
 
     it('fails transition to REVIEWING when head commit changed', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [{ ...DEFAULT_ITERATION, developerDone: true, developingHeadCommit: 'old-commit' }],
       })
       const wf = Workflow.rehydrate(state, makeDeps({ getGitInfo: () => dirtyGit }))
@@ -335,7 +335,7 @@ describe('Workflow', () => {
 
     it('sets iteration and resets fields on onEntry from RESPAWN', () => {
       const state = stateWith({
-        state: 'RESPAWN',
+        currentStateMachineState: 'RESPAWN',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -347,7 +347,7 @@ describe('Workflow', () => {
 
     it('uses iterations.length - 1 on onEntry from RESPAWN with multiple iterations', () => {
       const state = stateWith({
-        state: 'RESPAWN',
+        currentStateMachineState: 'RESPAWN',
         iteration: 0,
         iterations: [
           { ...DEFAULT_ITERATION, task: 'first' },
@@ -361,7 +361,7 @@ describe('Workflow', () => {
 
     it('uses current iteration index on onEntry from REVIEWING', () => {
       const state = stateWith({
-        state: 'REVIEWING',
+        currentStateMachineState: 'REVIEWING',
         iteration: 0,
         iterations: [{ ...DEFAULT_ITERATION, reviewRejected: true }],
       })
@@ -374,7 +374,7 @@ describe('Workflow', () => {
 
     it('sets developerDone when signalDone succeeds', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -390,7 +390,7 @@ describe('Workflow', () => {
     })
 
     it('throws when signalDone has no iteration entry', () => {
-      const state = stateWith({ state: 'DEVELOPING' })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(() => wf.signalDone()).toThrow('No iteration entry at index 0')
     })

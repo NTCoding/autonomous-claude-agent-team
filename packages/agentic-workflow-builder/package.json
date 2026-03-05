@@ -1,0 +1,19 @@
+{
+  "name": "@ntcoding/agentic-workflow-builder",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Type-safe, testable workflow definitions for AI coding agents",
+  "exports": {
+    "./dsl": "./src/dsl/index.ts",
+    "./engine": "./src/engine/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run --coverage"
+  },
+  "peerDependencies": {
+    "zod": "^3.23.0"
+  }
+}

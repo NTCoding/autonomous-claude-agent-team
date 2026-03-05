@@ -1,8 +1,8 @@
 import type { WorkflowEvent } from './workflow-events.js'
-import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
+import type { WorkflowState, IterationState } from './workflow-types.js'
 
 export const EMPTY_STATE: WorkflowState = {
-  state: 'SPAWN',
+  currentStateMachineState: 'SPAWN',
   iteration: 0,
   iterations: [],
   userApprovedPlan: false,
@@ -40,7 +40,7 @@ function applyTransitioned(
   const targetIteration = event.iteration === undefined ? state.iteration : event.iteration
   const base: WorkflowState = {
     ...state,
-    state: event.to,
+    currentStateMachineState: event.to,
     preBlockedState: newPreBlockedState,
     iteration: targetIteration,
   }

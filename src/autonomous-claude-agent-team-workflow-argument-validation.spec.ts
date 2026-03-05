@@ -1,6 +1,7 @@
 import { runWorkflow } from './autonomous-claude-agent-team-workflow.js'
 import type { AdapterDeps, AnalyticsDeps } from './autonomous-claude-agent-team-workflow.js'
-import type { WorkflowEngineDeps, WorkflowEventStore, WorkflowRuntimeDeps } from './workflow-engine/index.js'
+import type { WorkflowEngineDeps, WorkflowEventStore } from '@ntcoding/agentic-workflow-builder/engine'
+import type { WorkflowDeps } from './workflow-definition/index.js'
 import type { WorkflowEvent } from './workflow-definition/index.js'
 import { EXIT_ERROR, EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
 
@@ -100,7 +101,7 @@ function makeEngineDeps(overrides?: EngineDepsOverrides): WorkflowEngineDeps {
   }
 }
 
-function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRuntimeDeps {
+function makeWorkflowDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
   return {
     getGitInfo: () => ({
       currentBranch: 'main',
@@ -133,7 +134,7 @@ function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
 
 function makeDeps(overrides?: {
   engineDeps?: EngineDepsOverrides
-  workflowDeps?: Partial<WorkflowRuntimeDeps>
+  workflowDeps?: Partial<WorkflowDeps>
   analyticsDeps?: Partial<AnalyticsDeps>
   getSessionId?: () => string
   readStdin?: () => string

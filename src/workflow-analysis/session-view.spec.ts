@@ -1,4 +1,4 @@
-import type { BaseEvent } from '../workflow-engine/index.js'
+import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 import { buildSessionViewData } from './session-view.js'
 
 function ev(type: string, at: string, extra: Record<string, unknown> = {}): BaseEvent {

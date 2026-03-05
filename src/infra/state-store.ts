@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs'
-import type { WorkflowState as WorkflowStateType } from '../workflow-engine/index.js'
+import type { WorkflowState as WorkflowStateType } from '../workflow-definition/index.js'
 import { WorkflowStateSchema } from '../workflow-definition/index.js'
 import { WorkflowError } from './workflow-error.js'
 

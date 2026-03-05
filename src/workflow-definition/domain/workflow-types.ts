@@ -1,7 +1,5 @@
 import { z } from 'zod'
-import type { WorkflowStateDefinition, WorkflowRegistry } from '../../workflow-dsl/index.js'
-import type { WorkflowState } from '../../workflow-engine/index.js'
-import { createWorkflowStateSchema } from '../../workflow-engine/index.js'
+import type { WorkflowStateDefinition, WorkflowRegistry } from '@ntcoding/agentic-workflow-builder/dsl'
 
 export const STATE_NAMES = [
   'SPAWN',
@@ -21,7 +19,50 @@ export type StateName = (typeof STATE_NAMES)[number]
 
 export const StateNameSchema = z.enum(STATE_NAMES)
 
+const IterationStateSchema = z.object({
+  task: z.string(),
+  developerDone: z.boolean(),
+  developingHeadCommit: z.string().optional(),
+  reviewApproved: z.boolean(),
+  reviewRejected: z.boolean(),
+  coderabbitFeedbackAddressed: z.boolean(),
+  coderabbitFeedbackIgnored: z.boolean(),
+  lintedFiles: z.array(z.string()),
+  lintRanIteration: z.boolean(),
+})
+
+export type IterationState = z.infer<typeof IterationStateSchema>
+
+export function createWorkflowStateSchema(stateNames: readonly [string, ...string[]]) {
+  const stateNameSchema = z.enum(stateNames)
+  return z.object({
+    currentStateMachineState: stateNameSchema,
+    iteration: z.number().int().nonnegative(),
+    iterations: z.array(IterationStateSchema),
+    githubIssue: z.number().int().positive().optional(),
+    featureBranch: z.string().optional(),
+    prNumber: z.number().int().positive().optional(),
+    userApprovedPlan: z.boolean(),
+    activeAgents: z.array(z.string()),
+    transcriptPath: z.string().optional(),
+    preBlockedState: z.string().optional(),
+  })
+}
+
 export const WorkflowStateSchema = createWorkflowStateSchema(STATE_NAMES)
+
+export type WorkflowState = {
+  currentStateMachineState: string
+  iteration: number
+  iterations: IterationState[]
+  githubIssue?: number | undefined
+  featureBranch?: string | undefined
+  prNumber?: number | undefined
+  userApprovedPlan: boolean
+  activeAgents: string[]
+  transcriptPath?: string | undefined
+  preBlockedState?: string | undefined
+}
 
 export type WorkflowOperation =
   | 'record-issue'
@@ -45,7 +86,7 @@ export type ConcreteStateDefinition = WorkflowStateDefinition<WorkflowState, Sta
 export type ConcreteRegistry = WorkflowRegistry<WorkflowState, StateName, WorkflowOperation, ForbiddenBashCommand>
 
 export const INITIAL_STATE: WorkflowState = {
-  state: 'SPAWN',
+  currentStateMachineState: 'SPAWN',
   iteration: 0,
   iterations: [],
   userApprovedPlan: false,

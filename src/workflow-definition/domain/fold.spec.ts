@@ -1,6 +1,6 @@
 import { applyEvents, applyEvent, EMPTY_STATE } from './fold.js'
 import type { WorkflowEvent } from './workflow-events.js'
-import type { WorkflowState } from '../../workflow-engine/index.js'
+import type { WorkflowState } from './workflow-types.js'
 
 const AT = '2026-01-01T00:00:00Z'
 
@@ -10,7 +10,7 @@ function makeState(overrides: Partial<WorkflowState>): WorkflowState {
 
 describe('EMPTY_STATE', () => {
   it('has SPAWN state', () => {
-    expect(EMPTY_STATE.state).toStrictEqual('SPAWN')
+    expect(EMPTY_STATE.currentStateMachineState).toStrictEqual('SPAWN')
   })
 
   it('has zero iteration', () => {
@@ -207,20 +207,20 @@ describe('applyEvent — agent-shut-down', () => {
 describe('applyEvent — transitioned', () => {
   it('changes state field', () => {
     const result = applyEvent(EMPTY_STATE, { type: 'transitioned', at: AT, from: 'SPAWN', to: 'PLANNING' })
-    expect(result.state).toStrictEqual('PLANNING')
+    expect(result.currentStateMachineState).toStrictEqual('PLANNING')
   })
 
   it('sets preBlockedState when transitioning to BLOCKED', () => {
-    const result = applyEvent(makeState({ state: 'DEVELOPING' }), { type: 'transitioned', at: AT, from: 'DEVELOPING', to: 'BLOCKED' })
+    const result = applyEvent(makeState({ currentStateMachineState: 'DEVELOPING' }), { type: 'transitioned', at: AT, from: 'DEVELOPING', to: 'BLOCKED' })
     expect(result.preBlockedState).toStrictEqual('DEVELOPING')
-    expect(result.state).toStrictEqual('BLOCKED')
+    expect(result.currentStateMachineState).toStrictEqual('BLOCKED')
   })
 
   it('clears preBlockedState when transitioning away from BLOCKED', () => {
-    const state = makeState({ state: 'BLOCKED', preBlockedState: 'DEVELOPING' })
+    const state = makeState({ currentStateMachineState: 'BLOCKED', preBlockedState: 'DEVELOPING' })
     const result = applyEvent(state, { type: 'transitioned', at: AT, from: 'BLOCKED', to: 'DEVELOPING' })
     expect(result.preBlockedState).toBeUndefined()
-    expect(result.state).toStrictEqual('DEVELOPING')
+    expect(result.currentStateMachineState).toStrictEqual('DEVELOPING')
   })
 
   it('applies fat iteration field when provided', () => {
@@ -246,7 +246,7 @@ describe('applyEvent — transitioned', () => {
 
   it('does not apply DEVELOPING fields for other target states', () => {
     const iter = { task: 't', developerDone: true, reviewApproved: false, reviewRejected: false, coderabbitFeedbackAddressed: false, coderabbitFeedbackIgnored: false, lintedFiles: ['a.ts'], lintRanIteration: true }
-    const state = makeState({ state: 'DEVELOPING', iterations: [iter] })
+    const state = makeState({ currentStateMachineState: 'DEVELOPING', iterations: [iter] })
     const result = applyEvent(state, { type: 'transitioned', at: AT, from: 'DEVELOPING', to: 'REVIEWING' })
     expect(result.iterations[0]?.developerDone).toStrictEqual(true)
     expect(result.iterations[0]?.lintedFiles).toStrictEqual(['a.ts'])
@@ -317,7 +317,7 @@ describe('applyEvents', () => {
       { type: 'transitioned', at: AT, from: 'RESPAWN', to: 'DEVELOPING', iteration: 0, developingHeadCommit: 'abc' },
     ]
     const state = applyEvents(events)
-    expect(state.state).toStrictEqual('DEVELOPING')
+    expect(state.currentStateMachineState).toStrictEqual('DEVELOPING')
     expect(state.githubIssue).toStrictEqual(10)
     expect(state.featureBranch).toStrictEqual('feature/foo')
     expect(state.userApprovedPlan).toStrictEqual(true)
@@ -341,7 +341,7 @@ describe('applyEvents', () => {
       { type: 'transitioned', at: AT, from: 'BLOCKED', to: 'DEVELOPING' },
     ]
     const state = applyEvents(events)
-    expect(state.state).toStrictEqual('DEVELOPING')
+    expect(state.currentStateMachineState).toStrictEqual('DEVELOPING')
     expect(state.preBlockedState).toBeUndefined()
   })
 

@@ -24,6 +24,7 @@
     "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
   },
   "dependencies": {
+    "@ntcoding/agentic-workflow-builder": "workspace:*",
     "@vitest/eslint-plugin": "^1.0.0",
     "better-sqlite3": "^12.0.0",
     "typescript-eslint": "^8.0.0",

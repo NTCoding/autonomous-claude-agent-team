@@ -1,9 +1,9 @@
-import type { PreconditionResult, TransitionContext, GitInfo } from '../../workflow-dsl/index.js'
-import { pass, fail } from '../../workflow-dsl/index.js'
-import type { WorkflowState } from '../../workflow-engine/index.js'
-import { WorkflowStateError } from '../../workflow-engine/index.js'
-import type { AssistantMessage } from '../../workflow-engine/index.js'
-import { checkLeadIdentity } from '../../workflow-engine/index.js'
+import type { PreconditionResult, TransitionContext, GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
+import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
+import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
+import type { WorkflowState } from './workflow-types.js'
+import type { AssistantMessage } from './identity-rules.js'
+import { checkLeadIdentity } from './identity-rules.js'
 import { WORKFLOW_REGISTRY, getStateDefinition } from './registry.js'
 import type { StateName } from './workflow-types.js'
 import { parseStateName, WorkflowStateSchema, STATE_EMOJI_MAP } from './workflow-types.js'
@@ -71,7 +71,7 @@ export class Workflow {
   }
 
   getAgentInstructions(pluginRoot: string): string {
-    return `${pluginRoot}/${getStateDefinition(this.state.state).agentInstructions}`
+    return `${pluginRoot}/${getStateDefinition(this.state.currentStateMachineState).agentInstructions}`
   }
 
   startSession(transcriptPath: string | undefined, repository: string | undefined): void {
@@ -227,7 +227,7 @@ export class Workflow {
   }
 
   checkWriteAllowed(toolName: string, filePath: string): PreconditionResult {
-    const currentDef = getStateDefinition(this.state.state)
+    const currentDef = getStateDefinition(this.state.currentStateMachineState)
     if (!currentDef.forbidden?.write) {
       this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: true })
       return pass()
@@ -243,7 +243,7 @@ export class Workflow {
       return pass()
     }
 
-    const reason = `Write operation '${toolName}' is forbidden in state: ${this.state.state}`
+    const reason = `Write operation '${toolName}' is forbidden in state: ${this.state.currentStateMachineState}`
     this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: false, reason })
     return fail(reason)
   }
@@ -254,7 +254,7 @@ export class Workflow {
       return pass()
     }
 
-    const currentDef = getStateDefinition(this.state.state)
+    const currentDef = getStateDefinition(this.state.currentStateMachineState)
 
     for (const pattern of GLOBAL_FORBIDDEN.bashPatterns) {
       if (!pattern.test(command)) {
@@ -268,13 +268,13 @@ export class Workflow {
       }
 
       if (currentDef.forbidden?.write) {
-        const reason = `git commit/push blocked during ${this.state.state}.\n\nNo commits during ${this.state.state}. Wait for the lead to transition out of ${this.state.state}.`
+        const reason = `git commit/push blocked during ${this.state.currentStateMachineState}.\n\nNo commits during ${this.state.currentStateMachineState}. Wait for the lead to transition out of ${this.state.currentStateMachineState}.`
         this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: false, reason })
         return fail(reason)
       }
 
-      if (COMMIT_BLOCKED_STATES.has(this.state.state)) {
-        const reason = `Cannot commit during ${this.state.state}.\n\nCommits are blocked until the reviewer approves changes. Developer must signal completion first, then the lead transitions to REVIEWING.`
+      if (COMMIT_BLOCKED_STATES.has(this.state.currentStateMachineState)) {
+        const reason = `Cannot commit during ${this.state.currentStateMachineState}.\n\nCommits are blocked until the reviewer approves changes. Developer must signal completion first, then the lead transitions to REVIEWING.`
         this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: false, reason })
         return fail(reason)
       }
@@ -337,8 +337,8 @@ export class Workflow {
 
   verifyIdentity(transcriptPath: string): PreconditionResult {
     const messages = this.deps.readTranscriptMessages(transcriptPath)
-    const emoji = STATE_EMOJI_MAP[parseStateName(this.state.state)]
-    const result = checkLeadIdentity(messages, this.state.state, emoji)
+    const emoji = STATE_EMOJI_MAP[parseStateName(this.state.currentStateMachineState)]
+    const result = checkLeadIdentity(messages, this.state.currentStateMachineState, emoji)
     this.append({ type: 'identity-verified', at: this.deps.now(), status: result.status, transcriptPath })
     if (result.status === 'lost') return fail(result.recoveryMessage)
     return pass()
@@ -356,7 +356,7 @@ export class Workflow {
   }
 
   transitionTo(target: string): PreconditionResult {
-    const from = parseStateName(this.state.state)
+    const from = parseStateName(this.state.currentStateMachineState)
     const targetState = parseStateName(target)
 
     const currentDef = WORKFLOW_REGISTRY[from]

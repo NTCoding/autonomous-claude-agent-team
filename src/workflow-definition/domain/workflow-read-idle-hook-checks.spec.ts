@@ -1,8 +1,8 @@
 import { Workflow } from '../index.js'
 import type { WorkflowDeps } from '../index.js'
-import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
+import type { WorkflowState, IterationState } from './workflow-types.js'
 import { INITIAL_STATE } from './workflow-types.js'
-import type { GitInfo } from '../../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 const cleanGit: GitInfo = {
   currentBranch: 'feature/test',
@@ -147,19 +147,19 @@ describe('Workflow', () => {
 
   describe('checkIdleAllowed', () => {
     it('allows lead idle in BLOCKED', () => {
-      const state = stateWith({ state: 'BLOCKED' })
+      const state = stateWith({ currentStateMachineState: 'BLOCKED' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkIdleAllowed('lead-1')).toStrictEqual({ pass: true })
     })
 
     it('allows lead idle in COMPLETE', () => {
-      const state = stateWith({ state: 'COMPLETE' })
+      const state = stateWith({ currentStateMachineState: 'COMPLETE' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkIdleAllowed('lead-1')).toStrictEqual({ pass: true })
     })
 
     it('blocks lead idle in DEVELOPING', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.checkIdleAllowed('lead-1')
       expect(result.pass).toBe(false)
@@ -167,7 +167,7 @@ describe('Workflow', () => {
 
     it('allows developer idle when developerDone', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [{ ...DEFAULT_ITERATION, developerDone: true }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -176,7 +176,7 @@ describe('Workflow', () => {
 
     it('blocks developer idle when not done', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -185,19 +185,19 @@ describe('Workflow', () => {
     })
 
     it('allows developer idle in non-DEVELOPING states', () => {
-      const state = stateWith({ state: 'REVIEWING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'REVIEWING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkIdleAllowed('developer-1')).toStrictEqual({ pass: true })
     })
 
     it('allows unknown agent idle', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkIdleAllowed('reviewer-1')).toStrictEqual({ pass: true })
     })
 
     it('appends idle-checked event with allowed=true when lead idle is allowed', () => {
-      const state = stateWith({ state: 'BLOCKED' })
+      const state = stateWith({ currentStateMachineState: 'BLOCKED' })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkIdleAllowed('lead-1')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -205,7 +205,7 @@ describe('Workflow', () => {
     })
 
     it('appends idle-checked event with allowed=false and reason when lead idle is blocked', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkIdleAllowed('lead-1')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -219,7 +219,7 @@ describe('Workflow', () => {
 
     it('appends idle-checked event with allowed=true when developer idle is allowed', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [{ ...DEFAULT_ITERATION, developerDone: true }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -230,7 +230,7 @@ describe('Workflow', () => {
 
     it('appends idle-checked event with allowed=false and reason when developer idle is blocked', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -245,7 +245,7 @@ describe('Workflow', () => {
     })
 
     it('appends idle-checked event with allowed=true for unknown agent', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkIdleAllowed('reviewer-1')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -253,7 +253,7 @@ describe('Workflow', () => {
     })
 
     it('does not include reason in idle-checked event when allowed', () => {
-      const state = stateWith({ state: 'BLOCKED' })
+      const state = stateWith({ currentStateMachineState: 'BLOCKED' })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkIdleAllowed('lead-1')
       const event = wf.getPendingEvents()[0]

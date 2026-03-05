@@ -1,8 +1,8 @@
 import { Workflow } from '../index.js'
 import type { WorkflowDeps } from '../index.js'
-import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
+import type { WorkflowState, IterationState } from './workflow-types.js'
 import { INITIAL_STATE } from './workflow-types.js'
-import type { GitInfo } from '../../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 const cleanGit: GitInfo = {
   currentBranch: 'feature/test',

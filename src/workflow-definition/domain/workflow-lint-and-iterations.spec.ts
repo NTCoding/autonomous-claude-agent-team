@@ -1,8 +1,8 @@
 import { Workflow } from '../index.js'
 import type { WorkflowDeps } from '../index.js'
-import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
+import type { WorkflowState, IterationState } from './workflow-types.js'
 import { INITIAL_STATE } from './workflow-types.js'
-import type { GitInfo } from '../../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 const cleanGit: GitInfo = {
   currentBranch: 'feature/test',
@@ -52,7 +52,7 @@ describe('Workflow', () => {
   describe('runLint', () => {
     it('records linted files when lint passes', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -64,7 +64,7 @@ describe('Workflow', () => {
 
     it('records 0 files when no TS files', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -76,7 +76,7 @@ describe('Workflow', () => {
 
     it('returns fail when lint fails', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps({ runEslintOnFiles: () => false }))
@@ -85,14 +85,14 @@ describe('Workflow', () => {
     })
 
     it('throws when no iteration entry', () => {
-      const state = stateWith({ state: 'DEVELOPING' })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(() => wf.runLint(['src/a.ts'])).toThrow('No iteration entry at index 0')
     })
 
     it('filters out non-existent files', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps({ fileExists: () => false }))
@@ -103,7 +103,7 @@ describe('Workflow', () => {
 
     it('merges with existing linted files', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [{ ...DEFAULT_ITERATION, lintedFiles: ['src/existing.ts'] }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -113,7 +113,7 @@ describe('Workflow', () => {
 
     it('deduplicates linted files', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [{ ...DEFAULT_ITERATION, lintedFiles: ['src/a.ts'] }],
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -124,7 +124,7 @@ describe('Workflow', () => {
     it('calls runEslintOnFiles with correct config path', () => {
       const mockLint = vi.fn().mockReturnValue(true)
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iterations: [DEFAULT_ITERATION],
       })
       const wf = Workflow.rehydrate(state, makeDeps({ runEslintOnFiles: mockLint }))
@@ -136,7 +136,7 @@ describe('Workflow', () => {
   describe('pending events', () => {
     it('emits transitioned event for transition', () => {
       const state = stateWith({
-        state: 'PLANNING',
+        currentStateMachineState: 'PLANNING',
         userApprovedPlan: true,
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -147,7 +147,7 @@ describe('Workflow', () => {
     })
 
     it('emits transitioned event for BLOCKED transition', () => {
-      const state = stateWith({ state: 'PLANNING' })
+      const state = stateWith({ currentStateMachineState: 'PLANNING' })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.transitionTo('BLOCKED')
       expect(wf.getPendingEvents()).toStrictEqual(
@@ -157,7 +157,7 @@ describe('Workflow', () => {
 
     it('emits transitioned event for unblock transition', () => {
       const state = stateWith({
-        state: 'BLOCKED',
+        currentStateMachineState: 'BLOCKED',
         preBlockedState: 'PLANNING',
       })
       const wf = Workflow.rehydrate(state, makeDeps())
@@ -171,7 +171,7 @@ describe('Workflow', () => {
   describe('operations with multiple iterations', () => {
     it('signalDone only updates the current iteration', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iteration: 1,
         iterations: [DEFAULT_ITERATION, DEFAULT_ITERATION],
       })
@@ -183,7 +183,7 @@ describe('Workflow', () => {
 
     it('reviewApproved only updates the current iteration', () => {
       const state = stateWith({
-        state: 'REVIEWING',
+        currentStateMachineState: 'REVIEWING',
         iteration: 1,
         iterations: [DEFAULT_ITERATION, DEFAULT_ITERATION],
       })
@@ -195,7 +195,7 @@ describe('Workflow', () => {
 
     it('reviewRejected only updates the current iteration', () => {
       const state = stateWith({
-        state: 'REVIEWING',
+        currentStateMachineState: 'REVIEWING',
         iteration: 1,
         iterations: [DEFAULT_ITERATION, DEFAULT_ITERATION],
       })
@@ -207,7 +207,7 @@ describe('Workflow', () => {
 
     it('coderabbitFeedbackAddressed only updates the current iteration', () => {
       const state = stateWith({
-        state: 'CR_REVIEW',
+        currentStateMachineState: 'CR_REVIEW',
         iteration: 1,
         iterations: [DEFAULT_ITERATION, DEFAULT_ITERATION],
       })
@@ -219,7 +219,7 @@ describe('Workflow', () => {
 
     it('coderabbitFeedbackIgnored only updates the current iteration', () => {
       const state = stateWith({
-        state: 'CR_REVIEW',
+        currentStateMachineState: 'CR_REVIEW',
         iteration: 1,
         iterations: [DEFAULT_ITERATION, DEFAULT_ITERATION],
       })
@@ -231,7 +231,7 @@ describe('Workflow', () => {
 
     it('runLint with no TS files only updates the current iteration', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iteration: 1,
         iterations: [DEFAULT_ITERATION, DEFAULT_ITERATION],
       })
@@ -243,7 +243,7 @@ describe('Workflow', () => {
 
     it('runLint with TS files only updates the current iteration', () => {
       const state = stateWith({
-        state: 'DEVELOPING',
+        currentStateMachineState: 'DEVELOPING',
         iteration: 1,
         iterations: [DEFAULT_ITERATION, DEFAULT_ITERATION],
       })

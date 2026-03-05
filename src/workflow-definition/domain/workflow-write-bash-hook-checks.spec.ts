@@ -1,8 +1,8 @@
 import { Workflow } from '../index.js'
 import type { WorkflowDeps } from '../index.js'
-import type { WorkflowState, IterationState } from '../../workflow-engine/index.js'
+import type { WorkflowState, IterationState } from './workflow-types.js'
 import { INITIAL_STATE } from './workflow-types.js'
-import type { GitInfo } from '../../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 const cleanGit: GitInfo = {
   currentBranch: 'feature/test',
@@ -51,13 +51,13 @@ function stateWith(overrides: Partial<WorkflowState>): WorkflowState {
 describe('Workflow', () => {
   describe('checkWriteAllowed', () => {
     it('allows writes in non-RESPAWN states', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkWriteAllowed('Write', '/some/file.ts')).toStrictEqual({ pass: true })
     })
 
     it('blocks Write tool in RESPAWN with generic message', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.checkWriteAllowed('Write', '/some/file.ts')
       expect(result.pass).toBe(false)
@@ -67,31 +67,31 @@ describe('Workflow', () => {
     })
 
     it('blocks Edit tool in RESPAWN', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkWriteAllowed('Edit', '/some/file.ts').pass).toBe(false)
     })
 
     it('blocks NotebookEdit tool in RESPAWN', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkWriteAllowed('NotebookEdit', '/some/file.ts').pass).toBe(false)
     })
 
     it('allows non-write tools in RESPAWN', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkWriteAllowed('Read', '/some/file.ts')).toStrictEqual({ pass: true })
     })
 
     it('allows state file writes in RESPAWN', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkWriteAllowed('Write', '/tmp/feature-team-state-abc.json')).toStrictEqual({ pass: true })
     })
 
     it('appends write-checked event with allowed=true when no write restriction', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkWriteAllowed('Write', '/some/file.ts')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -99,7 +99,7 @@ describe('Workflow', () => {
     })
 
     it('appends write-checked event with allowed=true for non-write tool in RESPAWN', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkWriteAllowed('Read', '/some/file.ts')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -107,7 +107,7 @@ describe('Workflow', () => {
     })
 
     it('appends write-checked event with allowed=true for state file in RESPAWN', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkWriteAllowed('Write', '/tmp/feature-team-state-abc.json')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -115,7 +115,7 @@ describe('Workflow', () => {
     })
 
     it('appends write-checked event with allowed=false and reason when blocked', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkWriteAllowed('Write', '/some/file.ts')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -131,33 +131,33 @@ describe('Workflow', () => {
 
   describe('checkBashAllowed', () => {
     it('allows non-Bash tools', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkBashAllowed('Write', 'git commit')).toStrictEqual({ pass: true })
     })
 
     it('allows non-git commands in DEVELOPING', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkBashAllowed('Bash', 'npm test')).toStrictEqual({ pass: true })
     })
 
     it('blocks git commit in DEVELOPING', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.checkBashAllowed('Bash', 'git commit -m "test"')
       expect(result.pass).toBe(false)
     })
 
     it('blocks git push in REVIEWING', () => {
-      const state = stateWith({ state: 'REVIEWING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'REVIEWING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.checkBashAllowed('Bash', 'git push origin main')
       expect(result.pass).toBe(false)
     })
 
     it('blocks git commit in RESPAWN with write-block message', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.checkBashAllowed('Bash', 'git commit -m "test"')
       expect(result.pass).toBe(false)
@@ -167,13 +167,13 @@ describe('Workflow', () => {
     })
 
     it('allows git commit in COMMITTING (exempt via allowForbidden)', () => {
-      const state = stateWith({ state: 'COMMITTING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'COMMITTING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkBashAllowed('Bash', 'git commit -m "test"')).toStrictEqual({ pass: true })
     })
 
     it('allows git push in COMMITTING (exempt via allowForbidden)', () => {
-      const state = stateWith({ state: 'COMMITTING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'COMMITTING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       expect(wf.checkBashAllowed('Bash', 'git push origin main')).toStrictEqual({ pass: true })
     })
@@ -184,14 +184,14 @@ describe('Workflow', () => {
     })
 
     it('blocks git checkout in DEVELOPING', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       const result = wf.checkBashAllowed('Bash', 'git checkout main')
       expect(result.pass).toBe(false)
     })
 
     it('appends bash-checked event with allowed=true for non-Bash tool', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkBashAllowed('Write', 'git commit')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -199,7 +199,7 @@ describe('Workflow', () => {
     })
 
     it('appends bash-checked event with allowed=true for allowed Bash command', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkBashAllowed('Bash', 'npm test')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -207,7 +207,7 @@ describe('Workflow', () => {
     })
 
     it('appends bash-checked event with allowed=false and reason when git commit blocked in DEVELOPING', () => {
-      const state = stateWith({ state: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'DEVELOPING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkBashAllowed('Bash', 'git commit -m "test"')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -221,7 +221,7 @@ describe('Workflow', () => {
     })
 
     it('appends bash-checked event with allowed=false and reason when git commit blocked in RESPAWN', () => {
-      const state = stateWith({ state: 'RESPAWN' })
+      const state = stateWith({ currentStateMachineState: 'RESPAWN' })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkBashAllowed('Bash', 'git commit -m "test"')
       expect(wf.getPendingEvents()).toHaveLength(1)
@@ -235,7 +235,7 @@ describe('Workflow', () => {
     })
 
     it('appends bash-checked event with allowed=true for exempt git commit in COMMITTING', () => {
-      const state = stateWith({ state: 'COMMITTING', iterations: [DEFAULT_ITERATION] })
+      const state = stateWith({ currentStateMachineState: 'COMMITTING', iterations: [DEFAULT_ITERATION] })
       const wf = Workflow.rehydrate(state, makeDeps())
       wf.checkBashAllowed('Bash', 'git commit -m "test"')
       expect(wf.getPendingEvents()).toHaveLength(1)
