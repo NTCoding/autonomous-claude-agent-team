@@ -10,6 +10,7 @@ export default defineConfig({
         'src/**/*.spec.ts',
         'src/**/*-test-fixtures.ts',
         'src/workflow-dsl/domain/types.ts',
+        'src/workflow-testing-dsl/domain/types.ts',
       ],
       thresholds: {
         lines: 100,
