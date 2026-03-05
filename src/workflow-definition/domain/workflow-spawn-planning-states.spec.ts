@@ -23,7 +23,7 @@ describe('Workflow', () => {
   describe('createFresh', () => {
     it('creates a workflow in SPAWN state with empty pending events', () => {
       const wf = Workflow.createFresh(makeDeps())
-      expect(wf.getState().state).toBe('SPAWN')
+      expect(wf.getState().currentStateMachineState).toBe('SPAWN')
       expect(wf.getPendingEvents()).toHaveLength(0)
     })
   })
@@ -65,7 +65,7 @@ describe('Workflow', () => {
         .given(issueRecorded(1), agentRegistered('developer-1'), agentRegistered('reviewer-1'))
         .when((wf) => wf.transitionTo('PLANNING'))
       expect(result).toStrictEqual({ pass: true })
-      expect(state.state).toBe('PLANNING')
+      expect(state.currentStateMachineState).toBe('PLANNING')
     })
 
     it('fails transition to PLANNING when no githubIssue', () => {
@@ -119,7 +119,7 @@ describe('Workflow', () => {
         .given(...eventsToPlanning(), planApprovalRecorded())
         .when((wf) => wf.transitionTo('RESPAWN'))
       expect(result).toStrictEqual({ pass: true })
-      expect(state.state).toBe('RESPAWN')
+      expect(state.currentStateMachineState).toBe('RESPAWN')
     })
 
     it('fails transition to RESPAWN when plan not approved', () => {
@@ -199,7 +199,7 @@ describe('Workflow', () => {
         )
         .when((wf) => wf.transitionTo('DEVELOPING'))
       expect(result).toStrictEqual({ pass: true })
-      expect(state.state).toBe('DEVELOPING')
+      expect(state.currentStateMachineState).toBe('DEVELOPING')
     })
 
     it('fails transition to DEVELOPING when no iteration prepared', () => {
@@ -243,7 +243,7 @@ describe('Workflow', () => {
         .withDeps({ getGitInfo: () => dirtyGit })
         .when((wf) => wf.transitionTo('REVIEWING'))
       expect(result).toStrictEqual({ pass: true })
-      expect(state.state).toBe('REVIEWING')
+      expect(state.currentStateMachineState).toBe('REVIEWING')
     })
 
     it('fails transition to REVIEWING when developerDone is false', () => {

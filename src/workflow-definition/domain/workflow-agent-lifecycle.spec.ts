@@ -1,4 +1,4 @@
-import type { AssistantMessage } from '../../workflow-engine/index.js'
+import type { AssistantMessage } from './identity-rules.js'
 import {
   spec,
   agentRegistered,

@@ -1,4 +1,4 @@
-import type { GitInfo } from '../../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 import {
   spec,
   cleanGit,
@@ -21,7 +21,7 @@ describe('Workflow', () => {
         .given(...eventsToReviewing(), reviewApproved())
         .when((wf) => wf.transitionTo('COMMITTING'))
       expect(result).toStrictEqual({ pass: true })
-      expect(state.state).toBe('COMMITTING')
+      expect(state.currentStateMachineState).toBe('COMMITTING')
     })
 
     it('fails transition to COMMITTING when not approved', () => {

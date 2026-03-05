@@ -1,5 +1,5 @@
 import type { ConcreteStateDefinition } from '../workflow-types.js'
-import { pass, fail } from '../../../workflow-dsl/index.js'
+import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
 
 export const reviewingState: ConcreteStateDefinition = {
   emoji: '📋',

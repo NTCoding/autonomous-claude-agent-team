@@ -1,6 +1,6 @@
 import { Workflow } from '../index.js'
 import { INITIAL_STATE } from './workflow-types.js'
-import type { GitInfo } from '../../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 import {
   spec,
   makeDeps,
@@ -97,7 +97,7 @@ describe('Workflow', () => {
         .given(...eventsToPrCreation(), prRecorded(42))
         .when((wf) => wf.transitionTo('FEEDBACK'))
       expect(result).toStrictEqual({ pass: true })
-      expect(state.state).toBe('FEEDBACK')
+      expect(state.currentStateMachineState).toBe('FEEDBACK')
     })
 
     it('fails transition when no prNumber', () => {
@@ -151,7 +151,7 @@ describe('Workflow', () => {
         .given(...eventsToFeedback())
         .when((wf) => wf.transitionTo('COMPLETE'))
       expect(result).toStrictEqual({ pass: true })
-      expect(state.state).toBe('COMPLETE')
+      expect(state.currentStateMachineState).toBe('COMPLETE')
     })
 
     it('fails transition to COMPLETE when no prNumber', () => {
@@ -189,7 +189,7 @@ describe('Workflow', () => {
         .given(...eventsToDeveloping())
         .when((wf) => wf.transitionTo('BLOCKED'))
       expect(result).toStrictEqual({ pass: true })
-      expect(state.state).toBe('BLOCKED')
+      expect(state.currentStateMachineState).toBe('BLOCKED')
       expect(state.preBlockedState).toBe('DEVELOPING')
       expect(events).toStrictEqual(
         expect.arrayContaining([expect.objectContaining({ type: 'transitioned', from: 'DEVELOPING', to: 'BLOCKED' })])
@@ -204,7 +204,7 @@ describe('Workflow', () => {
         )
         .when((wf) => wf.transitionTo('DEVELOPING'))
       expect(result).toStrictEqual({ pass: true })
-      expect(state.state).toBe('DEVELOPING')
+      expect(state.currentStateMachineState).toBe('DEVELOPING')
     })
 
     it('fails transition FROM BLOCKED to wrong state', () => {
@@ -218,7 +218,7 @@ describe('Workflow', () => {
     })
 
     it('includes unknown in error when not set', () => {
-      const wf = Workflow.rehydrate({ ...INITIAL_STATE, state: 'BLOCKED' }, makeDeps())
+      const wf = Workflow.rehydrate({ ...INITIAL_STATE, currentStateMachineState: 'BLOCKED' }, makeDeps())
       const result = wf.transitionTo('PLANNING')
       expect(result.pass).toBe(false)
       if (!result.pass) {

@@ -1,4 +1,4 @@
-import type { BaseEvent } from '../workflow-engine/index.js'
+import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 import type { WorkflowEvent } from '../workflow-definition/index.js'
 import { WorkflowEventSchema } from '../workflow-definition/index.js'
 

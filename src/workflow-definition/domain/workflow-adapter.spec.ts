@@ -1,8 +1,8 @@
 import { WorkflowAdapter } from './workflow-adapter.js'
-import type { WorkflowRuntimeDeps } from '../../workflow-engine/index.js'
-import type { BaseEvent } from '../../workflow-engine/index.js'
+import type { WorkflowDeps } from '../../workflow-definition/domain/workflow.js'
+import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 
-function makeWorkflowDeps(): WorkflowRuntimeDeps {
+function makeWorkflowDeps(): WorkflowDeps {
   return {
     getGitInfo: () => ({
       currentBranch: 'main',
@@ -26,13 +26,13 @@ function makeWorkflowDeps(): WorkflowRuntimeDeps {
 describe('WorkflowAdapter', () => {
   it('creates a fresh Workflow with SPAWN state', () => {
     const workflow = WorkflowAdapter.createFresh(makeWorkflowDeps())
-    expect(workflow.getState().state).toStrictEqual('SPAWN')
+    expect(workflow.getState().currentStateMachineState).toStrictEqual('SPAWN')
   })
 
   it('rehydrates a Workflow from events and deps', () => {
     const events: readonly BaseEvent[] = []
     const workflow = WorkflowAdapter.rehydrate(events, makeWorkflowDeps())
-    expect(workflow.getState().state).toStrictEqual('SPAWN')
+    expect(workflow.getState().currentStateMachineState).toStrictEqual('SPAWN')
   })
 
   it('throws WorkflowStateError on unknown event types', () => {
@@ -59,6 +59,6 @@ describe('WorkflowAdapter', () => {
 
   it('returns initial state with SPAWN', () => {
     const initial = WorkflowAdapter.initialState()
-    expect(initial.state).toStrictEqual('SPAWN')
+    expect(initial.currentStateMachineState).toStrictEqual('SPAWN')
   })
 })

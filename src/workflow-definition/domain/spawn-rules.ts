@@ -1,4 +1,4 @@
-import type { WorkflowState } from '../../workflow-engine/index.js'
+import type { WorkflowState } from './workflow-types.js'
 
 type SpawnDecision = { readonly allow: true } | { readonly allow: false; readonly reason: string }
 
@@ -27,7 +27,7 @@ export function checkSpawnAllowed(
   const duplicateCheck = checkDuplicateRole(role, agentName, state.activeAgents)
   if (!duplicateCheck.allow) return duplicateCheck
 
-  const stateCheck = checkStateAllowsSpawn(role, state.state)
+  const stateCheck = checkStateAllowsSpawn(role, state.currentStateMachineState)
   if (!stateCheck.allow) return stateCheck
 
   const issueCheck = checkGithubIssueSet(role, state)

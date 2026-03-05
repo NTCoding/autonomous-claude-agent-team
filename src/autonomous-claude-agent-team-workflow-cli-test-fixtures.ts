@@ -1,5 +1,6 @@
 import type { AdapterDeps, AnalyticsDeps, ReportDeps } from './autonomous-claude-agent-team-workflow.js'
-import type { WorkflowEngineDeps, WorkflowEventStore, WorkflowRuntimeDeps } from './workflow-engine/index.js'
+import type { WorkflowEngineDeps, WorkflowEventStore } from '@ntcoding/agentic-workflow-builder/engine'
+import type { WorkflowDeps } from './workflow-definition/index.js'
 import type { WorkflowEvent } from './workflow-definition/index.js'
 
 const AT = '2026-01-01T00:00:00Z'
@@ -98,7 +99,7 @@ function makeEngineDeps(overrides?: EngineDepsOverrides): WorkflowEngineDeps {
   }
 }
 
-function makeWorkflowDeps(overrides?: Partial<WorkflowRuntimeDeps>): WorkflowRuntimeDeps {
+function makeWorkflowDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
   return {
     getGitInfo: () => ({
       currentBranch: 'main',
@@ -131,7 +132,7 @@ function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
 
 export type MakeDepsOverrides = {
   engineDeps?: EngineDepsOverrides
-  workflowDeps?: Partial<WorkflowRuntimeDeps>
+  workflowDeps?: Partial<WorkflowDeps>
   analyticsDeps?: Partial<AnalyticsDeps>
   reportDeps?: Partial<ReportDeps>
   getSessionId?: () => string

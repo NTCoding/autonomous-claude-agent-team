@@ -1,5 +1,5 @@
-import type { WorkflowState } from '../../workflow-engine/index.js'
-import { WorkflowStateError } from '../../workflow-engine/index.js'
+import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
+import type { WorkflowState } from './workflow-types.js'
 import type { WorkflowOperation } from './workflow-types.js'
 
 const CMD = '/autonomous-claude-agent-team:workflow'

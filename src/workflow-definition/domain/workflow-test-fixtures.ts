@@ -1,11 +1,10 @@
-import { workflowSpec } from '../../workflow-testing-dsl/index.js'
+import { workflowSpec } from '@ntcoding/agentic-workflow-builder/testing'
 import type { WorkflowEvent } from './workflow-events.js'
-import type { WorkflowState } from '../../workflow-engine/index.js'
-import type { IterationState } from '../../workflow-engine/index.js'
+import type { WorkflowState, IterationState } from './workflow-types.js'
 import type { WorkflowDeps } from './workflow.js'
 import { Workflow } from './workflow.js'
 import { applyEvents } from './fold.js'
-import type { GitInfo } from '../../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 const AT = '2026-01-01T00:00:00Z'
 
@@ -52,18 +51,6 @@ export function makeDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
   }
 }
 
-
-export function sessionStarted(opts?: {
-  readonly transcriptPath?: string
-  readonly repository?: string
-}): WorkflowEvent {
-  return {
-    type: 'session-started',
-    at: AT,
-    ...(opts?.transcriptPath === undefined ? {} : { transcriptPath: opts.transcriptPath }),
-    ...(opts?.repository === undefined ? {} : { repository: opts.repository }),
-  }
-}
 
 export function issueRecorded(n: number): WorkflowEvent {
   return { type: 'issue-recorded', at: AT, issueNumber: n }
@@ -123,10 +110,6 @@ export function prRecorded(n: number): WorkflowEvent {
   return { type: 'pr-recorded', at: AT, prNumber: n }
 }
 
-export function prCreated(n: number): WorkflowEvent {
-  return { type: 'pr-created', at: AT, prNumber: n }
-}
-
 export function lintRan(opts?: {
   readonly files?: number
   readonly passed?: boolean
@@ -147,73 +130,6 @@ export function coderabbitAddressed(): WorkflowEvent {
 
 export function coderabbitIgnored(): WorkflowEvent {
   return { type: 'coderabbit-ignored', at: AT }
-}
-
-export function writeChecked(opts: {
-  readonly tool: string
-  readonly filePath: string
-  readonly allowed: boolean
-  readonly reason?: string
-}): WorkflowEvent {
-  return {
-    type: 'write-checked',
-    at: AT,
-    tool: opts.tool,
-    filePath: opts.filePath,
-    allowed: opts.allowed,
-    ...(opts.reason === undefined ? {} : { reason: opts.reason }),
-  }
-}
-
-export function bashChecked(opts: {
-  readonly tool: string
-  readonly command: string
-  readonly allowed: boolean
-  readonly reason?: string
-}): WorkflowEvent {
-  return {
-    type: 'bash-checked',
-    at: AT,
-    tool: opts.tool,
-    command: opts.command,
-    allowed: opts.allowed,
-    ...(opts.reason === undefined ? {} : { reason: opts.reason }),
-  }
-}
-
-export function pluginReadChecked(opts: {
-  readonly tool: string
-  readonly path: string
-  readonly allowed: boolean
-  readonly reason?: string
-}): WorkflowEvent {
-  return {
-    type: 'plugin-read-checked',
-    at: AT,
-    tool: opts.tool,
-    path: opts.path,
-    allowed: opts.allowed,
-    ...(opts.reason === undefined ? {} : { reason: opts.reason }),
-  }
-}
-
-export function idleChecked(opts: {
-  readonly agentName: string
-  readonly allowed: boolean
-  readonly reason?: string
-}): WorkflowEvent {
-  return {
-    type: 'idle-checked',
-    at: AT,
-    agentName: opts.agentName,
-    allowed: opts.allowed,
-    ...(opts.reason === undefined ? {} : { reason: opts.reason }),
-  }
-}
-
-
-export function eventsToSpawn(): readonly WorkflowEvent[] {
-  return []
 }
 
 export function eventsToPlanning(): readonly WorkflowEvent[] {
@@ -281,10 +197,6 @@ export function eventsToFeedback(): readonly WorkflowEvent[] {
     prRecorded(42),
     transitioned('PR_CREATION', 'FEEDBACK'),
   ]
-}
-
-export function eventsToBlocked(fromState: string): readonly WorkflowEvent[] {
-  return [transitioned(fromState, 'BLOCKED')]
 }
 
 export function eventsToComplete(): readonly WorkflowEvent[] {

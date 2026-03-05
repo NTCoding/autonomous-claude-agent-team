@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import type { GitInfo } from '../workflow-dsl/index.js'
+import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 export function getGitInfo(): GitInfo {
   const defaultBranch = detectDefaultBranch()

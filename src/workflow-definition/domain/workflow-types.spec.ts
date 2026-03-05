@@ -1,38 +1,34 @@
-import { createWorkflowStateSchema } from './workflow-state.js'
+import { createWorkflowStateSchema, StateNameSchema, STATE_NAMES } from './workflow-types.js'
 
-const STATE_NAMES = ['SPAWN', 'PLANNING', 'RESPAWN', 'DEVELOPING', 'REVIEWING',
-  'COMMITTING', 'CR_REVIEW', 'PR_CREATION', 'FEEDBACK', 'BLOCKED', 'COMPLETE'] as const
-
-const StateName = createWorkflowStateSchema(STATE_NAMES).shape.state
 const WorkflowState = createWorkflowStateSchema(STATE_NAMES)
 
-describe('createWorkflowStateSchema — StateName', () => {
+describe('StateNameSchema', () => {
   it('accepts all valid state names', () => {
-    STATE_NAMES.forEach(s => expect(StateName.parse(s)).toStrictEqual(s))
+    STATE_NAMES.forEach(s => expect(StateNameSchema.parse(s)).toStrictEqual(s))
   })
 
   it('rejects unknown state names', () => {
-    expect(() => StateName.parse('UNKNOWN')).toThrow('Invalid enum value')
+    expect(() => StateNameSchema.parse('UNKNOWN')).toThrow('Invalid enum value')
   })
 
   it('rejects non-string values', () => {
-    expect(() => StateName.parse(42)).toThrow('received number')
+    expect(() => StateNameSchema.parse(42)).toThrow('received number')
   })
 })
 
 describe('createWorkflowStateSchema — WorkflowState', () => {
   it('parses valid minimal state', () => {
     const raw = {
-      state: 'SPAWN', iteration: 0, iterations: [],
+      currentStateMachineState: 'SPAWN', iteration: 0, iterations: [],
       userApprovedPlan: false, activeAgents: [],
     }
     const parsed = WorkflowState.parse(raw)
-    expect(parsed.state).toStrictEqual('SPAWN')
+    expect(parsed.currentStateMachineState).toStrictEqual('SPAWN')
   })
 
   it('parses state with all optional fields', () => {
     const raw = {
-      state: 'DEVELOPING', iteration: 1, iterations: [{
+      currentStateMachineState: 'DEVELOPING', iteration: 1, iterations: [{
         task: 'Iteration 1: Add foo',
         developerDone: false,
         reviewApproved: false,
@@ -55,7 +51,7 @@ describe('createWorkflowStateSchema — WorkflowState', () => {
 
   it('rejects invalid state name', () => {
     const raw = {
-      state: 'INVALID', iteration: 0, iterations: [],
+      currentStateMachineState: 'INVALID', iteration: 0, iterations: [],
       userApprovedPlan: false, activeAgents: [],
     }
     expect(() => WorkflowState.parse(raw)).toThrow('Invalid enum value')
@@ -63,7 +59,7 @@ describe('createWorkflowStateSchema — WorkflowState', () => {
 
   it('rejects negative iteration', () => {
     const raw = {
-      state: 'SPAWN', iteration: -1, iterations: [],
+      currentStateMachineState: 'SPAWN', iteration: -1, iterations: [],
       userApprovedPlan: false, activeAgents: [],
     }
     expect(() => WorkflowState.parse(raw)).toThrow('greater than or equal to')
@@ -71,7 +67,7 @@ describe('createWorkflowStateSchema — WorkflowState', () => {
 
   it('rejects negative githubIssue', () => {
     const raw = {
-      state: 'SPAWN', iteration: 0, iterations: [],
+      currentStateMachineState: 'SPAWN', iteration: 0, iterations: [],
       userApprovedPlan: false, activeAgents: [],
       githubIssue: -1,
     }
@@ -80,7 +76,7 @@ describe('createWorkflowStateSchema — WorkflowState', () => {
 
   it('accepts optional preBlockedState', () => {
     const raw = {
-      state: 'BLOCKED', iteration: 0, iterations: [],
+      currentStateMachineState: 'BLOCKED', iteration: 0, iterations: [],
       userApprovedPlan: false, activeAgents: [],
       preBlockedState: 'PLANNING',
     }

@@ -4,34 +4,29 @@ import type {
   WorkflowFactory,
   WorkflowEventStore,
   WorkflowEngineDeps,
-  WorkflowDeps,
 } from './workflow-engine.js'
-import type { WorkflowState } from './workflow-state.js'
+import type { BaseWorkflowState } from './workflow-state.js'
 import type { BaseEvent } from './base-event.js'
-import type { PreconditionResult } from '../../workflow-dsl/index.js'
-import { pass, fail } from '../../workflow-dsl/index.js'
+import type { PreconditionResult } from '../../dsl/index.js'
+import { pass, fail } from '../../dsl/index.js'
 
-const INITIAL_STATE: WorkflowState = {
-  state: 'SPAWN',
+type TestState = BaseWorkflowState & { readonly iteration: number }
+type TestDeps = { readonly pluginRoot: string }
+
+const INITIAL_STATE: TestState = {
+  currentStateMachineState: 'SPAWN',
   iteration: 0,
-  iterations: [],
-  userApprovedPlan: false,
-  activeAgents: [],
 }
 
-function makeWorkflowState(overrides?: Partial<WorkflowState>): WorkflowState {
-  return { ...INITIAL_STATE, ...overrides }
-}
-
-class StubWorkflow implements RehydratableWorkflow {
-  private state: WorkflowState
+class StubWorkflow implements RehydratableWorkflow<TestState> {
+  private state: TestState
   private pending: BaseEvent[] = []
 
-  constructor(state: WorkflowState) {
+  constructor(state: TestState) {
     this.state = { ...state }
   }
 
-  getState(): WorkflowState {
+  getState(): TestState {
     return this.state
   }
 
@@ -42,7 +37,7 @@ class StubWorkflow implements RehydratableWorkflow {
   transitionTo(target: string): PreconditionResult {
     const event: BaseEvent = { type: 'transitioned', at: '2026-01-01T00:00:00.000Z' }
     this.pending = [...this.pending, event]
-    this.state = { ...this.state, state: target }
+    this.state = { ...this.state, currentStateMachineState: target }
     return pass()
   }
 
@@ -75,14 +70,14 @@ class FailingWorkflow extends StubWorkflow {
   }
 }
 
-function makeFactory(workflow?: StubWorkflow): WorkflowFactory<StubWorkflow> {
+function makeFactory(workflow?: StubWorkflow): WorkflowFactory<StubWorkflow, TestState, TestDeps> {
   return {
     rehydrate: (_events, _deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
     createFresh: (_deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
     procedurePath: (state, pluginRoot) => `${pluginRoot}/states/${state.toLowerCase()}.md`,
     initialState: () => INITIAL_STATE,
     getEmojiForState: (state) => state === 'SPAWN' ? '🟣' : '🔨',
-    getOperationBody: (op, state) => `${op} completed for state ${state.state}`,
+    getOperationBody: (op, state) => `${op} completed for state ${state.currentStateMachineState}`,
     getTransitionTitle: (to, state) => to === 'RESPAWN' ? `RESPAWN (iteration: ${state.iteration})` : to,
   }
 }
@@ -111,35 +106,18 @@ function makeEngineDeps(overrides?: EngineDepsOverrides): WorkflowEngineDeps {
   }
 }
 
-function makeWorkflowDeps(): WorkflowDeps {
-  return {
-    getGitInfo: () => ({
-      currentBranch: 'main',
-      workingTreeClean: true,
-      headCommit: 'abc123',
-      changedFilesVsDefault: [],
-      hasCommitsVsDefault: false,
-    }),
-    checkPrChecks: () => true,
-    createDraftPr: () => 99,
-    appendIssueChecklist: () => undefined,
-    tickFirstUncheckedIteration: () => undefined,
-    runEslintOnFiles: () => true,
-    fileExists: () => false,
-    getPluginRoot: () => '/plugin',
-    now: () => '2026-01-01T00:00:00.000Z',
-    readTranscriptMessages: () => [],
-  }
+function makeTestDeps(): TestDeps {
+  return { pluginRoot: '/plugin' }
 }
 
 function makeEngine(
   engineOverrides?: EngineDepsOverrides,
   factoryWorkflow?: StubWorkflow,
-): WorkflowEngine<StubWorkflow> {
+): WorkflowEngine<StubWorkflow, TestState, TestDeps> {
   return new WorkflowEngine(
     makeFactory(factoryWorkflow),
     makeEngineDeps(engineOverrides),
-    makeWorkflowDeps(),
+    makeTestDeps(),
   )
 }
 
@@ -236,6 +214,22 @@ describe('WorkflowEngine.transaction', () => {
     expect(() => engine.transaction('missing', 'record-issue', () => pass()))
       .toThrow("No session found for 'missing'. Run init first.")
   })
+
+  it('blocks when identity verification fails', () => {
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.verifyIdentity = () => fail('lost identity')
+    const engine = makeEngine({}, workflow)
+    const result = engine.transaction('sess1', 'record-issue', () => pass(), '/transcript.jsonl')
+    expect(result.type).toStrictEqual('blocked')
+    expect(result.output).toContain('lost identity')
+  })
+
+  it('allows operation when identity verification passes', () => {
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    const engine = makeEngine({}, workflow)
+    const result = engine.transaction('sess1', 'record-issue', () => pass(), '/transcript.jsonl')
+    expect(result.type).toStrictEqual('success')
+  })
 })
 
 describe('WorkflowEngine.transition', () => {
@@ -288,5 +282,3 @@ describe('WorkflowEngine.hasSession', () => {
     expect(engine.hasSession('sess1')).toStrictEqual(false)
   })
 })
-
-void makeWorkflowState

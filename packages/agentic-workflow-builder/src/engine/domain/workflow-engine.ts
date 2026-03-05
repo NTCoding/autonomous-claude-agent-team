@@ -1,8 +1,7 @@
-import type { PreconditionResult } from '../../workflow-dsl/index.js'
-import type { WorkflowState } from './workflow-state.js'
+import type { PreconditionResult } from '../../dsl/index.js'
+import type { BaseWorkflowState } from './workflow-state.js'
 import { WorkflowStateError } from './workflow-state.js'
 import type { BaseEvent } from './base-event.js'
-import type { AssistantMessage } from './identity-rules.js'
 import {
   formatTransitionSuccess,
   formatTransitionError,
@@ -16,8 +15,8 @@ export type EngineResult =
   | { readonly type: 'blocked'; readonly output: string }
   | { readonly type: 'error'; readonly output: string }
 
-export interface RehydratableWorkflow {
-  getState(): WorkflowState
+export interface RehydratableWorkflow<TState extends BaseWorkflowState> {
+  getState(): TState
   getAgentInstructions(pluginRoot: string): string
   transitionTo(target: string): PreconditionResult
   getPendingEvents(): readonly BaseEvent[]
@@ -25,27 +24,14 @@ export interface RehydratableWorkflow {
   startSession(transcriptPath: string | undefined, repository: string | undefined): void
 }
 
-export type WorkflowDeps = {
-  readonly getGitInfo: () => import('../../workflow-dsl/index.js').GitInfo
-  readonly checkPrChecks: (prNumber: number) => boolean
-  readonly createDraftPr: (title: string, body: string) => number
-  readonly appendIssueChecklist: (issueNumber: number, checklist: string) => void
-  readonly tickFirstUncheckedIteration: (issueNumber: number) => void
-  readonly runEslintOnFiles: (configPath: string, files: readonly string[]) => boolean
-  readonly fileExists: (path: string) => boolean
-  readonly getPluginRoot: () => string
-  readonly now: () => string
-  readonly readTranscriptMessages: (path: string) => readonly AssistantMessage[]
-}
-
-export interface WorkflowFactory<TWorkflow extends RehydratableWorkflow> {
-  rehydrate(events: readonly BaseEvent[], deps: WorkflowDeps): TWorkflow
-  createFresh(deps: WorkflowDeps): TWorkflow
+export interface WorkflowFactory<TWorkflow extends RehydratableWorkflow<TState>, TState extends BaseWorkflowState, TDeps> {
+  rehydrate(events: readonly BaseEvent[], deps: TDeps): TWorkflow
+  createFresh(deps: TDeps): TWorkflow
   procedurePath(state: string, pluginRoot: string): string
-  initialState(): WorkflowState
+  initialState(): TState
   getEmojiForState(state: string): string
-  getOperationBody(op: string, state: WorkflowState): string
-  getTransitionTitle(to: string, state: WorkflowState): string
+  getOperationBody(op: string, state: TState): string
+  getTransitionTitle(to: string, state: TState): string
 }
 
 export interface WorkflowEventStore {
@@ -63,15 +49,15 @@ export type WorkflowEngineDeps = {
   readonly now: () => string
 }
 
-export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
-  private readonly factory: WorkflowFactory<TWorkflow>
+export class WorkflowEngine<TWorkflow extends RehydratableWorkflow<TState>, TState extends BaseWorkflowState, TDeps> {
+  private readonly factory: WorkflowFactory<TWorkflow, TState, TDeps>
   private readonly engineDeps: WorkflowEngineDeps
-  private readonly workflowDeps: WorkflowDeps
+  private readonly workflowDeps: TDeps
 
   constructor(
-    factory: WorkflowFactory<TWorkflow>,
+    factory: WorkflowFactory<TWorkflow, TState, TDeps>,
     engineDeps: WorkflowEngineDeps,
-    workflowDeps: WorkflowDeps,
+    workflowDeps: TDeps,
   ) {
     this.factory = factory
     this.engineDeps = engineDeps
@@ -86,7 +72,7 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     workflow.startSession(transcriptPath, repository)
     this.engineDeps.store.appendEvents(sessionId, workflow.getPendingEvents())
     const initial = this.factory.initialState()
-    const procedurePath = this.factory.procedurePath(initial.state, this.engineDeps.getPluginRoot())
+    const procedurePath = this.factory.procedurePath(initial.currentStateMachineState, this.engineDeps.getPluginRoot())
     const procedureContent = this.engineDeps.readFile(procedurePath)
     return { type: 'success', output: formatInitSuccess(procedureContent) }
   }
@@ -125,7 +111,7 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow> {
     }
     this.persistEvents(sessionId, workflow)
     const state = workflow.getState()
-    const title = this.factory.getTransitionTitle(state.state, state)
+    const title = this.factory.getTransitionTitle(state.currentStateMachineState, state)
     const procedure = this.readProcedure(workflow)
     return { type: 'success', output: formatTransitionSuccess(title, procedure) }
   }

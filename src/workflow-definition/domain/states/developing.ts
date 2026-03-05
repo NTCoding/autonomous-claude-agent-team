@@ -1,7 +1,7 @@
 import type { ConcreteStateDefinition } from '../workflow-types.js'
-import type { WorkflowState } from '../../../workflow-engine/index.js'
-import { WorkflowStateError } from '../../../workflow-engine/index.js'
-import { pass, fail } from '../../../workflow-dsl/index.js'
+import type { WorkflowState } from '../workflow-types.js'
+import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
+import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
 
 export const developingState: ConcreteStateDefinition = {
   emoji: '🔨',

@@ -1,11 +1,11 @@
 import { checkSpawnAllowed } from './spawn-rules.js'
-import type { WorkflowState } from '../../workflow-engine/index.js'
+import type { WorkflowState } from './workflow-types.js'
 import { INITIAL_STATE } from './workflow-types.js'
 
-const RESPAWN_STATE: WorkflowState = { ...INITIAL_STATE, state: 'RESPAWN', githubIssue: 42 }
-const DEVELOPING_STATE: WorkflowState = { ...INITIAL_STATE, state: 'DEVELOPING', githubIssue: 42 }
-const SPAWN_STATE: WorkflowState = { ...INITIAL_STATE, state: 'SPAWN' }
-const PLANNING_STATE: WorkflowState = { ...INITIAL_STATE, state: 'PLANNING', githubIssue: 42 }
+const RESPAWN_STATE: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'RESPAWN', githubIssue: 42 }
+const DEVELOPING_STATE: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'DEVELOPING', githubIssue: 42 }
+const SPAWN_STATE: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'SPAWN' }
+const PLANNING_STATE: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'PLANNING', githubIssue: 42 }
 
 describe('checkSpawnAllowed — lead agents', () => {
   it('allows lead by name in any state', () => {
@@ -19,7 +19,7 @@ describe('checkSpawnAllowed — lead agents', () => {
   })
 
   it('allows lead in COMPLETE state', () => {
-    const completeState: WorkflowState = { ...INITIAL_STATE, state: 'COMPLETE' }
+    const completeState: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'COMPLETE' }
     const result = checkSpawnAllowed('lead-1', '', completeState)
     expect(result).toStrictEqual({ allow: true })
   })
@@ -139,7 +139,7 @@ describe('checkSpawnAllowed — state-based blocking', () => {
   })
 
   it('blocks reviewer in COMMITTING', () => {
-    const committingState: WorkflowState = { ...INITIAL_STATE, state: 'COMMITTING', githubIssue: 42 }
+    const committingState: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'COMMITTING', githubIssue: 42 }
     const result = checkSpawnAllowed('reviewer-1', '', committingState)
     expect(result.allow).toBe(false)
     if (!result.allow) {
@@ -148,13 +148,13 @@ describe('checkSpawnAllowed — state-based blocking', () => {
   })
 
   it('blocks developer in COMPLETE', () => {
-    const completeState: WorkflowState = { ...INITIAL_STATE, state: 'COMPLETE', githubIssue: 42 }
+    const completeState: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'COMPLETE', githubIssue: 42 }
     const result = checkSpawnAllowed('developer-1', '', completeState)
     expect(result.allow).toBe(false)
   })
 
   it('blocks reviewer in PR_CREATION', () => {
-    const prState: WorkflowState = { ...INITIAL_STATE, state: 'PR_CREATION', githubIssue: 42 }
+    const prState: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'PR_CREATION', githubIssue: 42 }
     const result = checkSpawnAllowed('reviewer-1', '', prState)
     expect(result.allow).toBe(false)
   })
@@ -162,7 +162,7 @@ describe('checkSpawnAllowed — state-based blocking', () => {
 
 describe('checkSpawnAllowed — github issue requirement', () => {
   it('blocks developer when githubIssue is not set', () => {
-    const stateNoIssue: WorkflowState = { ...INITIAL_STATE, state: 'RESPAWN' }
+    const stateNoIssue: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'RESPAWN' }
     const result = checkSpawnAllowed('developer-1', '', stateNoIssue)
     expect(result.allow).toBe(false)
     if (!result.allow) {
@@ -172,7 +172,7 @@ describe('checkSpawnAllowed — github issue requirement', () => {
   })
 
   it('blocks reviewer when githubIssue is not set', () => {
-    const stateNoIssue: WorkflowState = { ...INITIAL_STATE, state: 'RESPAWN' }
+    const stateNoIssue: WorkflowState = { ...INITIAL_STATE, currentStateMachineState: 'RESPAWN' }
     const result = checkSpawnAllowed('reviewer-1', '', stateNoIssue)
     expect(result.allow).toBe(false)
     if (!result.allow) {

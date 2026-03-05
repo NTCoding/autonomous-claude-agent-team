@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@ntcoding/agentic-workflow-builder':
+        specifier: workspace:*
+        version: link:packages/agentic-workflow-builder
       '@vitest/eslint-plugin':
         specifier: ^1.0.0
         version: 1.6.9(eslint@9.39.3(jiti@2.6.1))(typescript@5.9.3)(vitest@2.1.9(@types/node@22.19.13))
@@ -48,6 +51,12 @@ importers:
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@22.19.13)
+
+  packages/agentic-workflow-builder:
+    dependencies:
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
 
 packages:
 

@@ -1,5 +1,5 @@
 import type { SqliteEventStore } from '../workflow-event-store/sqlite-event-store.js'
-import type { BaseEvent } from '../workflow-engine/index.js'
+import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 import type { WorkflowEvent } from '../workflow-definition/index.js'
 import { applyEvents, WorkflowEventSchema } from '../workflow-definition/index.js'
 import { WorkflowError } from '../infra/workflow-error.js'
@@ -267,7 +267,7 @@ export function computeEventContext(store: SqliteEventStore, sessionId: string):
   const state = applyEvents(workflowEvents)
   const lines: string[] = [
     `Session: ${sessionId}`,
-    `State: ${state.state} (iteration: ${state.iteration})`,
+    `State: ${state.currentStateMachineState} (iteration: ${state.iteration})`,
   ]
   if (state.activeAgents.length > 0) {
     lines.push(`Active agents: ${state.activeAgents.join(', ')}`)

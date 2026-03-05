@@ -1,6 +1,6 @@
-import type { PreconditionResult } from '../../workflow-dsl/index.js'
-import { pass, fail } from '../../workflow-dsl/index.js'
-import type { WorkflowState } from '../../workflow-engine/index.js'
+import type { PreconditionResult } from '@ntcoding/agentic-workflow-builder/dsl'
+import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
+import type { WorkflowState } from './workflow-types.js'
 import { GLOBAL_FORBIDDEN, getStateDefinition } from './registry.js'
 export { GLOBAL_FORBIDDEN }
 import type { WorkflowOperation } from './workflow-types.js'
@@ -32,15 +32,15 @@ function escapeRegExp(str: string): string {
 }
 
 export function checkLeadIdle(state: WorkflowState): PreconditionResult {
-  if (LEAD_IDLE_ALLOWED.has(state.state)) {
+  if (LEAD_IDLE_ALLOWED.has(state.currentStateMachineState)) {
     return pass()
   }
   const allowedStates = [...LEAD_IDLE_ALLOWED].join(' or ')
-  return fail(`Lead cannot go idle in ${state.state} state. Transition to ${allowedStates} before stopping, or continue working.`)
+  return fail(`Lead cannot go idle in ${state.currentStateMachineState} state. Transition to ${allowedStates} before stopping, or continue working.`)
 }
 
 export function checkDeveloperIdle(state: WorkflowState): PreconditionResult {
-  if (state.state !== 'DEVELOPING') {
+  if (state.currentStateMachineState !== 'DEVELOPING') {
     return pass()
   }
   const currentIteration = state.iterations[state.iteration]
@@ -48,14 +48,14 @@ export function checkDeveloperIdle(state: WorkflowState): PreconditionResult {
     return pass()
   }
   return fail(
-    `Developer cannot go idle in ${state.state} without signalling done. Run lint on all changed files, fix all violations, then run signal-done. Follow the workflow checklist in your agent instructions.`,
+    `Developer cannot go idle in ${state.currentStateMachineState} without signalling done. Run lint on all changed files, fix all violations, then run signal-done. Follow the workflow checklist in your agent instructions.`,
   )
 }
 
 export function checkOperationGate(op: WorkflowOperation, state: WorkflowState): PreconditionResult {
-  const currentDef = getStateDefinition(state.state)
+  const currentDef = getStateDefinition(state.currentStateMachineState)
   if (currentDef.allowedWorkflowOperations.includes(op)) {
     return pass()
   }
-  return fail(`${op} is not allowed in state ${state.state}.`)
+  return fail(`${op} is not allowed in state ${state.currentStateMachineState}.`)
 }

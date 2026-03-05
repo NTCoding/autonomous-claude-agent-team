@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { WorkflowEngineDeps, WorkflowRuntimeDeps } from '../workflow-engine/index.js'
+import type { WorkflowEngineDeps } from '@ntcoding/agentic-workflow-builder/engine'
+import type { WorkflowDeps } from '../workflow-definition/domain/workflow.js'
 import {
   computeSessionSummary,
   computeCrossSessionSummary,
@@ -45,7 +46,7 @@ export type AdapterDeps = {
   readonly getRepositoryName: () => string | undefined
   readonly readStdin: () => string
   readonly engineDeps: WorkflowEngineDeps
-  readonly workflowDeps: WorkflowRuntimeDeps
+  readonly workflowDeps: WorkflowDeps
   readonly analyticsDeps: AnalyticsDeps
   readonly reportDeps: ReportDeps
 }
@@ -63,7 +64,7 @@ export function buildRealDeps(): AdapterDeps {
     now: () => new Date().toISOString(),
   }
 
-  const workflowDeps: WorkflowRuntimeDeps = {
+  const workflowDeps: WorkflowDeps = {
     getGitInfo,
     checkPrChecks,
     createDraftPr,
