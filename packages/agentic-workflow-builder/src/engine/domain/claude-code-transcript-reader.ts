@@ -1,7 +1,6 @@
 import { openSync, readSync, statSync, closeSync } from 'node:fs'
 import { z } from 'zod'
-import type { AssistantMessage } from '../workflow-definition/index.js'
-import { LEAD_PREFIX_PATTERN } from '../workflow-definition/index.js'
+import type { TranscriptMessage, TranscriptReader } from './transcript-reader.js'
 
 const READ_TAIL_BYTES = 50_000
 
@@ -18,9 +17,11 @@ const AssistantEntry = z.object({
 
 type AssistantEntry = z.infer<typeof AssistantEntry>
 
-export function readTranscriptMessages(transcriptPath: string): readonly AssistantMessage[] {
-  const tail = readFileTail(transcriptPath)
-  return parseJsonlLines(tail)
+export class ClaudeCodeTranscriptReader implements TranscriptReader {
+  readMessages(transcriptPath: string): readonly TranscriptMessage[] {
+    const tail = readFileTail(transcriptPath)
+    return parseJsonlLines(tail)
+  }
 }
 
 function readFileTail(filePath: string): string {
@@ -34,19 +35,19 @@ function readFileTail(filePath: string): string {
   return buffer.toString('utf-8')
 }
 
-function parseJsonlLines(content: string): readonly AssistantMessage[] {
+function parseJsonlLines(content: string): readonly TranscriptMessage[] {
   return content
     .split('\n')
     .filter((line) => line.trim().length > 0)
     .flatMap((line) => parseJsonlLine(line))
 }
 
-function parseJsonlLine(line: string): AssistantMessage[] {
+function parseJsonlLine(line: string): TranscriptMessage[] {
   const entry = tryParseEntry(line)
   if (!entry) {
     return []
   }
-  return [toAssistantMessage(entry)]
+  return [toTranscriptMessage(entry)]
 }
 
 function tryParseEntry(line: string): AssistantEntry | undefined {
@@ -61,13 +62,10 @@ function tryParseEntry(line: string): AssistantEntry | undefined {
   }
 }
 
-function toAssistantMessage(entry: AssistantEntry): AssistantMessage {
-  const textContent = extractFirstText(entry)
+function toTranscriptMessage(entry: AssistantEntry): TranscriptMessage {
   return {
     id: entry.id,
-    hasTextContent: textContent !== undefined,
-    startsWithLeadPrefix:
-      textContent !== undefined && LEAD_PREFIX_PATTERN.test(textContent),
+    textContent: extractFirstText(entry),
   }
 }
 

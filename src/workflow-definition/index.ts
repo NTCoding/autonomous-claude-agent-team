@@ -19,6 +19,3 @@ export type { WorkflowEvent } from './domain/workflow-events.js'
 export { WorkflowEventSchema } from './domain/workflow-events.js'
 
 export { applyEvents } from './domain/fold.js'
-
-export type { AssistantMessage } from './domain/identity-rules.js'
-export { LEAD_PREFIX_PATTERN, checkLeadIdentity } from './domain/identity-rules.js'

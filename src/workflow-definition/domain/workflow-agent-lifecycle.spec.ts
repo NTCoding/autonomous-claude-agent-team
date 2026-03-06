@@ -1,8 +1,6 @@
-import type { AssistantMessage } from './identity-rules.js'
 import {
   spec,
   agentRegistered,
-  agentShutDown,
 } from './workflow-test-fixtures.js'
 
 describe('Workflow', () => {
@@ -46,48 +44,6 @@ describe('Workflow', () => {
       expect(state.activeAgents).toStrictEqual(['developer-1'])
       expect(events).toStrictEqual(
         expect.arrayContaining([expect.objectContaining({ type: 'agent-registered', agentType: 'developer-1', agentId: 'agent-xyz' })])
-      )
-    })
-  })
-
-  describe('verifyIdentity', () => {
-    it('returns pass and emits identity-verified event when no messages yet', () => {
-      const { result, events } = spec.given().when((wf) => wf.verifyIdentity('/path/to/transcript.jsonl'))
-      expect(result).toStrictEqual({ pass: true })
-      expect(events).toStrictEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ type: 'identity-verified', status: 'never-spoken', transcriptPath: '/path/to/transcript.jsonl' }),
-        ])
-      )
-    })
-
-    it('returns pass when last message starts with lead prefix', () => {
-      const messages: readonly AssistantMessage[] = [
-        { id: 'msg-1', hasTextContent: true, startsWithLeadPrefix: true },
-      ]
-      const { result, events } = spec
-        .given()
-        .withDeps({ readTranscriptMessages: () => messages })
-        .when((wf) => wf.verifyIdentity('/t.jsonl'))
-      expect(result).toStrictEqual({ pass: true })
-      expect(events).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ type: 'identity-verified', status: 'verified' })])
-      )
-    })
-
-    it('returns fail with recovery message when identity is lost', () => {
-      const messages: readonly AssistantMessage[] = [
-        { id: 'msg-1', hasTextContent: true, startsWithLeadPrefix: true },
-        { id: 'msg-2', hasTextContent: true, startsWithLeadPrefix: false },
-      ]
-      const { result, events } = spec
-        .given()
-        .withDeps({ readTranscriptMessages: () => messages })
-        .when((wf) => wf.verifyIdentity('/t.jsonl'))
-      expect(result.pass).toBe(false)
-      expect(result.pass ? '' : result.reason).toContain('lost your feature-team-lead identity')
-      expect(events).toStrictEqual(
-        expect.arrayContaining([expect.objectContaining({ type: 'identity-verified', status: 'lost' })])
       )
     })
   })

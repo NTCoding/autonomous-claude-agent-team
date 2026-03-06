@@ -46,7 +46,6 @@ export function makeDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
     fileExists: () => true,
     getPluginRoot: () => '/plugin',
     now: () => AT,
-    readTranscriptMessages: () => [],
     ...overrides,
   }
 }

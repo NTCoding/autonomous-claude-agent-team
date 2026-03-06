@@ -19,7 +19,6 @@ function makeWorkflowDeps(): WorkflowDeps {
     fileExists: () => false,
     getPluginRoot: () => '/plugin',
     now: () => '2026-01-01T00:00:00.000Z',
-    readTranscriptMessages: () => [],
   }
 }
 
@@ -60,5 +59,21 @@ describe('WorkflowAdapter', () => {
   it('returns initial state with SPAWN', () => {
     const initial = WorkflowAdapter.initialState()
     expect(initial.currentStateMachineState).toStrictEqual('SPAWN')
+  })
+
+  it('returns prefix config with LEAD pattern', () => {
+    const config = WorkflowAdapter.getPrefixConfig?.()
+    expect(config).toBeDefined()
+    expect(config?.pattern.test('LEAD: SPAWN')).toBe(true)
+    expect(config?.pattern.test('no prefix')).toBe(false)
+  })
+
+  it('builds recovery message with state and emoji', () => {
+    const config = WorkflowAdapter.getPrefixConfig?.()
+    const msg = config?.buildRecoveryMessage('DEVELOPING', '🔨', '/plugin')
+    expect(msg).toContain('lost your feature-team-lead identity')
+    expect(msg).toContain('DEVELOPING')
+    expect(msg).toContain('🔨 LEAD: DEVELOPING')
+    expect(msg).toContain('states/developing.md')
   })
 })

@@ -97,6 +97,7 @@ function makeEngineDeps(overrides?: EngineDepsOverrides): WorkflowEngineDeps {
     readFile: () => '',
     appendToFile: () => undefined,
     now: () => AT,
+    transcriptReader: { readMessages: () => [] },
     ...rest,
   }
 }
@@ -118,7 +119,6 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
     fileExists: () => false,
     getPluginRoot: () => '/plugin',
     now: () => AT,
-    readTranscriptMessages: () => [],
     ...overrides,
   }
 }

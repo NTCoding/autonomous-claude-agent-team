@@ -22,7 +22,6 @@ import { getSessionId, getPluginRoot, getEnvFilePath, getDbPath } from './enviro
 import { getGitInfo, getRepositoryName } from './git.js'
 import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './github.js'
 import { readStdinSync } from './stdin.js'
-import { readTranscriptMessages } from './transcript.js'
 import { runEslintOnFiles } from './linter.js'
 
 export type AnalyticsDeps = {
@@ -74,7 +73,6 @@ export function buildRealDeps(): AdapterDeps {
     fileExists: existsSync,
     getPluginRoot,
     now: () => new Date().toISOString(),
-    readTranscriptMessages,
   }
 
   const analyticsDeps: AnalyticsDeps = {

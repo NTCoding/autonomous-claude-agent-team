@@ -97,6 +97,7 @@ function makeEngineDeps(overrides?: EngineDepsOverrides): WorkflowEngineDeps {
     readFile: () => '',
     appendToFile: () => undefined,
     now: () => AT,
+    transcriptReader: { readMessages: () => [] },
     ...rest,
   }
 }
@@ -118,7 +119,6 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
     fileExists: () => false,
     getPluginRoot: () => '/plugin',
     now: () => AT,
-    readTranscriptMessages: () => [],
     ...overrides,
   }
 }
@@ -276,7 +276,7 @@ describe('runWorkflow - event-context command', () => {
     expect(appended[0]?.firstEventType).toStrictEqual('context-requested')
   })
 
-  it('PreToolUse records identity-verified event via verifyIdentity', () => {
+  it('PreToolUse records identity-verified event via engine prefix verification', () => {
     const appended: Array<{ firstEventType: string }> = []
     const result = runWorkflow(
       [],
@@ -299,14 +299,14 @@ describe('runWorkflow - event-context command', () => {
     const result = runWorkflow(
       [],
       makeDeps({
-        workflowDeps: {
-          readTranscriptMessages: () => [
-            { id: '1', hasTextContent: true, startsWithLeadPrefix: true },
-            { id: '2', hasTextContent: true, startsWithLeadPrefix: false },
-          ],
-        },
         readStdin: () => makeHookStdin({ hook_event_name: 'PreToolUse' }),
         engineDeps: {
+          transcriptReader: {
+            readMessages: () => [
+              { id: '1', textContent: 'LEAD: PLANNING' },
+              { id: '2', textContent: 'No prefix here' },
+            ],
+          },
           store: { sessionExists: () => true, readEvents: () => planningEvents() },
         },
       }),

@@ -9,6 +9,10 @@ import {
   formatOperationSuccess,
   formatInitSuccess,
 } from './output-guidance.js'
+import type { TranscriptReader } from './transcript-reader.js'
+import type { PrefixConfig } from './identity-verification.js'
+import { checkIdentity } from './identity-verification.js'
+import { ClaudeCodeTranscriptReader } from './claude-code-transcript-reader.js'
 
 export type EngineResult =
   | { readonly type: 'success'; readonly output: string }
@@ -20,7 +24,6 @@ export interface RehydratableWorkflow<TState extends BaseWorkflowState> {
   getAgentInstructions(pluginRoot: string): string
   transitionTo(target: string): PreconditionResult
   getPendingEvents(): readonly BaseEvent[]
-  verifyIdentity(transcriptPath: string): PreconditionResult
   startSession(transcriptPath: string | undefined, repository: string | undefined): void
 }
 
@@ -32,6 +35,7 @@ export interface WorkflowFactory<TWorkflow extends RehydratableWorkflow<TState>,
   getEmojiForState(state: string): string
   getOperationBody(op: string, state: TState): string
   getTransitionTitle(to: string, state: TState): string
+  getPrefixConfig?(): PrefixConfig
 }
 
 export interface WorkflowEventStore {
@@ -47,6 +51,7 @@ export type WorkflowEngineDeps = {
   readonly readFile: (path: string) => string
   readonly appendToFile: (filePath: string, content: string) => void
   readonly now: () => string
+  readonly transcriptReader?: TranscriptReader
 }
 
 export class WorkflowEngine<TWorkflow extends RehydratableWorkflow<TState>, TState extends BaseWorkflowState, TDeps> {
@@ -85,12 +90,10 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow<TState>, TSta
   ): EngineResult {
     this.requireSession(sessionId)
     const workflow = this.rehydrateFromEvents(sessionId)
-    if (transcriptPath !== undefined) {
-      const identityCheck = workflow.verifyIdentity(transcriptPath)
-      if (!identityCheck.pass) {
-        this.persistEvents(sessionId, workflow)
-        return { type: 'blocked', output: formatOperationGateError(op, identityCheck.reason) }
-      }
+    const identityResult = this.verifyIdentity(sessionId, workflow, transcriptPath)
+    if (identityResult !== undefined) {
+      this.persistEvents(sessionId, workflow)
+      return { type: 'blocked', output: formatOperationGateError(op, identityResult) }
     }
     const result = fn(workflow)
     this.persistEvents(sessionId, workflow)
@@ -141,6 +144,29 @@ export class WorkflowEngine<TWorkflow extends RehydratableWorkflow<TState>, TSta
     if (pending.length > 0) {
       this.engineDeps.store.appendEvents(sessionId, pending)
     }
+  }
+
+  private verifyIdentity(sessionId: string, workflow: TWorkflow, transcriptPath: string | undefined): string | undefined {
+    const prefixConfig = this.factory.getPrefixConfig?.()
+    if (prefixConfig === undefined || transcriptPath === undefined) {
+      return undefined
+    }
+    const reader = this.engineDeps.transcriptReader ?? new ClaudeCodeTranscriptReader()
+    const messages = reader.readMessages(transcriptPath)
+    const state = workflow.getState().currentStateMachineState
+    const emoji = this.factory.getEmojiForState(state)
+    const result = checkIdentity(messages, prefixConfig.pattern)
+    const identityEvent = {
+      type: 'identity-verified',
+      at: this.engineDeps.now(),
+      status: result.status,
+      transcriptPath,
+    }
+    this.engineDeps.store.appendEvents(sessionId, [identityEvent])
+    if (result.status === 'lost') {
+      return prefixConfig.buildRecoveryMessage(state, emoji, this.engineDeps.getPluginRoot())
+    }
+    return undefined
   }
 
   private readProcedure(workflow: TWorkflow): string {

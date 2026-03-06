@@ -14,6 +14,7 @@ export default defineConfig({
         'src/event-store/index.ts',
         'src/testing/index.ts',
         'src/testing/domain/types.ts',
+        'src/engine/domain/transcript-reader.ts',
       ],
       thresholds: {
         lines: 100,

@@ -36,3 +36,8 @@ export type {
   WorkflowEventStore,
   WorkflowEngineDeps,
 } from './domain/workflow-engine.js'
+
+export type { TranscriptMessage, TranscriptReader } from './domain/transcript-reader.js'
+export type { PrefixConfig, IdentityCheckResult } from './domain/identity-verification.js'
+export { checkIdentity } from './domain/identity-verification.js'
+export { ClaudeCodeTranscriptReader } from './domain/claude-code-transcript-reader.js'

@@ -1,3 +1,5 @@
+import { writeFileSync, unlinkSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { WorkflowEngine } from './workflow-engine.js'
 import type {
   RehydratableWorkflow,
@@ -9,6 +11,9 @@ import type { BaseWorkflowState } from './workflow-state.js'
 import type { BaseEvent } from './base-event.js'
 import type { PreconditionResult } from '../../dsl/index.js'
 import { pass, fail } from '../../dsl/index.js'
+import type { TranscriptReader } from './transcript-reader.js'
+import type { TranscriptMessage } from './transcript-reader.js'
+import type { PrefixConfig } from './identity-verification.js'
 
 type TestState = BaseWorkflowState & { readonly iteration: number }
 type TestDeps = { readonly pluginRoot: string }
@@ -47,10 +52,6 @@ class StubWorkflow implements RehydratableWorkflow<TestState> {
 
   addPendingEvent(event: BaseEvent): void {
     this.pending = [...this.pending, event]
-  }
-
-  verifyIdentity(_transcriptPath: string): PreconditionResult {
-    return pass()
   }
 
   startSession(transcriptPath: string | undefined, repository: string | undefined): void {
@@ -117,6 +118,23 @@ function makeEngine(
   return new WorkflowEngine(
     makeFactory(factoryWorkflow),
     makeEngineDeps(engineOverrides),
+    makeTestDeps(),
+  )
+}
+
+function stubTranscriptReader(messages: readonly TranscriptMessage[]): TranscriptReader {
+  return { readMessages: () => messages }
+}
+
+function makeEngineWithPrefixConfig(
+  transcriptReader: TranscriptReader,
+  prefixConfig: PrefixConfig,
+  engineOverrides?: EngineDepsOverrides,
+): WorkflowEngine<StubWorkflow, TestState, TestDeps> {
+  const factory = { ...makeFactory(), getPrefixConfig: () => prefixConfig }
+  return new WorkflowEngine(
+    factory,
+    makeEngineDeps({ ...engineOverrides, transcriptReader }),
     makeTestDeps(),
   )
 }
@@ -215,20 +233,79 @@ describe('WorkflowEngine.transaction', () => {
       .toThrow("No session found for 'missing'. Run init first.")
   })
 
-  it('blocks when identity verification fails', () => {
-    const workflow = new StubWorkflow(INITIAL_STATE)
-    workflow.verifyIdentity = () => fail('lost identity')
-    const engine = makeEngine({}, workflow)
-    const result = engine.transaction('sess1', 'record-issue', () => pass(), '/transcript.jsonl')
-    expect(result.type).toStrictEqual('blocked')
-    expect(result.output).toContain('lost identity')
-  })
-
-  it('allows operation when identity verification passes', () => {
+  it('skips identity verification when factory has no prefix config', () => {
     const workflow = new StubWorkflow(INITIAL_STATE)
     const engine = makeEngine({}, workflow)
     const result = engine.transaction('sess1', 'record-issue', () => pass(), '/transcript.jsonl')
     expect(result.type).toStrictEqual('success')
+  })
+
+  it('skips identity verification when no transcript path provided', () => {
+    const engine = makeEngineWithPrefixConfig(
+      stubTranscriptReader([]),
+      { pattern: /^LEAD:/m, buildRecoveryMessage: () => 'recover' },
+    )
+    const result = engine.transaction('sess1', 'record-issue', () => pass())
+    expect(result.type).toStrictEqual('success')
+  })
+
+  it('blocks when identity is lost and factory has prefix config', () => {
+    const messages: TranscriptMessage[] = [
+      { id: 'msg-1', textContent: 'LEAD: SPAWN' },
+      { id: 'msg-2', textContent: 'No prefix here' },
+    ]
+    const engine = makeEngineWithPrefixConfig(
+      stubTranscriptReader(messages),
+      { pattern: /^LEAD:/m, buildRecoveryMessage: (state, emoji, root) => `recover ${state} ${emoji} ${root}` },
+    )
+    const result = engine.transaction('sess1', 'record-issue', () => pass(), '/transcript.jsonl')
+    expect(result.type).toStrictEqual('blocked')
+    expect(result.output).toContain('recover SPAWN')
+  })
+
+  it('allows operation when identity is verified', () => {
+    const messages: TranscriptMessage[] = [
+      { id: 'msg-1', textContent: 'LEAD: SPAWN' },
+    ]
+    const engine = makeEngineWithPrefixConfig(
+      stubTranscriptReader(messages),
+      { pattern: /^LEAD:/m, buildRecoveryMessage: () => 'recover' },
+    )
+    const result = engine.transaction('sess1', 'record-issue', () => pass(), '/transcript.jsonl')
+    expect(result.type).toStrictEqual('success')
+  })
+
+  it('emits identity-verified event to store', () => {
+    const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
+    const messages: TranscriptMessage[] = [
+      { id: 'msg-1', textContent: 'LEAD: SPAWN' },
+    ]
+    const engine = makeEngineWithPrefixConfig(
+      stubTranscriptReader(messages),
+      { pattern: /^LEAD:/m, buildRecoveryMessage: () => 'recover' },
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
+    )
+    engine.transaction('sess1', 'record-issue', () => pass(), '/transcript.jsonl')
+    const identityEvent = appended.find((a) => a.events.some((e) => e.type === 'identity-verified'))
+    expect(identityEvent).toBeDefined()
+  })
+
+  it('uses ClaudeCodeTranscriptReader as default when no transcriptReader provided', () => {
+    const testDir = join(import.meta.dirname, '../../../.test-transcripts')
+    const testFile = join(testDir, 'engine-default-reader.jsonl')
+    mkdirSync(testDir, { recursive: true })
+    writeFileSync(testFile, '', 'utf-8')
+    try {
+      const factory = {
+        ...makeFactory(),
+        getPrefixConfig: (): PrefixConfig => ({ pattern: /^LEAD:/m, buildRecoveryMessage: () => 'recover' }),
+      }
+      const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
+      const result = engine.transaction('sess1', 'record-issue', () => pass(), testFile)
+      expect(result.type).toStrictEqual('success')
+    } finally {
+      try { unlinkSync(testFile) } catch (_cause) { }
+    }
   })
 })
 
