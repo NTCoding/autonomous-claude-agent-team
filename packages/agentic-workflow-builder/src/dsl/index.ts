@@ -3,6 +3,8 @@ export type { PreconditionResult } from './domain/result.js'
 export type {
   GitInfo,
   TransitionContext,
+  BashForbiddenConfig,
   WorkflowStateDefinition,
   WorkflowRegistry,
 } from './domain/types.js'
+export { checkBashCommand } from './domain/bash-enforcement.js'

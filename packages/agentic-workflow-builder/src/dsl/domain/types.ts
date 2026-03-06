@@ -16,11 +16,15 @@ export type TransitionContext<TState, TStateName extends string = string> = {
   readonly to: TStateName
 }
 
+export type BashForbiddenConfig = {
+  readonly patterns: readonly RegExp[]
+  readonly flags?: readonly string[]
+}
+
 export type WorkflowStateDefinition<
   TState,
   TStateName extends string = string,
   TOperation extends string = string,
-  TForbiddenBash extends string = string,
 > = {
   readonly emoji: string
   readonly agentInstructions: string
@@ -30,7 +34,7 @@ export type WorkflowStateDefinition<
     readonly write?: boolean
   }
   readonly allowForbidden?: {
-    readonly bash?: readonly TForbiddenBash[]
+    readonly bash?: readonly string[]
   }
   readonly transitionGuard?: (ctx: TransitionContext<TState, TStateName>) => PreconditionResult
   readonly onEntry?: (state: TState, ctx: TransitionContext<TState, TStateName>) => TState
@@ -40,7 +44,6 @@ export type WorkflowRegistry<
   TState,
   TStateName extends string = string,
   TOperation extends string = string,
-  TForbiddenBash extends string = string,
 > = {
-  readonly [K in TStateName]: WorkflowStateDefinition<TState, TStateName, TOperation, TForbiddenBash>
+  readonly [K in TStateName]: WorkflowStateDefinition<TState, TStateName, TOperation>
 }

@@ -1,3 +1,4 @@
+import type { BashForbiddenConfig } from '@ntcoding/agentic-workflow-builder/dsl'
 import type { ConcreteRegistry, ConcreteStateDefinition } from './workflow-types.js'
 import { parseStateName } from './workflow-types.js'
 import { spawnState } from './states/spawn.js'
@@ -12,10 +13,14 @@ import { feedbackState } from './states/feedback.js'
 import { blockedState } from './states/blocked.js'
 import { completeState } from './states/complete.js'
 
-export const GLOBAL_FORBIDDEN = {
-  bashPatterns: [/(?:^|\s|&&|;)git\s+(?:commit|push)(?:\s|$|-|;|&)/, /(?:^|\s|&&|;)git\s+checkout(?:\s|$|-|;|&)/] as const,
-  pluginSourcePattern: /\.claude\/plugins\/cache\//,
-} as const
+export const BASH_FORBIDDEN: BashForbiddenConfig = {
+  patterns: [
+    /(?:^|\s|&&|;)git\s+(?:commit|push)(?:\s|$|-|;|&)/,
+    /(?:^|\s|&&|;)git\s+checkout(?:\s|$|-|;|&)/,
+  ],
+}
+
+export const PLUGIN_SOURCE_PATTERN = /\.claude\/plugins\/cache\//
 
 export function getStateDefinition(state: string): ConcreteStateDefinition {
   return WORKFLOW_REGISTRY[parseStateName(state)]

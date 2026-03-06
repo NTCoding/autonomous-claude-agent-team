@@ -1,11 +1,9 @@
 import type { PreconditionResult } from '@ntcoding/agentic-workflow-builder/dsl'
 import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
 import type { WorkflowState } from './workflow-types.js'
-import { GLOBAL_FORBIDDEN, getStateDefinition } from './registry.js'
-export { GLOBAL_FORBIDDEN }
+import { PLUGIN_SOURCE_PATTERN, getStateDefinition } from './registry.js'
 import type { WorkflowOperation } from './workflow-types.js'
 
-export const COMMIT_BLOCKED_STATES: ReadonlySet<string> = new Set(['DEVELOPING', 'REVIEWING'])
 export const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'NotebookEdit'])
 export const READ_TOOLS: ReadonlySet<string> = new Set(['Read', 'Glob', 'Grep'])
 export const BASH_READ_PATTERN = /\b(?:cat|head|tail|less|more|grep|rg|find|ls)\b/
@@ -17,7 +15,7 @@ export function isStateFile(filePath: string): boolean {
 }
 
 export function isPluginSourcePath(text: string, pluginRoot: string): boolean {
-  if (!GLOBAL_FORBIDDEN.pluginSourcePattern.test(text)) {
+  if (!PLUGIN_SOURCE_PATTERN.test(text)) {
     return false
   }
   const agentsMdPattern = new RegExp(`${escapeRegExp(pluginRoot)}/agents/`)
