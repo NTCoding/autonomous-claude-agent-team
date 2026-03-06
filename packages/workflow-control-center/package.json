@@ -1,0 +1,28 @@
+{
+  "name": "@ntcoding/workflow-control-center",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Real-time web-based analytics dashboard for agentic workflow event stores",
+  "bin": {
+    "workflow-control-center": "./src/main.ts"
+  },
+  "scripts": {
+    "start": "npx tsx src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run --coverage",
+    "build:ui": "node build-ui.mjs",
+    "dev:ui": "node build-ui.mjs --watch"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0",
+    "@vitest/coverage-v8": "^2.0.0"
+  }
+}
