@@ -14,6 +14,7 @@ import {
 } from '../../analytics/cross-session-analytics.js'
 import { comparesessions } from '../../analytics/comparator.js'
 import { computeInsights } from '../../analytics/insight-rules.js'
+import { computeSuggestions } from '../../analytics/suggestion-rules.js'
 import type { TrendBucket } from '../../query/query-types.js'
 
 export type AnalyticsHandlerDeps = {
@@ -107,11 +108,14 @@ export function handleAnalyticsCompare(
 
     const insightsA = computeInsights(projA, now)
     const insightsB = computeInsights(projB, now)
+    const suggestionsA = computeSuggestions(projA, now)
+    const suggestionsB = computeSuggestions(projB, now)
 
     const detailA = {
       ...summaryA,
       journalEntries: projA.journalEntries,
       insights: insightsA,
+      suggestions: suggestionsA,
       statePeriods: projA.statePeriods,
     }
 
@@ -119,6 +123,7 @@ export function handleAnalyticsCompare(
       ...summaryB,
       journalEntries: projB.journalEntries,
       insights: insightsB,
+      suggestions: suggestionsB,
       statePeriods: projB.statePeriods,
     }
 

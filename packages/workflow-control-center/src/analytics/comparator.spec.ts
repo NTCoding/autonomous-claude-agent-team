@@ -20,6 +20,7 @@ function makeDetail(overrides: Partial<SessionDetail> = {}): SessionDetail {
     prNumber: undefined,
     journalEntries: [],
     insights: [],
+    suggestions: [],
     statePeriods: [],
     ...overrides,
   }

@@ -1,17 +1,29 @@
 import { html, esc } from '../render.js'
 
-type InsightWithPrompt = {
+type PromptSource = {
   title: string
   prompt: string
 }
 
-export function renderContinueTab(insights: Array<{ severity: string; title: string; evidence: string; prompt?: string }>): string {
-  const withPrompts: Array<InsightWithPrompt> = insights
+type InsightInput = { severity: string; title: string; evidence: string; prompt?: string }
+type SuggestionInput = { title: string; rationale: string; change: string; tradeoff: string; prompt?: string }
+
+export function renderContinueTab(
+  insights: Array<InsightInput>,
+  suggestions: Array<SuggestionInput> = [],
+): string {
+  const insightPrompts: Array<PromptSource> = insights
     .filter((i): i is typeof i & { prompt: string } => typeof i.prompt === 'string' && i.prompt.length > 0)
     .map((i) => ({ title: i.title, prompt: i.prompt }))
 
+  const suggestionPrompts: Array<PromptSource> = suggestions
+    .filter((s): s is typeof s & { prompt: string } => typeof s.prompt === 'string' && s.prompt.length > 0)
+    .map((s) => ({ title: s.title, prompt: s.prompt }))
+
+  const withPrompts = [...insightPrompts, ...suggestionPrompts]
+
   if (withPrompts.length === 0) {
-    return html`<div class="loading">No actionable prompts from insights</div>`
+    return html`<div class="loading">No actionable prompts from insights or suggestions</div>`
   }
 
   const blocks = withPrompts.map((p) =>

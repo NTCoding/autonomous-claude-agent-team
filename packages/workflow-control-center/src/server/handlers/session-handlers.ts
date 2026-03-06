@@ -12,6 +12,7 @@ import {
   projectSessionSummary,
 } from '../../analytics/session-projector.js'
 import { computeInsights } from '../../analytics/insight-rules.js'
+import { computeSuggestions } from '../../analytics/suggestion-rules.js'
 import {
   categorizeEvent,
   extractEventDetail,
@@ -22,6 +23,7 @@ import type { AnnotatedEvent, EventCategory } from '../../query/query-types.js'
 export type SessionHandlerDeps = {
   readonly queryDeps: SessionQueryDeps
   readonly now: () => Date
+  readonly defaultRepository?: string
 }
 
 export function handleListSessions(
@@ -38,7 +40,8 @@ export function handleListSessions(
     const summaries = sessionIds.map((sessionId) => {
       const events = getSessionEvents(deps.queryDeps, sessionId)
       const projection = projectSession(sessionId, events)
-      return projectSessionSummary(projection, now)
+      const summary = projectSessionSummary(projection, now)
+      return { ...summary, repository: summary.repository ?? deps.defaultRepository }
     })
 
     const filtered = status
@@ -75,11 +78,14 @@ export function handleGetSession(
     const projection = projectSession(sessionId, events)
     const summary = projectSessionSummary(projection, now)
     const insights = computeInsights(projection, now)
+    const suggestions = computeSuggestions(projection, now)
 
     sendJson(res, 200, {
       ...summary,
+      repository: summary.repository ?? deps.defaultRepository,
       journalEntries: projection.journalEntries,
       insights,
+      suggestions,
       statePeriods: projection.statePeriods,
     })
   }

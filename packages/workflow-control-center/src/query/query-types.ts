@@ -47,6 +47,7 @@ export type PermissionDenials = {
 export type SessionDetail = SessionSummary & {
   readonly journalEntries: ReadonlyArray<JournalEntry>
   readonly insights: ReadonlyArray<Insight>
+  readonly suggestions: ReadonlyArray<Suggestion>
   readonly statePeriods: ReadonlyArray<StatePeriod>
 }
 
@@ -70,6 +71,14 @@ export type Insight = {
   readonly severity: InsightSeverity
   readonly title: string
   readonly evidence: string
+  readonly prompt: string | undefined
+}
+
+export type Suggestion = {
+  readonly title: string
+  readonly rationale: string
+  readonly change: string
+  readonly tradeoff: string
   readonly prompt: string | undefined
 }
 

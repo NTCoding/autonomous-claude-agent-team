@@ -4,9 +4,10 @@ import { renderTimelineBar, attachTimelineListeners, computeTimelineSegments } f
 import { renderEventStream, attachEventStreamListeners } from '../components/event-stream.js'
 import { renderJournalList } from '../components/journal-list.js'
 import { renderInsights, attachInsightListeners } from '../components/insight-cards.js'
+import { renderSuggestions, attachSuggestionListeners } from '../components/suggestion-cards.js'
 import { renderContinueTab, attachContinueListeners } from '../components/continue-tab.js'
 import { api } from '../api-client.js'
-import type { SessionDetailDto, EventDto } from '../api-client.js'
+import type { SessionDetailDto, EventDto, SuggestionDto } from '../api-client.js'
 
 type TabName = 'overview' | 'events' | 'journal' | 'insights' | 'continue'
 
@@ -28,6 +29,7 @@ export async function renderSessionDetail(container: HTMLElement, sessionId: str
         renderContent()
       })
       attachInsightListeners(container)
+      attachSuggestionListeners(container)
       attachTimelineListeners()
       attachContinueListeners(container)
       attachDrillDownListeners(container, async (dim, val) => {
@@ -108,7 +110,9 @@ function renderSessionPage(session: SessionDetailDto, activeTab: TabName, events
     : missing()
   headerParts.push(`<span><span class="ml">PR</span> ${prDisplay}</span>`)
 
-  const hasPrompts = session.insights.some((i) => typeof i.prompt === 'string' && i.prompt.length > 0)
+  const hasInsightPrompts = session.insights.some((i) => typeof i.prompt === 'string' && i.prompt.length > 0)
+  const hasSuggestionPrompts = (session.suggestions ?? []).some((s) => typeof s.prompt === 'string' && s.prompt.length > 0)
+  const hasPrompts = hasInsightPrompts || hasSuggestionPrompts
 
   const tabNames: Array<{ name: TabName; label: string; count?: number }> = [
     { name: 'overview', label: 'Overview' },
@@ -143,7 +147,7 @@ function renderSessionPage(session: SessionDetailDto, activeTab: TabName, events
       tabContent = renderInsights(session.insights)
       break
     case 'continue':
-      tabContent = renderContinueTab(session.insights)
+      tabContent = renderContinueTab(session.insights, session.suggestions ?? [])
       break
   }
 
@@ -156,13 +160,24 @@ function renderOverviewTab(session: SessionDetailDto): string {
   const totalDenials = session.permissionDenials.write + session.permissionDenials.bash +
     session.permissionDenials.pluginRead + session.permissionDenials.idle
 
-  const insightsHtml = session.insights.length > 0
-    ? html`<div class="slabel">Insights</div>` + renderInsights(session.insights) + html`<div class="slabel" style="margin-top:16px">Session Shape</div>`
-    : ''
+  const suggestions: Array<SuggestionDto> = session.suggestions ?? []
+
+  const hasInsightsOrSuggestions = session.insights.length > 0 || suggestions.length > 0
+
+  let analysisHtml = ''
+  if (hasInsightsOrSuggestions) {
+    if (session.insights.length > 0) {
+      analysisHtml += html`<div class="slabel">Insights</div>` + renderInsights(session.insights)
+    }
+    if (suggestions.length > 0) {
+      analysisHtml += html`<div class="slabel" style="margin-top:16px">Suggestions</div>` + renderSuggestions(suggestions)
+    }
+    analysisHtml += html`<div class="slabel" style="margin-top:16px">Session Shape</div>`
+  }
 
   const segments = computeTimelineSegments(session.statePeriods)
 
-  return insightsHtml +
+  return analysisHtml +
     renderMetricCards([
       { label: 'Duration', value: formatDuration(session.durationMs) },
       { label: 'Events', value: session.totalEvents },

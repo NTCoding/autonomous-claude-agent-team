@@ -28,9 +28,18 @@ export type SessionSummaryDto = {
   prNumber?: number
 }
 
+export type SuggestionDto = {
+  title: string
+  rationale: string
+  change: string
+  tradeoff: string
+  prompt?: string
+}
+
 export type SessionDetailDto = SessionSummaryDto & {
   journalEntries: Array<{ agentName: string; content: string; at: string; state: string }>
   insights: Array<{ severity: string; title: string; evidence: string; prompt?: string }>
+  suggestions: Array<SuggestionDto>
   statePeriods: Array<{ state: string; startedAt: string; endedAt?: string; durationMs: number }>
 }
 

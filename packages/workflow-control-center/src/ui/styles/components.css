@@ -112,7 +112,20 @@
 .insight-body { display: none; padding: 0 14px 10px; border-top: 1px solid #f0f0f0; }
 .insight-body.open { display: block; }
 .insight-evidence { font-size: 13px; color: #555; margin: 8px 0; }
-.insight-prompt { margin-top: 8px; background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 10px; font-size: 12px; font-family: monospace; color: #444; position: relative; white-space: pre-wrap; }
+.insight-prompt { margin-top: 8px; background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 120px 8px 10px; font-size: 12px; font-family: monospace; color: #444; position: relative; white-space: pre-wrap; }
+
+/* Suggestions — exact match of existing report */
+.suggestion { background: white; border: 1px solid #ddd; border-left: 4px solid #8e44ad; margin-bottom: 6px; border-radius: 2px; }
+.suggestion-head { padding: 8px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none; }
+.suggestion-head:hover { background: #fafafa; }
+.suggestion-title { font-size: 13px; font-weight: 600; }
+.suggestion-arrow { color: #999; font-size: 12px; flex-shrink: 0; margin-left: 12px; }
+.suggestion-body { display: none; padding: 0 14px 10px; border-top: 1px solid #f0f0f0; }
+.suggestion-body.open { display: block; }
+.suggestion-rationale { font-size: 13px; color: #555; margin: 8px 0; }
+.suggestion-change { margin: 8px 0; padding: 8px 10px; background: #f5f0fa; border: 1px solid #e0d5eb; border-radius: 3px; font-size: 13px; }
+.suggestion-change strong { color: #6c3483; }
+.suggestion-tradeoff { font-size: 12px; color: #888; margin: 6px 0; }
 
 /* Continue tab — exact match of existing report */
 .prompts { background: white; border: 1px solid #ddd; padding: 14px; border-radius: 2px; }
