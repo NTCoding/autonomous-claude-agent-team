@@ -2,8 +2,6 @@ import type { PreconditionResult, TransitionContext, GitInfo } from '@ntcoding/a
 import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
 import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
 import type { WorkflowState } from './workflow-types.js'
-import type { AssistantMessage } from './identity-rules.js'
-import { checkLeadIdentity } from './identity-rules.js'
 import { WORKFLOW_REGISTRY, getStateDefinition } from './registry.js'
 import type { StateName } from './workflow-types.js'
 import { parseStateName, WorkflowStateSchema, STATE_EMOJI_MAP } from './workflow-types.js'
@@ -32,7 +30,6 @@ export type WorkflowDeps = {
   readonly fileExists: (path: string) => boolean
   readonly getPluginRoot: () => string
   readonly now: () => string
-  readonly readTranscriptMessages: (path: string) => readonly AssistantMessage[]
 }
 
 export class Workflow {
@@ -332,15 +329,6 @@ export class Workflow {
 
   registerAgent(agentType: string, agentId: string): PreconditionResult {
     this.append({ type: 'agent-registered', at: this.deps.now(), agentType, agentId })
-    return pass()
-  }
-
-  verifyIdentity(transcriptPath: string): PreconditionResult {
-    const messages = this.deps.readTranscriptMessages(transcriptPath)
-    const emoji = STATE_EMOJI_MAP[parseStateName(this.state.currentStateMachineState)]
-    const result = checkLeadIdentity(messages, this.state.currentStateMachineState, emoji)
-    this.append({ type: 'identity-verified', at: this.deps.now(), status: result.status, transcriptPath })
-    if (result.status === 'lost') return fail(result.recoveryMessage)
     return pass()
   }
 
