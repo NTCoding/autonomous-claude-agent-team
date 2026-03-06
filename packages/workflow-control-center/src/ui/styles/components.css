@@ -112,7 +112,8 @@
 .insight-body { display: none; padding: 0 14px 10px; border-top: 1px solid #f0f0f0; }
 .insight-body.open { display: block; }
 .insight-evidence { font-size: 13px; color: #555; margin: 8px 0; }
-.insight-prompt { margin-top: 8px; background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 120px 8px 10px; font-size: 12px; font-family: monospace; color: #444; position: relative; white-space: pre-wrap; }
+.insight-prompt { margin-top: 8px; background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 10px 36px; font-size: 12px; font-family: monospace; color: #444; position: relative; white-space: pre-wrap; }
+.insight-prompt .copy-btn { top: auto; bottom: 6px; }
 
 /* Suggestions — exact match of existing report */
 .suggestion { background: white; border: 1px solid #ddd; border-left: 4px solid #8e44ad; margin-bottom: 6px; border-radius: 2px; }
@@ -143,12 +144,23 @@
 
 /* Session list — report patterns */
 .session-list { display: flex; flex-direction: column; gap: 6px; }
-.session-row { background: white; border: 1px solid #ddd; border-radius: 2px; padding: 8px 14px; cursor: pointer; display: flex; gap: 12px; align-items: center; font-size: 13px; }
+.session-row { background: white; border: 1px solid #ddd; border-radius: 2px; padding: 10px 14px; cursor: pointer; display: flex; gap: 10px; align-items: center; font-size: 13px; flex-wrap: wrap; }
 .session-row:hover { background: #fafafa; border-color: #bbb; }
-.session-id { font-family: monospace; font-size: 12px; color: #3498db; min-width: 80px; }
-.session-state { min-width: 100px; }
+.session-id { font-family: monospace; font-size: 11px; color: #aaa; min-width: 70px; }
+.session-repo { font-weight: 600; font-size: 13px; color: #333; }
+.session-branch { font-family: monospace; font-size: 12px; color: #555; background: #f0f0f0; padding: 1px 6px; border-radius: 3px; }
+.session-pr { font-family: monospace; font-size: 12px; color: #3498db; font-weight: 500; }
+.session-state { min-width: 60px; }
 .session-meta { color: #888; font-size: 12px; }
 .session-timeline { flex: 1; }
+
+/* Session search/filter */
+.session-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.session-search { flex: 1; min-width: 200px; border: 1px solid #ddd; border-radius: 3px; padding: 6px 10px; font-size: 13px; }
+.session-search:focus { outline: none; border-color: #bbb; }
+.filter-btn { padding: 4px 12px; font-size: 12px; border: 1px solid #ddd; border-radius: 3px; background: white; color: #666; cursor: pointer; }
+.filter-btn:hover { border-color: #bbb; }
+.filter-btn.active { background: #333; color: white; border-color: #333; }
 
 /* Charts — report patterns */
 .chart-container { background: white; border: 1px solid #ddd; border-radius: 2px; padding: 14px; }
