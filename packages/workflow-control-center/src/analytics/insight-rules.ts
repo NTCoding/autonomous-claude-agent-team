@@ -23,7 +23,8 @@ const permissionDenialCluster: InsightRule = ({ projection }) => {
   return {
     severity: 'warning',
     title: 'Permission denial cluster',
-    evidence: `${denials} permission denials detected`,
+    evidence: `${denials} permission denials detected (write: ${projection.permissionDenials.write}, bash: ${projection.permissionDenials.bash}, plugin-read: ${projection.permissionDenials.pluginRead}, idle: ${projection.permissionDenials.idle})`,
+    prompt: `Analyze the ${denials} permission denials in this session. Which hook rules are agents violating? Are the rules too restrictive or are agents misbehaving? Suggest specific rule adjustments or agent instruction changes.`,
   }
 }
 
@@ -37,6 +38,7 @@ const highDenialRate: InsightRule = ({ projection }) => {
       severity: 'warning',
       title: 'High denial rate',
       evidence: `${Math.round(rate * 100)}% of permission checks denied (${denials}/${checks})`,
+      prompt: `The denial rate is ${Math.round(rate * 100)}%. Investigate whether hook rules are misconfigured or if agents need clearer instructions about what operations are permitted in each state.`,
     }
   }
   return undefined
@@ -50,10 +52,12 @@ const longStateDwell: InsightRule = ({ projection }) => {
 
   for (const period of projection.statePeriods) {
     if (period.durationMs / totalMs > 0.5) {
+      const pct = Math.round((period.durationMs / totalMs) * 100)
       return {
         severity: 'info',
         title: 'Long state dwell',
-        evidence: `${period.state} occupied ${Math.round((period.durationMs / totalMs) * 100)}% of session time`,
+        evidence: `${period.state} occupied ${pct}% of session time`,
+        prompt: `The ${period.state} state consumed ${pct}% of the session. Investigate what caused the session to spend so long in this state. Is this expected for the task complexity, or is there a bottleneck?`,
       }
     }
   }
@@ -74,6 +78,7 @@ const blockedState: InsightRule = ({ projection }) => {
       severity: 'warning',
       title: 'Blocked state entered',
       evidence: `Session entered BLOCKED state ${blockedPeriods.length} time(s)`,
+      prompt: `This session was blocked ${blockedPeriods.length} time(s). Review the transition events to understand why the workflow got stuck. What preconditions failed? Should the state machine transitions be adjusted?`,
     }
   }
   return undefined
@@ -87,6 +92,7 @@ const zeroDenials: InsightRule = ({ projection }) => {
       severity: 'success',
       title: 'Zero permission denials',
       evidence: `${projection.transitionCount} transitions with no denials`,
+      prompt: undefined,
     }
   }
   return undefined
@@ -101,6 +107,7 @@ const staleSession: InsightRule = ({ projection, now }) => {
       severity: 'warning',
       title: 'Stale session',
       evidence: `No events for ${Math.round(elapsed / 60000)} minutes, last state: ${projection.currentState}`,
+      prompt: `This session has been inactive for ${Math.round(elapsed / 60000)} minutes in the ${projection.currentState} state. Check if the agent process is still running or if it needs to be restarted.`,
     }
   }
   return undefined

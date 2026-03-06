@@ -1,41 +1,4 @@
 :root {
-  --color-bg: #0f1117;
-  --color-surface: #1a1d27;
-  --color-surface-hover: #242834;
-  --color-border: #2d3140;
-  --color-text: #e2e4eb;
-  --color-text-dim: #8b8fa3;
-  --color-text-muted: #5c6078;
-  --color-accent: #6366f1;
-  --color-accent-dim: #4f46e5;
-
-  --state-spawn: #8b5cf6;
-  --state-planning: #a78bfa;
-  --state-respawn: #06b6d4;
-  --state-developing: #3b82f6;
-  --state-reviewing: #f59e0b;
-  --state-committing: #84cc16;
-  --state-cr-review: #f97316;
-  --state-pr-creation: #ec4899;
-  --state-feedback: #14b8a6;
-  --state-blocked: #ef4444;
-  --state-complete: #10b981;
-  --state-idle: #6b7280;
-
-  --severity-warning: #f59e0b;
-  --severity-info: #3b82f6;
-  --severity-success: #10b981;
-
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 16px;
-  --space-lg: 24px;
-  --space-xl: 32px;
+  --font-ui: system-ui, sans-serif;
+  --font-mono: monospace;
 }

@@ -13,7 +13,7 @@ function makeEvents(sessionId: string): ReadonlyArray<ParsedEvent> {
     { seq: 3, sessionId, type: 'agent-registered', at: '2026-01-01T00:02:00Z', payload: { agentType: 'lead', agentId: 'lead-1' } },
     { seq: 4, sessionId, type: 'transitioned', at: '2026-01-01T00:05:00Z', payload: { from: 'SPAWN', to: 'PLANNING' } },
     { seq: 5, sessionId, type: 'journal-entry', at: '2026-01-01T00:06:00Z', payload: { agentName: 'lead-1', content: 'Starting plan' } },
-    { seq: 6, sessionId, type: 'write-checked', at: '2026-01-01T00:07:00Z', payload: { allowed: false, filePath: '/test.ts' } },
+    { seq: 6, sessionId, type: 'write-checked', at: '2026-01-01T00:07:00Z', payload: { allowed: false, tool: 'Write', filePath: '/test.ts' } },
     { seq: 7, sessionId, type: 'transitioned', at: '2026-01-01T00:10:00Z', payload: { from: 'PLANNING', to: 'DEVELOPING' } },
     { seq: 8, sessionId, type: 'agent-shut-down', at: '2026-01-01T00:11:00Z', payload: { agentName: 'lead-1' } },
   ]
@@ -54,7 +54,7 @@ describe('projectSession', () => {
 
   it('counts plugin-read-checked denials', () => {
     const events: ReadonlyArray<ParsedEvent> = [
-      { seq: 1, sessionId: 's1', type: 'plugin-read-checked', at: '2026-01-01T00:00:00Z', payload: { allowed: false, path: '/plugin' } },
+      { seq: 1, sessionId: 's1', type: 'plugin-read-checked', at: '2026-01-01T00:00:00Z', payload: { allowed: false, tool: 'Read', path: '/plugin' } },
     ]
     const projection = projectSession('s1', events)
     expect(projection.permissionDenials.pluginRead).toBe(1)
@@ -70,7 +70,7 @@ describe('projectSession', () => {
 
   it('counts bash-checked denials', () => {
     const events: ReadonlyArray<ParsedEvent> = [
-      { seq: 1, sessionId: 's1', type: 'bash-checked', at: '2026-01-01T00:00:00Z', payload: { allowed: false, command: 'git push' } },
+      { seq: 1, sessionId: 's1', type: 'bash-checked', at: '2026-01-01T00:00:00Z', payload: { allowed: false, tool: 'Bash', command: 'git push' } },
     ]
     const projection = projectSession('s1', events)
     expect(projection.permissionDenials.bash).toBe(1)
@@ -78,9 +78,9 @@ describe('projectSession', () => {
 
   it('does not count allowed permission events as denials', () => {
     const events: ReadonlyArray<ParsedEvent> = [
-      { seq: 1, sessionId: 's1', type: 'plugin-read-checked', at: '2026-01-01T00:00:00Z', payload: { allowed: true } },
-      { seq: 2, sessionId: 's1', type: 'idle-checked', at: '2026-01-01T00:01:00Z', payload: { allowed: true } },
-      { seq: 3, sessionId: 's1', type: 'bash-checked', at: '2026-01-01T00:02:00Z', payload: { allowed: true } },
+      { seq: 1, sessionId: 's1', type: 'plugin-read-checked', at: '2026-01-01T00:00:00Z', payload: { allowed: true, tool: 'Read', path: '/file' } },
+      { seq: 2, sessionId: 's1', type: 'idle-checked', at: '2026-01-01T00:01:00Z', payload: { allowed: true, agentName: 'dev' } },
+      { seq: 3, sessionId: 's1', type: 'bash-checked', at: '2026-01-01T00:02:00Z', payload: { allowed: true, tool: 'Bash', command: 'echo hi' } },
     ]
     const projection = projectSession('s1', events)
     expect(projection.permissionDenials.pluginRead).toBe(0)
@@ -138,37 +138,42 @@ describe('projectSession', () => {
     expect(projection.statePeriods[0]?.state).toBe('SPAWN')
   })
 
-  it('handles transitioned event with missing to field', () => {
+  it('skips malformed transitioned event (missing required fields)', () => {
     const events: ReadonlyArray<ParsedEvent> = [
       { seq: 1, sessionId: 's1', type: 'transitioned', at: '2026-01-01T00:00:00Z', payload: {} },
     ]
     const projection = projectSession('s1', events)
-    expect(projection.currentState).toBe('unknown')
+    expect(projection.currentState).toBe('idle')
+    expect(projection.transitionCount).toBe(0)
+    expect(projection.totalEvents).toBe(1)
   })
 
-  it('handles agent-registered with missing agentId', () => {
+  it('skips malformed agent-registered (missing required fields)', () => {
     const events: ReadonlyArray<ParsedEvent> = [
       { seq: 1, sessionId: 's1', type: 'agent-registered', at: '2026-01-01T00:00:00Z', payload: {} },
     ]
     const projection = projectSession('s1', events)
     expect(projection.activeAgents).toEqual([])
+    expect(projection.totalEvents).toBe(1)
   })
 
-  it('handles agent-shut-down with missing agentName', () => {
+  it('skips malformed agent-shut-down (missing required fields)', () => {
     const events: ReadonlyArray<ParsedEvent> = [
       { seq: 1, sessionId: 's1', type: 'agent-shut-down', at: '2026-01-01T00:00:00Z', payload: {} },
     ]
     const projection = projectSession('s1', events)
     expect(projection.activeAgents).toEqual([])
+    expect(projection.totalEvents).toBe(1)
   })
 
-  it('handles journal-entry with missing fields', () => {
+  it('skips malformed journal-entry (missing required fields)', () => {
     const events: ReadonlyArray<ParsedEvent> = [
       { seq: 1, sessionId: 's1', type: 'journal-entry', at: '2026-01-01T00:00:00Z', payload: {} },
     ]
     const projection = projectSession('s1', events)
-    expect(projection.journalEntries[0]?.agentName).toBe('unknown')
-    expect(projection.journalEntries[0]?.content).toBe('')
+    expect(projection.journalEntries).toHaveLength(0)
+    expect(projection.journalEntryCount).toBe(0)
+    expect(projection.totalEvents).toBe(1)
   })
 
   it('tracks unknown event types without crashing', () => {
@@ -201,6 +206,63 @@ describe('projectSession', () => {
     const projection = projectSession('s1', [])
     expect(projection.currentState).toBe('idle')
     expect(projection.totalEvents).toBe(0)
+  })
+
+  it('extracts issueNumber from issue-recorded event', () => {
+    const events: ReadonlyArray<ParsedEvent> = [
+      { seq: 1, sessionId: 's1', type: 'issue-recorded', at: '2026-01-01T00:00:00Z', payload: { issueNumber: 42 } },
+    ]
+    const projection = projectSession('s1', events)
+    expect(projection.issueNumber).toBe(42)
+    expect(projection.totalEvents).toBe(1)
+  })
+
+  it('extracts featureBranch from branch-recorded event', () => {
+    const events: ReadonlyArray<ParsedEvent> = [
+      { seq: 1, sessionId: 's1', type: 'branch-recorded', at: '2026-01-01T00:00:00Z', payload: { branch: 'feat/login' } },
+    ]
+    const projection = projectSession('s1', events)
+    expect(projection.featureBranch).toBe('feat/login')
+    expect(projection.totalEvents).toBe(1)
+  })
+
+  it('extracts prNumber from pr-recorded event', () => {
+    const events: ReadonlyArray<ParsedEvent> = [
+      { seq: 1, sessionId: 's1', type: 'pr-recorded', at: '2026-01-01T00:00:00Z', payload: { prNumber: 99 } },
+    ]
+    const projection = projectSession('s1', events)
+    expect(projection.prNumber).toBe(99)
+    expect(projection.totalEvents).toBe(1)
+  })
+
+  it('skips malformed domain metadata events', () => {
+    const events: ReadonlyArray<ParsedEvent> = [
+      { seq: 1, sessionId: 's1', type: 'issue-recorded', at: '2026-01-01T00:00:00Z', payload: {} },
+      { seq: 2, sessionId: 's1', type: 'branch-recorded', at: '2026-01-01T00:01:00Z', payload: {} },
+      { seq: 3, sessionId: 's1', type: 'pr-recorded', at: '2026-01-01T00:02:00Z', payload: {} },
+    ]
+    const projection = projectSession('s1', events)
+    expect(projection.issueNumber).toBeUndefined()
+    expect(projection.featureBranch).toBeUndefined()
+    expect(projection.prNumber).toBeUndefined()
+    expect(projection.totalEvents).toBe(3)
+  })
+
+  it('combines engine and domain metadata events', () => {
+    const events: ReadonlyArray<ParsedEvent> = [
+      { seq: 1, sessionId: 's1', type: 'session-started', at: '2026-01-01T00:00:00Z', payload: { repository: 'org/repo' } },
+      { seq: 2, sessionId: 's1', type: 'issue-recorded', at: '2026-01-01T00:01:00Z', payload: { issueNumber: 7 } },
+      { seq: 3, sessionId: 's1', type: 'branch-recorded', at: '2026-01-01T00:02:00Z', payload: { branch: 'feat/thing' } },
+      { seq: 4, sessionId: 's1', type: 'pr-recorded', at: '2026-01-01T00:03:00Z', payload: { prNumber: 15 } },
+      { seq: 5, sessionId: 's1', type: 'transitioned', at: '2026-01-01T00:04:00Z', payload: { from: 'idle', to: 'SPAWN' } },
+    ]
+    const projection = projectSession('s1', events)
+    expect(projection.repository).toBe('org/repo')
+    expect(projection.issueNumber).toBe(7)
+    expect(projection.featureBranch).toBe('feat/thing')
+    expect(projection.prNumber).toBe(15)
+    expect(projection.currentState).toBe('SPAWN')
+    expect(projection.totalEvents).toBe(5)
   })
 })
 

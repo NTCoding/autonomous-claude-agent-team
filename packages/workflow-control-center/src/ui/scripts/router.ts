@@ -21,10 +21,6 @@ export function parseRoute(): Route {
   return { view: 'dashboard' }
 }
 
-export function navigate(path: string): void {
-  window.location.hash = path
-}
-
 export function onRouteChange(callback: (route: Route) => void): void {
   window.addEventListener('hashchange', () => callback(parseRoute()))
 }

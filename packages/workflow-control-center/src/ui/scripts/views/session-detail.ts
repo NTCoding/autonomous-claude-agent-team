@@ -1,111 +1,185 @@
-import { html, $, formatDuration, truncateId } from '../render.js'
+import { html, esc, formatDuration, formatTimestamp, formatTimeOnly, truncateId } from '../render.js'
 import { renderMetricCards } from '../components/metric-cards.js'
-import { renderTimelineBar, computeTimelineSegments } from '../components/timeline-bar.js'
-import { renderEventStream } from '../components/event-stream.js'
+import { renderTimelineBar, attachTimelineListeners, computeTimelineSegments } from '../components/timeline-bar.js'
+import { renderEventStream, attachEventStreamListeners } from '../components/event-stream.js'
 import { renderJournalList } from '../components/journal-list.js'
-import { renderInsights } from '../components/insight-cards.js'
-import { renderStateMachineViz } from '../components/chart.js'
+import { renderInsights, attachInsightListeners } from '../components/insight-cards.js'
+import { renderContinueTab, attachContinueListeners } from '../components/continue-tab.js'
 import { api } from '../api-client.js'
-import type { SessionDetailDto } from '../api-client.js'
+import type { SessionDetailDto, EventDto } from '../api-client.js'
 
-type TabName = 'overview' | 'events' | 'journal' | 'insights'
+type TabName = 'overview' | 'events' | 'journal' | 'insights' | 'continue'
 
 export async function renderSessionDetail(container: HTMLElement, sessionId: string): Promise<void> {
   container.innerHTML = html`<div class="loading">Loading session ${truncateId(sessionId)}...</div>`
 
   try {
     const session = await api.getSession(sessionId)
-
     let activeTab: TabName = 'overview'
+    let eventsCache: Array<EventDto> | null = null
+    let eventsTotal = 0
+    let drillFilter: { dimension: string; value: string } | null = null
 
-    function renderContent(): void {
-      container.innerHTML = renderSessionHeader(session) + renderTabs(activeTab) + renderTabContent(session, activeTab, sessionId)
-      attachTabListeners(container, session, sessionId, (tab: TabName) => {
+    async function renderContent(): Promise<void> {
+      container.innerHTML = renderSessionPage(session, activeTab, eventsCache, eventsTotal)
+      attachTabListeners(container, (tab: TabName) => {
         activeTab = tab
+        drillFilter = null
         renderContent()
       })
+      attachInsightListeners(container)
+      attachTimelineListeners()
+      attachContinueListeners(container)
+      attachDrillDownListeners(container, async (dim, val) => {
+        activeTab = 'events'
+        drillFilter = { dimension: dim, value: val }
+        eventsCache = null
+        await renderContent()
+      })
+
+      if (activeTab === 'events') {
+        if (!eventsCache) {
+          const filterParams = drillFilter?.dimension === 'outcome' && drillFilter.value === 'denied'
+            ? { limit: 500, denied: true }
+            : { limit: 500 }
+          const { events, total } = await api.getSessionEvents(sessionId, filterParams)
+          eventsCache = events
+          eventsTotal = total
+          ;(window as unknown as Record<string, unknown>)['__events'] = events
+        }
+        const eventsEl = container.querySelector('#events-tab-content')
+        if (eventsEl) {
+          eventsEl.innerHTML = renderEventStream(eventsCache, eventsTotal)
+          attachEventStreamListeners()
+        } else if (eventsCache) {
+          attachEventStreamListeners()
+        }
+      }
     }
 
-    renderContent()
+    await renderContent()
   } catch {
     container.innerHTML = html`<div class="loading">Session not found</div>`
   }
 }
 
-function renderSessionHeader(session: SessionDetailDto): string {
-  return html`
-    <div style="display:flex;align-items:center;gap:var(--space-md);margin-bottom:var(--space-lg)">
-      <a href="#/" style="color:var(--color-text-dim);text-decoration:none">&larr;</a>
-      <h1 class="page-title" style="margin:0">${session.sessionId}</h1>
-      <span class="state-badge" data-state="${session.currentState}">${session.currentState}</span>
-      <span class="status-badge ${session.status}">${session.status}</span>
-    </div>
-  `
+function buildGithubLink(repo: string | undefined, path: string, num: number): string {
+  if (repo === undefined) return `#${num}`
+  return `<a href="https://github.com/${esc(repo)}/${path}/${num}" target="_blank">#${num}</a>`
 }
 
-function renderTabs(activeTab: TabName): string {
-  const tabs: Array<{ name: TabName; label: string }> = [
-    { name: 'overview', label: 'Overview' },
-    { name: 'events', label: 'Event Stream' },
-    { name: 'journal', label: 'Journal' },
-    { name: 'insights', label: 'Insights' },
-  ]
-
-  return html`
-    <div class="tabs">
-      ${tabs.map((t) => html`<button class="tab ${t.name === activeTab ? 'active' : ''}" data-tab="${t.name}">${t.label}</button>`).join('')}
-    </div>
-  `
+function missing(): string {
+  return '<span style="color:#c0392b;font-weight:500">MISSING</span>'
 }
 
-function renderTabContent(session: SessionDetailDto, tab: TabName, sessionId: string): string {
-  switch (tab) {
-    case 'overview':
-      return renderOverviewTab(session)
-    case 'events':
-      return html`<div id="events-tab-content" class="loading">Loading events...</div>`
-    case 'journal':
-      return renderJournalList(session.journalEntries)
-    case 'insights':
-      return renderInsights(session.insights)
-  }
-}
-
-function renderOverviewTab(session: SessionDetailDto): string {
-  const transitions = session.statePeriods.map((p, i) => {
-    const next = session.statePeriods[i + 1]
-    return next ? { from: p.state, to: next.state } : null
-  }).filter((t): t is { from: string; to: string } => t !== null)
-
-  const segments = computeTimelineSegments(session.statePeriods)
+function renderSessionPage(session: SessionDetailDto, activeTab: TabName, events: Array<EventDto> | null, eventsTotal: number): string {
   const totalDenials = session.permissionDenials.write + session.permissionDenials.bash +
     session.permissionDenials.pluginRead + session.permissionDenials.idle
 
-  return html`
-    <div class="grid grid-2">
-      <div class="chart-container">
-        ${renderStateMachineViz(transitions, session.currentState)}
-      </div>
-      <div>
-        ${renderMetricCards([
-          { label: 'Duration', value: formatDuration(session.durationMs) },
-          { label: 'Events', value: session.totalEvents },
-          { label: 'Transitions', value: session.transitionCount },
-          { label: 'Denials', value: totalDenials },
-        ])}
-      </div>
-    </div>
-    <div class="section" style="margin-top:var(--space-lg)">
-      <h3 class="section-title">Timeline</h3>
-      ${renderTimelineBar(segments)}
-    </div>
-  `
+  const headerParts: Array<string> = []
+
+  const repoDisplay = session.repository ? esc(session.repository) : missing()
+  headerParts.push(`<h1>${repoDisplay}</h1>`)
+  headerParts.push(html`<span class="sep">│</span>`)
+  headerParts.push(html`<span><span class="ml">Session</span> ${truncateId(session.sessionId)}</span>`)
+
+  const isComplete = session.currentState === 'COMPLETE'
+  const statusClass = isComplete ? 'status-complete' : 'status-active'
+  const statusText = isComplete ? '✅ COMPLETE' : esc(session.currentState)
+  headerParts.push(html`<span class="status ${statusClass}">${statusText}</span>`)
+  headerParts.push(html`<span class="sep">│</span>`)
+
+  headerParts.push(html`<span><span class="ml">Started</span> ${esc(formatTimestamp(session.firstEventAt))}</span>`)
+  headerParts.push(html`<span>→</span>`)
+  headerParts.push(html`<span><span class="ml">Ended</span> ${esc(formatTimeOnly(session.lastEventAt))}</span>`)
+  headerParts.push(html`<span>(${formatDuration(session.durationMs)})</span>`)
+
+  headerParts.push(html`<span class="sep">│</span>`)
+  const issueDisplay = session.issueNumber !== undefined
+    ? `${buildGithubLink(session.repository, 'issues', session.issueNumber)}`
+    : missing()
+  headerParts.push(`<span><span class="ml">Issue</span> ${issueDisplay}</span>`)
+
+  const branchDisplay = session.featureBranch ? esc(session.featureBranch) : missing()
+  headerParts.push(`<span><span class="ml">Branch</span> ${branchDisplay}</span>`)
+
+  const prDisplay = session.prNumber !== undefined
+    ? `${buildGithubLink(session.repository, 'pull', session.prNumber)}`
+    : missing()
+  headerParts.push(`<span><span class="ml">PR</span> ${prDisplay}</span>`)
+
+  if (totalDenials > 0) {
+    headerParts.push(html`<span class="sep">│</span>`)
+    headerParts.push(html`<span style="color:#d35400"><span class="ml">Denials</span> ${totalDenials}</span>`)
+  }
+
+  const hasPrompts = session.insights.some((i) => typeof i.prompt === 'string' && i.prompt.length > 0)
+
+  const tabNames: Array<{ name: TabName; label: string; count?: number }> = [
+    { name: 'overview', label: 'Overview' },
+    { name: 'events', label: 'Event Log', count: session.totalEvents },
+    { name: 'journal', label: 'Journal', count: session.journalEntries.length },
+    { name: 'insights', label: 'Insights', count: session.insights.length },
+  ]
+  if (hasPrompts) {
+    tabNames.push({ name: 'continue', label: 'Continue in Claude Code' })
+  }
+
+  const tabBar = tabNames.map((t) => {
+    const activeClass = t.name === activeTab ? ' active' : ''
+    const countHtml = t.count !== undefined ? html` <span class="tc">${t.count}</span>` : ''
+    return html`<button class="tab${activeClass}" data-tab="${t.name}">${t.label}${countHtml}</button>`
+  }).join('')
+
+  let tabContent = ''
+  switch (activeTab) {
+    case 'overview':
+      tabContent = renderOverviewTab(session)
+      break
+    case 'events':
+      tabContent = events
+        ? renderEventStream(events, eventsTotal)
+        : html`<div id="events-tab-content" class="loading">Loading events...</div>`
+      break
+    case 'journal':
+      tabContent = renderJournalList(session.journalEntries)
+      break
+    case 'insights':
+      tabContent = renderInsights(session.insights)
+      break
+    case 'continue':
+      tabContent = renderContinueTab(session.insights)
+      break
+  }
+
+  return html`<div class="header" style="margin:-20px -24px 0;padding:10px 24px"><div class="header-row"><a href="#/" class="page-back">← Sessions</a><span class="sep">│</span>${headerParts.join('\n')}</div></div>` +
+    html`<div class="tab-bar" style="margin:0 -24px;padding:0 24px">${tabBar}</div>` +
+    html`<div style="padding:20px 0">${tabContent}</div>`
+}
+
+function renderOverviewTab(session: SessionDetailDto): string {
+  const totalDenials = session.permissionDenials.write + session.permissionDenials.bash +
+    session.permissionDenials.pluginRead + session.permissionDenials.idle
+
+  const insightsHtml = session.insights.length > 0
+    ? html`<div class="slabel">Insights</div>` + renderInsights(session.insights) + html`<div class="slabel" style="margin-top:16px">Session Shape</div>`
+    : ''
+
+  const segments = computeTimelineSegments(session.statePeriods)
+
+  return insightsHtml +
+    renderMetricCards([
+      { label: 'Duration', value: formatDuration(session.durationMs) },
+      { label: 'Events', value: session.totalEvents },
+      { label: 'Transitions', value: session.transitionCount },
+      { label: 'Hook Denials', value: totalDenials, warn: totalDenials > 0, ...(totalDenials > 0 ? { drillDown: { dimension: 'outcome', value: 'denied' } } : {}) },
+      { label: 'Agents', value: session.activeAgents.length },
+    ]) +
+    renderTimelineBar(segments)
 }
 
 function attachTabListeners(
   container: HTMLElement,
-  session: SessionDetailDto,
-  sessionId: string,
   onTabChange: (tab: TabName) => void,
 ): void {
   container.querySelectorAll('.tab').forEach((tabEl) => {
@@ -114,18 +188,19 @@ function attachTabListeners(
       onTabChange(tabName)
     })
   })
-
-  const eventsContent = container.querySelector('#events-tab-content')
-  if (eventsContent) {
-    loadEvents(eventsContent as HTMLElement, sessionId)
-  }
 }
 
-async function loadEvents(container: HTMLElement, sessionId: string): Promise<void> {
-  try {
-    const { events, total } = await api.getSessionEvents(sessionId, { limit: 100 })
-    container.innerHTML = renderEventStream(events, total)
-  } catch {
-    container.innerHTML = html`<div class="loading">Error loading events</div>`
-  }
+function attachDrillDownListeners(
+  container: HTMLElement,
+  onDrill: (dimension: string, value: string) => Promise<void>,
+): void {
+  container.querySelectorAll('.metric-link').forEach((el) => {
+    el.addEventListener('click', () => {
+      const dim = (el as HTMLElement).dataset['drillDim']
+      const val = (el as HTMLElement).dataset['drillVal']
+      if (dim && val) {
+        onDrill(dim, val)
+      }
+    })
+  })
 }

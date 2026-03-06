@@ -16,9 +16,18 @@
     "postinstall": "git config core.hooksPath .githooks"
   },
   "knip": {
-    "ignore": ["lint/**"],
+    "ignore": ["lint/**", "scripts/*.ts"],
     "ignoreExportsUsedInFile": true,
-    "ignoreMembers": ["WorkflowEvent", "BaseEvent"]
+    "ignoreMembers": ["WorkflowEvent", "BaseEvent"],
+    "workspaces": {
+      "packages/workflow-control-center": {
+        "entry": ["src/main.ts", "src/ui/scripts/app.ts", "build-ui.mjs"],
+        "includeEntryExports": true
+      },
+      "packages/agentic-workflow-builder": {
+        "entry": ["src/dsl/index.ts", "src/engine/index.ts", "src/testing/index.ts"]
+      }
+    }
   },
   "pnpm": {
     "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]

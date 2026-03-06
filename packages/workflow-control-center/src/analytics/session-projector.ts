@@ -1,3 +1,7 @@
+import { EngineEventSchema } from '@ntcoding/agentic-workflow-builder/engine'
+import { DomainMetadataEventSchema } from '@ntcoding/agentic-workflow-builder/engine'
+import type { EngineEvent } from '@ntcoding/agentic-workflow-builder/engine'
+import type { DomainMetadataEvent } from '@ntcoding/agentic-workflow-builder/engine'
 import type {
   ParsedEvent,
   SessionSummary,
@@ -18,6 +22,9 @@ export type SessionProjection = {
   readonly transitionCount: number
   readonly permissionDenials: PermissionDenials
   readonly repository: string | undefined
+  readonly issueNumber: number | undefined
+  readonly featureBranch: string | undefined
+  readonly prNumber: number | undefined
   readonly statePeriods: ReadonlyArray<StatePeriod>
   readonly journalEntries: ReadonlyArray<JournalEntry>
   readonly journalEntryCount: number
@@ -33,6 +40,9 @@ type MutableProjection = {
   transitionCount: number
   permissionDenials: { write: number; bash: number; pluginRead: number; idle: number }
   repository: string | undefined
+  issueNumber: number | undefined
+  featureBranch: string | undefined
+  prNumber: number | undefined
   statePeriods: Array<{
     state: string
     startedAt: string
@@ -54,9 +64,112 @@ function createEmptyProjection(sessionId: string): MutableProjection {
     transitionCount: 0,
     permissionDenials: { write: 0, bash: 0, pluginRead: 0, idle: 0 },
     repository: undefined,
+    issueNumber: undefined,
+    featureBranch: undefined,
+    prNumber: undefined,
     statePeriods: [],
     journalEntries: [],
     journalEntryCount: 0,
+  }
+}
+
+function reconstructFlatEvent(event: ParsedEvent): Record<string, unknown> {
+  return { type: event.type, at: event.at, ...event.payload }
+}
+
+function tryParseEngineEvent(event: ParsedEvent): EngineEvent | undefined {
+  const flat = reconstructFlatEvent(event)
+  const result = EngineEventSchema.safeParse(flat)
+  return result.success ? result.data : undefined
+}
+
+function tryParseDomainMetadataEvent(event: ParsedEvent): DomainMetadataEvent | undefined {
+  const flat = reconstructFlatEvent(event)
+  const result = DomainMetadataEventSchema.safeParse(flat)
+  return result.success ? result.data : undefined
+}
+
+function applyEngineEvent(projection: MutableProjection, event: EngineEvent): void {
+  switch (event.type) {
+    case 'session-started': {
+      if (event.repository !== undefined && event.repository.length > 0) {
+        projection.repository = event.repository
+      }
+      break
+    }
+    case 'transitioned': {
+      projection.transitionCount++
+      const lastPeriod = projection.statePeriods[projection.statePeriods.length - 1]
+      if (lastPeriod && lastPeriod.endedAt === undefined) {
+        lastPeriod.endedAt = event.at
+        lastPeriod.durationMs =
+          new Date(event.at).getTime() - new Date(lastPeriod.startedAt).getTime()
+      }
+      projection.statePeriods.push({
+        state: event.to,
+        startedAt: event.at,
+        endedAt: undefined,
+        durationMs: 0,
+      })
+      projection.currentState = event.to
+      break
+    }
+    case 'agent-registered': {
+      if (event.agentId.length > 0 && !projection.activeAgents.includes(event.agentId)) {
+        projection.activeAgents.push(event.agentId)
+      }
+      break
+    }
+    case 'agent-shut-down': {
+      const idx = projection.activeAgents.indexOf(event.agentName)
+      if (idx >= 0) {
+        projection.activeAgents.splice(idx, 1)
+      }
+      break
+    }
+    case 'journal-entry': {
+      projection.journalEntryCount++
+      projection.journalEntries.push({
+        agentName: event.agentName,
+        content: event.content,
+        at: event.at,
+        state: projection.currentState,
+      })
+      break
+    }
+    case 'write-checked': {
+      if (!event.allowed) projection.permissionDenials.write++
+      break
+    }
+    case 'bash-checked': {
+      if (!event.allowed) projection.permissionDenials.bash++
+      break
+    }
+    case 'plugin-read-checked': {
+      if (!event.allowed) projection.permissionDenials.pluginRead++
+      break
+    }
+    case 'idle-checked': {
+      if (!event.allowed) projection.permissionDenials.idle++
+      break
+    }
+    case 'identity-verified':
+    case 'context-requested':
+      break
+  }
+}
+
+function applyDomainMetadataEvent(projection: MutableProjection, event: DomainMetadataEvent): void {
+  switch (event.type) {
+    case 'issue-recorded':
+      projection.issueNumber = event.issueNumber
+      break
+    case 'branch-recorded':
+      projection.featureBranch = event.branch
+      break
+    case 'pr-recorded':
+      projection.prNumber = event.prNumber
+      break
   }
 }
 
@@ -67,77 +180,15 @@ function applyEventToProjection(projection: MutableProjection, event: ParsedEven
   }
   projection.lastEventAt = event.at
 
-  switch (event.type) {
-    case 'session-started': {
-      const repo = event.payload['repository']
-      if (typeof repo === 'string' && repo.length > 0) {
-        projection.repository = repo
-      }
-      break
-    }
-    case 'transitioned': {
-      const to = String(event.payload['to'] ?? 'unknown')
-      const from = String(event.payload['from'] ?? 'unknown')
-      projection.transitionCount++
+  const engineEvent = tryParseEngineEvent(event)
+  if (engineEvent !== undefined) {
+    applyEngineEvent(projection, engineEvent)
+    return
+  }
 
-      const lastPeriod = projection.statePeriods[projection.statePeriods.length - 1]
-      if (lastPeriod && lastPeriod.endedAt === undefined) {
-        lastPeriod.endedAt = event.at
-        lastPeriod.durationMs =
-          new Date(event.at).getTime() - new Date(lastPeriod.startedAt).getTime()
-      }
-
-      projection.statePeriods.push({
-        state: to,
-        startedAt: event.at,
-        endedAt: undefined,
-        durationMs: 0,
-      })
-      projection.currentState = to
-      void from
-      break
-    }
-    case 'agent-registered': {
-      const agentId = String(event.payload['agentId'] ?? '')
-      if (agentId && !projection.activeAgents.includes(agentId)) {
-        projection.activeAgents.push(agentId)
-      }
-      break
-    }
-    case 'agent-shut-down': {
-      const agentName = String(event.payload['agentName'] ?? '')
-      const idx = projection.activeAgents.indexOf(agentName)
-      if (idx >= 0) {
-        projection.activeAgents.splice(idx, 1)
-      }
-      break
-    }
-    case 'journal-entry': {
-      projection.journalEntryCount++
-      projection.journalEntries.push({
-        agentName: String(event.payload['agentName'] ?? 'unknown'),
-        content: String(event.payload['content'] ?? ''),
-        at: event.at,
-        state: projection.currentState,
-      })
-      break
-    }
-    case 'write-checked': {
-      if (event.payload['allowed'] === false) projection.permissionDenials.write++
-      break
-    }
-    case 'bash-checked': {
-      if (event.payload['allowed'] === false) projection.permissionDenials.bash++
-      break
-    }
-    case 'plugin-read-checked': {
-      if (event.payload['allowed'] === false) projection.permissionDenials.pluginRead++
-      break
-    }
-    case 'idle-checked': {
-      if (event.payload['allowed'] === false) projection.permissionDenials.idle++
-      break
-    }
+  const metadataEvent = tryParseDomainMetadataEvent(event)
+  if (metadataEvent !== undefined) {
+    applyDomainMetadataEvent(projection, metadataEvent)
   }
 }
 
@@ -178,6 +229,9 @@ export function projectSessionSummary(
     transitionCount: projection.transitionCount,
     permissionDenials: projection.permissionDenials,
     repository: projection.repository,
+    issueNumber: projection.issueNumber,
+    featureBranch: projection.featureBranch,
+    prNumber: projection.prNumber,
   }
 }
 
@@ -192,6 +246,9 @@ function freezeProjection(mutable: MutableProjection): SessionProjection {
     transitionCount: mutable.transitionCount,
     permissionDenials: { ...mutable.permissionDenials },
     repository: mutable.repository,
+    issueNumber: mutable.issueNumber,
+    featureBranch: mutable.featureBranch,
+    prNumber: mutable.prNumber,
     statePeriods: mutable.statePeriods.map((p) => ({ ...p })),
     journalEntries: [...mutable.journalEntries],
     journalEntryCount: mutable.journalEntryCount,

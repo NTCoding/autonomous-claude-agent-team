@@ -23,11 +23,14 @@ export type SessionSummaryDto = {
   transitionCount: number
   permissionDenials: { write: number; bash: number; pluginRead: number; idle: number }
   repository?: string
+  issueNumber?: number
+  featureBranch?: string
+  prNumber?: number
 }
 
 export type SessionDetailDto = SessionSummaryDto & {
   journalEntries: Array<{ agentName: string; content: string; at: string; state: string }>
-  insights: Array<{ severity: string; title: string; evidence: string }>
+  insights: Array<{ severity: string; title: string; evidence: string; prompt?: string }>
   statePeriods: Array<{ state: string; startedAt: string; endedAt?: string; durationMs: number }>
 }
 

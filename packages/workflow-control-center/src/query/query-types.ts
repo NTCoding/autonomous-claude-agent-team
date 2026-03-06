@@ -32,6 +32,9 @@ export type SessionSummary = {
   readonly transitionCount: number
   readonly permissionDenials: PermissionDenials
   readonly repository: string | undefined
+  readonly issueNumber: number | undefined
+  readonly featureBranch: string | undefined
+  readonly prNumber: number | undefined
 }
 
 export type PermissionDenials = {
@@ -67,6 +70,7 @@ export type Insight = {
   readonly severity: InsightSeverity
   readonly title: string
   readonly evidence: string
+  readonly prompt: string | undefined
 }
 
 export type EventCategory = 'transition' | 'agent' | 'permission' | 'journal' | 'session' | 'domain'
@@ -107,8 +111,6 @@ export type TrendDataPoint = {
   readonly value: number
 }
 
-export type TrendMetric = 'duration' | 'denials' | 'transitions' | 'sessions'
-export type TrendWindow = '7d' | '30d' | '90d'
 export type TrendBucket = 'day' | 'week'
 
 export type RecurringPattern = {
@@ -134,20 +136,6 @@ export type ComparisonDeltas = {
   readonly eventCount: number
   readonly eventPercent: number
 }
-
-export const ENGINE_EVENT_TYPES = [
-  'session-started',
-  'transitioned',
-  'agent-registered',
-  'agent-shut-down',
-  'identity-verified',
-  'context-requested',
-  'journal-entry',
-  'write-checked',
-  'bash-checked',
-  'plugin-read-checked',
-  'idle-checked',
-] as const
 
 export const PERMISSION_EVENT_TYPES = [
   'write-checked',

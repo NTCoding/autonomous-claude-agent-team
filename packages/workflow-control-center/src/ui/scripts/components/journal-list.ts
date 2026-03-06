@@ -1,4 +1,4 @@
-import { html, formatTime, agentColor } from '../render.js'
+import { html, formatTime, esc, agentColor } from '../render.js'
 
 type JournalData = {
   agentName: string
@@ -9,15 +9,10 @@ type JournalData = {
 
 export function renderJournalEntry(entry: JournalData): string {
   const color = agentColor(entry.agentName)
-  return html`
-    <div class="journal-entry">
-      <div>
-        <span class="journal-agent" style="color:${color}">${entry.agentName}</span>
-        <div style="font-size:11px;color:var(--color-text-muted)">${formatTime(entry.at)} · ${entry.state}</div>
-      </div>
-      <div class="journal-content">${entry.content}</div>
-    </div>
-  `
+  return html`<div class="journal-entry" style="border-left-color:${color}">` +
+    html`<div class="journal-meta"><span class="journal-agent">${esc(entry.agentName)}</span><span>${formatTime(entry.at)}</span><span>${esc(entry.state)}</span></div>` +
+    html`<div class="journal-text">"${esc(entry.content)}"</div>` +
+    `</div>`
 }
 
 export function renderJournalList(entries: Array<JournalData>): string {

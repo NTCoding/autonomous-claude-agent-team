@@ -1,8 +1,9 @@
-import { html, stateColor } from '../render.js'
+import { html, stateCssClass, formatDuration } from '../render.js'
 
 type TimelineSegment = {
   state: string
-  percentage: number
+  durationMs: number
+  proportionOfTotal: number
 }
 
 export function renderTimelineBar(segments: Array<TimelineSegment>): string {
@@ -11,13 +12,37 @@ export function renderTimelineBar(segments: Array<TimelineSegment>): string {
   }
 
   const segmentHtml = segments
-    .map(
-      (s) =>
-        html`<div class="timeline-segment" style="width:${s.percentage}%;background:${stateColor(s.state)}" title="${s.state}: ${s.percentage}%"></div>`,
-    )
+    .map((s) => {
+      const flex = Math.max(s.proportionOfTotal * 100, 0.5)
+      return html`<div class="tl-seg ${stateCssClass(s.state)}" style="flex:${flex}" title="${s.state} — ${formatDuration(s.durationMs)}"></div>`
+    })
     .join('')
 
-  return html`<div class="timeline-bar">${segmentHtml}</div>`
+  const stateTotals = segments.reduce<Record<string, number>>((acc, s) => ({
+    ...acc,
+    [s.state]: (acc[s.state] ?? 0) + s.durationMs,
+  }), {})
+
+  const legendItems = [...new Set(segments.map((s) => s.state))].map((state) => {
+    const css = stateCssClass(state)
+    const dur = stateTotals[state] ?? 0
+    return html`<label class="tl-toggle"><input type="checkbox" checked data-tl-state="${css}">`
+      + html`<i class="${css}"></i>${state} <span class="tl-dur">${formatDuration(dur)}</span></label>`
+  }).join('')
+
+  return html`<div class="timeline-bar">${segmentHtml}</div><div class="tl-legend">${legendItems}</div>`
+}
+
+export function attachTimelineListeners(): void {
+  document.querySelectorAll('.tl-toggle input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const css = (cb as HTMLInputElement).dataset['tlState'] ?? ''
+      const checked = (cb as HTMLInputElement).checked
+      document.querySelectorAll(`.tl-seg.${css}`).forEach((seg) => {
+        (seg as HTMLElement).style.display = checked ? '' : 'none'
+      })
+    })
+  })
 }
 
 export function computeTimelineSegments(
@@ -28,6 +53,7 @@ export function computeTimelineSegments(
 
   return statePeriods.map((p) => ({
     state: p.state,
-    percentage: Math.round((p.durationMs / totalMs) * 100),
+    durationMs: p.durationMs,
+    proportionOfTotal: p.durationMs / totalMs,
   }))
 }

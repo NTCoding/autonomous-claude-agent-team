@@ -7,14 +7,15 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="top-bar">
-    <div class="logo">Workflow Control Center</div>
-    <nav class="nav">
-      <a href="#/" class="nav-link active" data-route="/">Dashboard</a>
+  <div class="header">
+    <div class="header-row">
+      <h1>Workflow Control Center</h1>
+      <span class="sep">│</span>
+      <a href="#/" class="nav-link active" data-route="/">Sessions</a>
       <a href="#/analytics" class="nav-link" data-route="/analytics">Analytics</a>
-    </nav>
-  </header>
-  <main id="app"></main>
+    </div>
+  </div>
+  <div id="app"></div>
   <script src="app.js" type="module"></script>
 </body>
 </html>

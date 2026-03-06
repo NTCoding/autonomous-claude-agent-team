@@ -21,6 +21,9 @@ function makeSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
     transitionCount: 5,
     permissionDenials: { write: 1, bash: 0, pluginRead: 0, idle: 0 },
     repository: 'test/repo',
+    issueNumber: undefined,
+    featureBranch: undefined,
+    prNumber: undefined,
     ...overrides,
   }
 }
@@ -36,6 +39,9 @@ function makeProjection(overrides: Partial<SessionProjection> = {}): SessionProj
     transitionCount: 5,
     permissionDenials: { write: 1, bash: 0, pluginRead: 0, idle: 0 },
     repository: 'test/repo',
+    issueNumber: undefined,
+    featureBranch: undefined,
+    prNumber: undefined,
     statePeriods: [
       { state: 'SPAWN', startedAt: '2026-01-01T00:00:00Z', endedAt: '2026-01-01T00:10:00Z', durationMs: 600000 },
       { state: 'DEVELOPING', startedAt: '2026-01-01T00:10:00Z', endedAt: '2026-01-01T01:00:00Z', durationMs: 3000000 },
