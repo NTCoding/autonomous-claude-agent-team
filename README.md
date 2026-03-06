@@ -233,3 +233,21 @@ All workflow events are persisted to SQLite at `~/.claude/workflow-events.db`. F
 | `/autonomous-claude-agent-team:workflow view-report <session-id>` | Opens a self-contained HTML session report with insights, faceted event log, journal, and iteration analysis |
 
 The session report includes heuristic insights (rework patterns, hook denial clusters, velocity anomalies), actionable suggestions pointing at specific files, and "Continue with Claude" prompts for deeper analysis.
+
+## Build Your Own Workflow Plugin
+
+Use the `/build-workflow` skill to generate a complete, tested workflow plugin from a conversational session:
+
+```
+/build-workflow
+```
+
+The skill walks through three phases:
+
+1. **Gather requirements** — states, transitions, operations, guards, data shape
+2. **Confirm design** — state machine diagram, summary table, type shapes
+3. **Generate project** — complete TypeScript project with 100% test coverage, ESLint, hooks wiring
+
+The generated project uses `@ntcoding/agentic-workflow-builder` and follows all conventions from this repo (event sourcing, Zod schemas, no `any`/`as`, fail-fast). Output is an installable Claude Code plugin with `pnpm install && pnpm typecheck && pnpm test && pnpm lint` passing on first run.
+
+See `.claude/skills/build-workflow.md` for the full skill definition.
