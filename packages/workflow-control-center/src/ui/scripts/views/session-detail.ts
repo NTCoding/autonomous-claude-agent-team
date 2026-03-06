@@ -108,11 +108,6 @@ function renderSessionPage(session: SessionDetailDto, activeTab: TabName, events
     : missing()
   headerParts.push(`<span><span class="ml">PR</span> ${prDisplay}</span>`)
 
-  if (totalDenials > 0) {
-    headerParts.push(html`<span class="sep">│</span>`)
-    headerParts.push(html`<span style="color:#d35400"><span class="ml">Denials</span> ${totalDenials}</span>`)
-  }
-
   const hasPrompts = session.insights.some((i) => typeof i.prompt === 'string' && i.prompt.length > 0)
 
   const tabNames: Array<{ name: TabName; label: string; count?: number }> = [
@@ -173,7 +168,7 @@ function renderOverviewTab(session: SessionDetailDto): string {
       { label: 'Events', value: session.totalEvents },
       { label: 'Transitions', value: session.transitionCount },
       { label: 'Hook Denials', value: totalDenials, warn: totalDenials > 0, ...(totalDenials > 0 ? { drillDown: { dimension: 'outcome', value: 'denied' } } : {}) },
-      { label: 'Agents', value: session.activeAgents.length },
+      { label: 'Agents', value: session.activeAgents.length, ...(session.activeAgents.length > 0 ? { tooltip: session.activeAgents.join(', ') } : {}) },
     ]) +
     renderTimelineBar(segments)
 }

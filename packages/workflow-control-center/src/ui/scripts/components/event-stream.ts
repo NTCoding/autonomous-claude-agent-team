@@ -132,21 +132,17 @@ export function attachEventStreamListeners(): void {
       const evt = storedEvents[idx]
       if (!evt) return
       const payload = evt.payload as Record<string, unknown>
-      const displayFields: Array<[string, string]> = [
-        ['type', evt.type],
-        ['time', evt.at],
-        ['state', evt.state],
-      ]
-      if (evt.category) displayFields.push(['category', evt.category])
-      if (evt.denied !== undefined) displayFields.push(['denied', String(evt.denied)])
+      const displayFields: Array<[string, string]> = []
       for (const [k, v] of Object.entries(payload)) {
         if (k === 'type' || k === 'at') continue
         displayFields.push([k, typeof v === 'object' ? JSON.stringify(v) : String(v)])
       }
-      const lines = displayFields.map(([k, v]) => `${k}: ${v}`).join('\n')
+      const fieldHtml = displayFields.map(([k, v]) =>
+        `<span class="ev-f"><span class="ev-fk">${esc(k)}</span> <span class="ev-fv">${esc(v)}</span></span>`,
+      ).join('')
       const div = document.createElement('div')
       div.className = 'le-detail'
-      div.textContent = lines
+      div.innerHTML = fieldHtml
       el.appendChild(div)
       el.classList.add('expanded')
     })

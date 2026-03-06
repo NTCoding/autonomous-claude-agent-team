@@ -76,7 +76,11 @@
 /* Log entries — exact match */
 .le { padding: 5px 10px; border-bottom: 1px solid #f5f5f5; font-size: 13px; display: flex; flex-wrap: wrap; gap: 3px 8px; align-items: baseline; cursor: pointer; }
 .le.expanded { background: #f0f4ff; }
-.le-detail { flex-basis: 100%; font-family: monospace; font-size: 12px; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 10px; margin: 4px 0 2px; line-height: 1.6; white-space: pre-wrap; color: #333; }
+.le-detail { flex-basis: 100%; font-size: 12px; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 10px; margin: 4px 0 2px; line-height: 1.8; color: #333; display: flex; flex-wrap: wrap; gap: 4px 12px; text-align: left; }
+.le-detail .ev-f { display: inline-flex; gap: 4px; }
+.le-detail .ev-fk { font-family: monospace; color: #999; }
+.le-detail .ev-fk::after { content: ':'; }
+.le-detail .ev-fv { font-family: monospace; color: #333; word-break: break-all; }
 .le:hover { background: #fafafa; }
 .le.denied { background: #fef8f5; }
 .le.journal { background: #f8f9ff; }
@@ -108,6 +112,21 @@
 .insight-body { display: none; padding: 0 14px 10px; border-top: 1px solid #f0f0f0; }
 .insight-body.open { display: block; }
 .insight-evidence { font-size: 13px; color: #555; margin: 8px 0; }
+.insight-prompt { margin-top: 8px; background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 10px; font-size: 12px; font-family: monospace; color: #444; position: relative; white-space: pre-wrap; }
+
+/* Continue tab — exact match of existing report */
+.prompts { background: white; border: 1px solid #ddd; padding: 14px; border-radius: 2px; }
+.prompt-block { padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+.prompt-block:last-child { border-bottom: none; }
+.prompt-q { font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.prompt-cmd { background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px 10px; font-size: 12px; font-family: monospace; color: #444; position: relative; white-space: pre-wrap; padding-right: 120px; }
+.copy-btn { background: #f0f7ff; border: 1px solid #b8d4f0; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: 500; color: #2c6faa; position: absolute; top: 6px; right: 6px; }
+.copy-btn:hover { background: #dde9f6; }
+
+/* Metric tooltip */
+.metric.has-tooltip { cursor: help; position: relative; }
+.metric-tooltip { display: none; position: absolute; bottom: 100%; left: 0; right: 0; background: #333; color: white; font-size: 11px; padding: 4px 8px; border-radius: 3px; margin-bottom: 4px; white-space: nowrap; z-index: 10; }
+.metric.has-tooltip:hover .metric-tooltip { display: block; }
 
 /* Session list — report patterns */
 .session-list { display: flex; flex-direction: column; gap: 6px; }
