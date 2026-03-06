@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs'
-import { execSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -8,19 +7,6 @@ import { createHttpServer } from './server/http-server.js'
 import { createEventWatcher } from './watcher/event-watcher.js'
 import type { SessionQueryDeps } from './query/session-queries.js'
 import { getSessionCount } from './query/session-queries.js'
-
-export function detectGitRepository(): string | undefined {
-  try {
-    const remote = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
-    const sshMatch = /git@github\.com:(.+?)(?:\.git)?$/.exec(remote)
-    if (sshMatch?.[1]) return sshMatch[1]
-    const httpsMatch = /github\.com\/(.+?)(?:\.git)?$/.exec(remote)
-    if (httpsMatch?.[1]) return httpsMatch[1]
-    return undefined
-  } catch {
-    return undefined
-  }
-}
 
 export type CliArgs = {
   readonly dbPath: string
@@ -70,12 +56,10 @@ export async function startServer(cliArgs: CliArgs): Promise<{ readonly stop: ()
   const currentDir = dirname(fileURLToPath(import.meta.url))
   const distDir = join(currentDir, '..', 'dist', 'ui')
 
-  const detectedRepo = detectGitRepository()
   const httpServer = createHttpServer({
     queryDeps,
     distDir,
     now: () => new Date(),
-    ...(detectedRepo !== undefined ? { defaultRepository: detectedRepo } : {}),
   })
 
   const watcher = createEventWatcher({

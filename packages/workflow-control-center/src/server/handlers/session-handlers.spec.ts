@@ -10,7 +10,6 @@ import {
 import type { SessionHandlerDeps } from './session-handlers.js'
 import {
   createTestDb,
-  insertEvent,
   seedSessionEvents,
   seedMultipleSessions,
 } from '../../query/session-queries-test-fixtures.js'
@@ -126,34 +125,6 @@ describe('session-handlers', () => {
       const body = JSON.parse(res.written.body)
       expect(body.suggestions).toBeDefined()
       expect(Array.isArray(body.suggestions)).toBe(true)
-    })
-
-    it('uses defaultRepository as fallback when session has no repository', () => {
-      // Seed a session without a repository in session-started
-      insertEvent(db, 'no-repo', 'session-started', '2026-01-01T00:00:00Z', {})
-      insertEvent(db, 'no-repo', 'transitioned', '2026-01-01T00:01:00Z', { from: 'idle', to: 'SPAWN' })
-      const depsWithRepo: SessionHandlerDeps = {
-        ...deps,
-        defaultRepository: 'fallback/repo',
-      }
-      const handler = handleGetSession(depsWithRepo)
-      const res = mockRes()
-      handler(mockReq(), res, makeRoute({ id: 'no-repo' }))
-      const body = JSON.parse(res.written.body)
-      expect(body.repository).toBe('fallback/repo')
-    })
-
-    it('does not override existing repository with defaultRepository', () => {
-      seedSessionEvents(db, 'test-1')
-      const depsWithRepo: SessionHandlerDeps = {
-        ...deps,
-        defaultRepository: 'fallback/repo',
-      }
-      const handler = handleGetSession(depsWithRepo)
-      const res = mockRes()
-      handler(mockReq(), res, makeRoute({ id: 'test-1' }))
-      const body = JSON.parse(res.written.body)
-      expect(body.repository).toBe('test/repo')
     })
   })
 

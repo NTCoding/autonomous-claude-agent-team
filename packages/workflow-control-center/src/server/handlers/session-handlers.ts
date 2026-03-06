@@ -23,7 +23,6 @@ import type { AnnotatedEvent, EventCategory } from '../../query/query-types.js'
 export type SessionHandlerDeps = {
   readonly queryDeps: SessionQueryDeps
   readonly now: () => Date
-  readonly defaultRepository?: string
 }
 
 export function handleListSessions(
@@ -40,8 +39,7 @@ export function handleListSessions(
     const summaries = sessionIds.map((sessionId) => {
       const events = getSessionEvents(deps.queryDeps, sessionId)
       const projection = projectSession(sessionId, events)
-      const summary = projectSessionSummary(projection, now)
-      return { ...summary, repository: summary.repository ?? deps.defaultRepository }
+      return projectSessionSummary(projection, now)
     })
 
     const filtered = status
@@ -82,7 +80,6 @@ export function handleGetSession(
 
     sendJson(res, 200, {
       ...summary,
-      repository: summary.repository ?? deps.defaultRepository,
       journalEntries: projection.journalEntries,
       insights,
       suggestions,

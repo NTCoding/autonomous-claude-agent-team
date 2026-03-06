@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseArgs, detectGitRepository } from './main.js'
+import { parseArgs } from './main.js'
 
 describe('parseArgs', () => {
   it('returns defaults when no args provided', () => {
@@ -29,15 +29,5 @@ describe('parseArgs', () => {
     expect(args.dbPath).toBe('/test.db')
     expect(args.port).toBe(9090)
     expect(args.open).toBe(true)
-  })
-})
-
-describe('detectGitRepository', () => {
-  it('returns owner/repo string from current git remote', () => {
-    const result = detectGitRepository()
-    // Running in the actual repo, should return something
-    expect(result).toBeDefined()
-    expect(typeof result).toBe('string')
-    expect(result).toContain('/')
   })
 })

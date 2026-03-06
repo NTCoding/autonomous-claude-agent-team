@@ -27,7 +27,6 @@ export type HttpServerDeps = {
   readonly queryDeps: SessionQueryDeps
   readonly distDir: string
   readonly now: () => Date
-  readonly defaultRepository?: string
 }
 
 export type HttpServerInstance = {
@@ -47,7 +46,6 @@ export function createHttpServer(deps: HttpServerDeps): HttpServerInstance {
   const sessionDeps: SessionHandlerDeps = {
     queryDeps: deps.queryDeps,
     now: deps.now,
-    ...(deps.defaultRepository !== undefined ? { defaultRepository: deps.defaultRepository } : {}),
   }
 
   const analyticsDeps: AnalyticsHandlerDeps = {
