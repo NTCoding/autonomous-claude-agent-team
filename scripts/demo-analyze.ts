@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createStore } from '../src/workflow-event-store/sqlite-event-store.js'
+import { createStore } from '@ntcoding/agentic-workflow-builder/event-store'
 import {
   computeSessionSummary,
   computeCrossSessionSummary,

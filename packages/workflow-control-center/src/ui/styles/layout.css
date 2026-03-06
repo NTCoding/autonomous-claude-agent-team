@@ -1,0 +1,30 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; line-height: 1.5; color: #1a1a1a; background: #f5f5f5; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+a { color: #3498db; text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: #f0f0f0; padding: 1px 4px; border-radius: 2px; font-size: 12px; }
+.header { background: white; border-bottom: 1px solid #ddd; padding: 10px 24px; flex-shrink: 0; }
+.header-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 13px; line-height: 2; }
+.header-row h1 { font-size: 15px; font-weight: 600; margin-right: 4px; }
+.nav-link { color: #666; font-size: 13px; font-weight: 500; text-decoration: none; padding: 2px 0; border-bottom: 2px solid transparent; }
+.nav-link:hover { color: #333; text-decoration: none; }
+.nav-link.active { color: #1a1a1a; border-bottom-color: #333; }
+.sep { color: #ddd; margin: 0 2px; }
+.ml { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.3px; margin-right: 2px; }
+.status { padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 500; }
+.status-complete { background: #d4edda; color: #155724; }
+.status-active { background: #cce5ff; color: #004085; }
+.status-stale { background: #fff3cd; color: #856404; }
+.tab-bar { background: white; border-bottom: 1px solid #ddd; padding: 0 24px; display: flex; gap: 0; flex-shrink: 0; }
+.tab { padding: 10px 16px; font-size: 13px; font-weight: 500; color: #666; cursor: pointer; border-bottom: 2px solid transparent; user-select: none; background: none; border-top: none; border-left: none; border-right: none; }
+.tab:hover { color: #333; }
+.tab.active { color: #1a1a1a; border-bottom-color: #333; }
+.tab .tc { font-size: 11px; background: #eee; padding: 1px 6px; border-radius: 8px; margin-left: 4px; }
+.tab.active .tc { background: #333; color: white; }
+.tab-content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+#app { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.slabel { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #999; margin-bottom: 8px; }
+.page-back { color: #999; text-decoration: none; font-size: 13px; }
+.page-back:hover { color: #333; text-decoration: none; }

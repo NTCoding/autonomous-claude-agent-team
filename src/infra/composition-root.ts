@@ -16,7 +16,7 @@ import {
   generateReportHtml,
   formatAnalysisContext,
 } from '../workflow-analysis/index.js'
-import { createStore, resolveSessionId } from '../workflow-event-store/index.js'
+import { createStore, resolveSessionId } from '@ntcoding/agentic-workflow-builder/event-store'
 import { WorkflowEventSchema } from '../workflow-definition/index.js'
 import { getSessionId, getPluginRoot, getEnvFilePath, getDbPath } from './environment.js'
 import { getGitInfo, getRepositoryName } from './git.js'

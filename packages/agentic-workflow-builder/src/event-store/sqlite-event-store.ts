@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3'
 import { z } from 'zod'
-import { WorkflowError } from '../infra/workflow-error.js'
+import { WorkflowStateError } from '../engine/domain/workflow-state.js'
 
-const BaseEventSchema = z.object({ type: z.string(), at: z.string() }).passthrough()
-type BaseEvent = z.infer<typeof BaseEventSchema>
+const PassthroughEventSchema = z.object({ type: z.string(), at: z.string() }).passthrough()
+type BaseEvent = z.infer<typeof PassthroughEventSchema>
 
 const CREATE_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS events (
@@ -41,9 +41,9 @@ export function createStore(dbPath: string): SqliteEventStore {
       const rows = RowWithPayloadSchema.parse(rawRows)
       return rows.map((row, index) => {
         const parsed: unknown = tryParsePayload(row.payload, index)
-        const result = BaseEventSchema.safeParse(parsed)
+        const result = PassthroughEventSchema.safeParse(parsed)
         if (!result.success) {
-          throw new WorkflowError(
+          throw new WorkflowStateError(
             `Invalid event at index ${index} for session ${sessionId}: ${result.error.message}`
           )
         }
@@ -88,11 +88,11 @@ export function resolveSessionId(store: SqliteEventStore, input: string): string
   const singleMatch = prefixMatches.length === 1 ? prefixMatches[0] : undefined
   if (singleMatch !== undefined) return singleMatch
   if (prefixMatches.length > 1) {
-    throw new WorkflowError(
+    throw new WorkflowStateError(
       `Ambiguous session prefix "${input}". Matches:\n${prefixMatches.map((s) => `  ${s}`).join('\n')}`,
     )
   }
-  throw new WorkflowError(
+  throw new WorkflowStateError(
     `No events found for session "${input}". Run "analyze --all" to list available sessions.`,
   )
 }
@@ -101,6 +101,6 @@ function tryParsePayload(payload: string, index: number): unknown {
   try {
     return JSON.parse(payload)
   } catch (cause) {
-    throw new WorkflowError(`Cannot parse event payload at index ${index}: ${String(cause)}`)
+    throw new WorkflowStateError(`Cannot parse event payload at index ${index}: ${String(cause)}`)
   }
 }

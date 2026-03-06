@@ -1,7 +1,7 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync, unlinkSync } from 'node:fs'
-import { createStore } from '../src/workflow-event-store/sqlite-event-store.js'
+import { createStore } from '@ntcoding/agentic-workflow-builder/event-store'
 import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 
 const DB_PATH = join(tmpdir(), 'workflow-demo.db')

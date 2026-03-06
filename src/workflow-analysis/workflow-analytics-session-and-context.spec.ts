@@ -1,8 +1,8 @@
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createStore } from '../workflow-event-store/sqlite-event-store.js'
-import type { SqliteEventStore } from '../workflow-event-store/sqlite-event-store.js'
+import { createStore } from '@ntcoding/agentic-workflow-builder/event-store'
+import type { SqliteEventStore } from '@ntcoding/agentic-workflow-builder/event-store'
 import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 import {
   renderBar,
