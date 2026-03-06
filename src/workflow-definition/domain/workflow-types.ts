@@ -79,11 +79,9 @@ export type WorkflowOperation =
   | 'coderabbit-feedback-addressed'
   | 'coderabbit-feedback-ignored'
 
-export type ForbiddenBashCommand = 'git commit' | 'git push' | 'git checkout'
+export type ConcreteStateDefinition = WorkflowStateDefinition<WorkflowState, StateName, WorkflowOperation>
 
-export type ConcreteStateDefinition = WorkflowStateDefinition<WorkflowState, StateName, WorkflowOperation, ForbiddenBashCommand>
-
-export type ConcreteRegistry = WorkflowRegistry<WorkflowState, StateName, WorkflowOperation, ForbiddenBashCommand>
+export type ConcreteRegistry = WorkflowRegistry<WorkflowState, StateName, WorkflowOperation>
 
 export const INITIAL_STATE: WorkflowState = {
   currentStateMachineState: 'SPAWN',

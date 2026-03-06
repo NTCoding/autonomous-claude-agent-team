@@ -125,7 +125,7 @@ describe('Workflow', () => {
       expect(result.pass).toBe(false)
     })
 
-    it('blocks git commit in RESPAWN with write-block message', () => {
+    it('blocks git commit in RESPAWN with state name in message', () => {
       const { result } = spec
         .given(...eventsToRespawn())
         .when((wf) => wf.checkBashAllowed('Bash', 'git commit -m "test"'))
@@ -149,11 +149,14 @@ describe('Workflow', () => {
       expect(result).toStrictEqual({ pass: true })
     })
 
-    it('allows git commit in SPAWN', () => {
+    it('blocks git commit in SPAWN (globally forbidden, no exemption)', () => {
       const { result } = spec
         .given()
         .when((wf) => wf.checkBashAllowed('Bash', 'git commit -m "test"'))
-      expect(result).toStrictEqual({ pass: true })
+      expect(result.pass).toBe(false)
+      if (!result.pass) {
+        expect(result.reason).toContain('SPAWN')
+      }
     })
 
     it('blocks git checkout in DEVELOPING', () => {
@@ -161,6 +164,13 @@ describe('Workflow', () => {
         .given(...eventsToDeveloping())
         .when((wf) => wf.checkBashAllowed('Bash', 'git checkout main'))
       expect(result.pass).toBe(false)
+    })
+
+    it('allows git checkout in PLANNING (exempt via allowForbidden)', () => {
+      const { result } = spec
+        .given(...eventsToPlanning())
+        .when((wf) => wf.checkBashAllowed('Bash', 'git checkout -b feature'))
+      expect(result).toStrictEqual({ pass: true })
     })
 
     it('appends bash-checked event with allowed=true for non-Bash tool', () => {

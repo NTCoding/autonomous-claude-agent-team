@@ -1,18 +1,16 @@
 import type { PreconditionResult, TransitionContext, GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
-import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
+import { pass, fail, checkBashCommand } from '@ntcoding/agentic-workflow-builder/dsl'
 import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
 import type { WorkflowState } from './workflow-types.js'
-import { WORKFLOW_REGISTRY, getStateDefinition } from './registry.js'
+import { WORKFLOW_REGISTRY, getStateDefinition, BASH_FORBIDDEN } from './registry.js'
 import type { StateName } from './workflow-types.js'
 import { parseStateName, WorkflowStateSchema, STATE_EMOJI_MAP } from './workflow-types.js'
 import type { WorkflowEvent } from './workflow-events.js'
 import { applyEvent, EMPTY_STATE } from './fold.js'
 import {
-  COMMIT_BLOCKED_STATES,
   FILE_WRITING_TOOLS,
   READ_TOOLS,
   BASH_READ_PATTERN,
-  GLOBAL_FORBIDDEN,
   isStateFile,
   isPluginSourcePath,
   checkLeadIdle,
@@ -252,29 +250,13 @@ export class Workflow {
     }
 
     const currentDef = getStateDefinition(this.state.currentStateMachineState)
+    const exemptions = currentDef.allowForbidden?.bash ?? []
+    const check = checkBashCommand(command, BASH_FORBIDDEN, exemptions)
 
-    for (const pattern of GLOBAL_FORBIDDEN.bashPatterns) {
-      if (!pattern.test(command)) {
-        continue
-      }
-
-      const allowed = currentDef.allowForbidden?.bash ?? []
-      const isExempt = allowed.some((cmd) => command.includes(cmd))
-      if (isExempt) {
-        continue
-      }
-
-      if (currentDef.forbidden?.write) {
-        const reason = `git commit/push blocked during ${this.state.currentStateMachineState}.\n\nNo commits during ${this.state.currentStateMachineState}. Wait for the lead to transition out of ${this.state.currentStateMachineState}.`
-        this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: false, reason })
-        return fail(reason)
-      }
-
-      if (COMMIT_BLOCKED_STATES.has(this.state.currentStateMachineState)) {
-        const reason = `Cannot commit during ${this.state.currentStateMachineState}.\n\nCommits are blocked until the reviewer approves changes. Developer must signal completion first, then the lead transitions to REVIEWING.`
-        this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: false, reason })
-        return fail(reason)
-      }
+    if (!check.pass) {
+      const reason = `Bash command blocked in ${this.state.currentStateMachineState}. ${check.reason}`
+      this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: false, reason })
+      return fail(reason)
     }
 
     this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: true })
