@@ -1,4 +1,4 @@
-import type { SqliteEventStore } from '../workflow-event-store/sqlite-event-store.js'
+import type { SqliteEventStore } from '@ntcoding/agentic-workflow-builder/event-store'
 import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 import type { WorkflowEvent } from '../workflow-definition/index.js'
 import { applyEvents, WorkflowEventSchema } from '../workflow-definition/index.js'

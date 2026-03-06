@@ -132,7 +132,7 @@ describe('readEvents error handling', () => {
   const dbPath = tmpDb('errors')
   afterAll(() => { cleanup(dbPath) })
 
-  it('throws WorkflowError on corrupt JSON payload', () => {
+  it('throws WorkflowStateError on corrupt JSON payload', () => {
     const store = createStore(dbPath)
     store.db.prepare(
       "INSERT INTO events (session_id, type, at, payload) VALUES ('corrupt-session', 'ev', '2026-01-01T00:00:00.000Z', 'not-json')"
@@ -140,7 +140,7 @@ describe('readEvents error handling', () => {
     expect(() => store.readEvents('corrupt-session')).toThrow('Cannot parse event payload')
   })
 
-  it('throws WorkflowError when payload does not match schema', () => {
+  it('throws WorkflowStateError when payload does not match schema', () => {
     const store = createStore(dbPath)
     store.db.prepare(
       "INSERT INTO events (session_id, type, at, payload) VALUES ('invalid-schema-session', 'ev', '2026-01-01T00:00:00.000Z', '{\"no_type\":true}')"

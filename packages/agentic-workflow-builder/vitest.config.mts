@@ -11,6 +11,7 @@ export default defineConfig({
         'src/dsl/index.ts',
         'src/dsl/domain/types.ts',
         'src/engine/index.ts',
+        'src/event-store/index.ts',
         'src/testing/index.ts',
         'src/testing/domain/types.ts',
       ],
