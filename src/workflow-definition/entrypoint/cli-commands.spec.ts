@@ -21,11 +21,6 @@ describe('runWorkflow - routing overview', () => {
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
 
-  it('delegates to analytics when command is analyze', () => {
-    const result = runWorkflow(['analyze', '--all'], makeDeps())
-    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-  })
-
   it('delegates SubagentStart to platform runner', () => {
     const result = runWorkflow(
       [],

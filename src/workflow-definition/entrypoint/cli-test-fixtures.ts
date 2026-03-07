@@ -1,4 +1,4 @@
-import type { AdapterDeps, AnalyticsDeps, ReportDeps } from './entrypoint.js'
+import type { WorkflowEntrypointDeps } from './entrypoint.js'
 import type { WorkflowEngineDeps, WorkflowEventStore } from '@ntcoding/agentic-workflow-builder/engine'
 import type { WorkflowDeps } from '../index.js'
 import type { WorkflowEvent } from '../index.js'
@@ -121,37 +121,19 @@ function makeWorkflowDeps(overrides?: Partial<WorkflowDeps>): WorkflowDeps {
   }
 }
 
-function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
-  return {
-    computeSession: (_sessionId: string) => 'Session: test-session\n===',
-    computeAll: () => 'Total Sessions: 0',
-    computeEventContext: (_sessionId: string) => 'Session: test-session\nState: SPAWN (iteration: 0)',
-    ...overrides,
-  }
-}
-
 export type MakeDepsOverrides = {
   engineDeps?: EngineDepsOverrides
   workflowDeps?: Partial<WorkflowDeps>
-  analyticsDeps?: Partial<AnalyticsDeps>
-  reportDeps?: Partial<ReportDeps>
   getSessionId?: () => string
   readStdin?: () => string
 }
 
-export function makeDeps(overrides?: MakeDepsOverrides): AdapterDeps {
+export function makeDeps(overrides?: MakeDepsOverrides): WorkflowEntrypointDeps {
   return {
     getSessionId: overrides?.getSessionId ?? (() => 'test-session'),
     getRepositoryName: () => undefined,
     readStdin: overrides?.readStdin ?? (() => makeHookStdin()),
     engineDeps: makeEngineDeps(overrides?.engineDeps),
     workflowDeps: makeWorkflowDeps(overrides?.workflowDeps),
-    analyticsDeps: makeAnalyticsDeps(overrides?.analyticsDeps),
-    reportDeps: {
-      getAnalysisContext: () => '# Session Analysis Context\ntest data',
-      generateReport: () => ({ path: '/tmp/session-report-test.html' }),
-      readAnalysisFile: () => '# Analysis\ntest',
-      ...overrides?.reportDeps,
-    },
   }
 }

@@ -6,33 +6,14 @@ import { FeatureTeamWorkflowDefinition, StateNameSchema } from '../index.js'
 import type { Workflow, WorkflowDeps } from '../index.js'
 import type { StateName, WorkflowOperation, WorkflowState } from '../domain/workflow-types.js'
 import { preToolUseHandler } from './pre-tool-use-handler.js'
-import { isAnalyticsCommand, routeAnalytics } from './analytics/cli-routes.js'
-import { parseNumber, parseString, parseStringArray } from '../../infra/arg-parsing.js'
+import { parseNumber, parseString, parseStringArray } from '../infra/arg-parsing.js'
 
-export type AnalyticsDeps = {
-  readonly computeSession: (sessionId: string) => string
-  readonly computeAll: () => string
-  readonly computeEventContext: (sessionId: string) => string
-}
-
-export type ReportResult = {
-  readonly path: string
-}
-
-export type ReportDeps = {
-  readonly getAnalysisContext: (sessionId: string) => string
-  readonly generateReport: (sessionId: string, options?: { analysis?: string }) => ReportResult
-  readonly readAnalysisFile: (filePath: string) => string
-}
-
-export type AdapterDeps = {
+export type WorkflowEntrypointDeps = {
   readonly getSessionId: () => string
   readonly getRepositoryName: () => string | undefined
   readonly readStdin: () => string
   readonly engineDeps: WorkflowEngineDeps
   readonly workflowDeps: WorkflowDeps
-  readonly analyticsDeps: AnalyticsDeps
-  readonly reportDeps: ReportDeps
 }
 
 const ROUTES = defineRoutes<Workflow, WorkflowState>({
@@ -72,17 +53,16 @@ const platformRunner = createWorkflowRunner<Workflow, WorkflowState, WorkflowDep
   preToolUseHandler,
 })
 
-export function runWorkflow(args: readonly string[], deps: AdapterDeps): RunnerResult {
+export function runWorkflow(args: readonly string[], deps: WorkflowEntrypointDeps): RunnerResult {
   const command = args[0]
   if (command === 'init') return handleInit(deps)
-  if (command && isAnalyticsCommand(command)) return routeAnalytics(command, args, deps)
   return platformRunner(command ? args : [], deps.engineDeps, deps.workflowDeps, {
     readStdin: deps.readStdin,
     getSessionId: deps.getSessionId,
   })
 }
 
-function handleInit(deps: AdapterDeps): RunnerResult {
+function handleInit(deps: WorkflowEntrypointDeps): RunnerResult {
   const engine = new WorkflowEngine(FeatureTeamWorkflowDefinition, deps.engineDeps, deps.workflowDeps)
   return mapResult(engine.startSession(deps.getSessionId(), undefined, deps.getRepositoryName()))
 }
@@ -92,121 +72,3 @@ function mapResult(result: EngineResult): RunnerResult {
   const exitCode = result.type === 'success' ? EXIT_ALLOW : result.type === 'blocked' ? EXIT_BLOCK : EXIT_ERROR
   return { output: result.output, exitCode }
 }
-
-/* v8 ignore start */
-import { fileURLToPath } from 'node:url'
-import { readFileSync, appendFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
-import { createStore } from '@ntcoding/agentic-workflow-builder/event-store'
-import { getGitInfo, getRepositoryName } from '../../infra/git.js'
-import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from '../../infra/github.js'
-import { runEslintOnFiles } from '../../infra/linter.js'
-import { readStdinSync } from '../../infra/stdin.js'
-import { getSessionId, getPluginRoot, getEnvFilePath, getDbPath } from '../../infra/environment.js'
-import {
-  computeSessionSummary,
-  computeCrossSessionSummary,
-  computeEventContext,
-  formatSessionSummary,
-  formatCrossSessionSummary,
-  computeEnhancedSessionSummary,
-  buildSessionViewData,
-  assembleReportData,
-  generateReportHtml,
-  formatAnalysisContext,
-} from '../../workflow-analysis/index.js'
-import { WorkflowEventSchema } from '../index.js'
-import { resolveSessionId } from '@ntcoding/agentic-workflow-builder/event-store'
-import { writeFileSync } from 'node:fs'
-import { execSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
-
-function buildRealDeps(): AdapterDeps {
-  const store = createStore(getDbPath())
-
-  const engineDeps: WorkflowEngineDeps = {
-    store,
-    getPluginRoot,
-    getEnvFilePath,
-    readFile: (path) => readFileSync(path, 'utf8'),
-    appendToFile: (path, content) => appendFileSync(path, content),
-    now: () => new Date().toISOString(),
-  }
-
-  const workflowDeps: WorkflowDeps = {
-    getGitInfo,
-    checkPrChecks,
-    createDraftPr,
-    appendIssueChecklist,
-    tickFirstUncheckedIteration,
-    runEslintOnFiles,
-    fileExists: existsSync,
-    getPluginRoot,
-    now: () => new Date().toISOString(),
-  }
-
-  const analyticsDeps: AnalyticsDeps = {
-    computeSession: (sessionId) => formatSessionSummary(computeSessionSummary(createStore(getDbPath()), sessionId)),
-    computeAll: () => formatCrossSessionSummary(computeCrossSessionSummary(createStore(getDbPath()))),
-    computeEventContext: (sessionId) => computeEventContext(createStore(getDbPath()), sessionId),
-  }
-
-  const reportDeps: ReportDeps = {
-    getAnalysisContext: (sessionId) => {
-      const eventStore = createStore(getDbPath())
-      const resolvedId = resolveSessionId(eventStore, sessionId)
-      const rawEvents = eventStore.readEvents(resolvedId)
-      const events = rawEvents.map((e) => WorkflowEventSchema.parse(e))
-      const baseSummary = computeSessionSummary(eventStore, resolvedId)
-      const viewData = buildSessionViewData(resolvedId, rawEvents)
-      const enhanced = computeEnhancedSessionSummary(baseSummary, viewData, events)
-      const enhancedWithRepo = { ...enhanced, repository: enhanced.repository ?? getRepositoryName() }
-      const data = assembleReportData(enhancedWithRepo, viewData, [], [], events)
-      return formatAnalysisContext(data)
-    },
-    generateReport: (sessionId, options) => {
-      const eventStore = createStore(getDbPath())
-      const resolvedId = resolveSessionId(eventStore, sessionId)
-      const rawEvents = eventStore.readEvents(resolvedId)
-      const events = rawEvents.map((e) => WorkflowEventSchema.parse(e))
-      const baseSummary = computeSessionSummary(eventStore, resolvedId)
-      const viewData = buildSessionViewData(resolvedId, rawEvents)
-      const enhanced = computeEnhancedSessionSummary(baseSummary, viewData, events)
-      const enhancedWithRepo = { ...enhanced, repository: enhanced.repository ?? getRepositoryName() }
-      const data = assembleReportData(enhancedWithRepo, viewData, [], [], events)
-      const html = generateReportHtml(data, options?.analysis)
-      const htmlPath = join(tmpdir(), `session-report-${resolvedId}.html`)
-      writeFileSync(htmlPath, html)
-      try { execSync(`open ${JSON.stringify(htmlPath)}`) } catch { }
-      return { path: htmlPath }
-    },
-    readAnalysisFile: (filePath) => readFileSync(filePath, 'utf8'),
-  }
-
-  return {
-    getSessionId,
-    getRepositoryName,
-    readStdin: readStdinSync,
-    engineDeps,
-    workflowDeps,
-    analyticsDeps,
-    reportDeps,
-  }
-}
-
-function main(): void {
-  try {
-    const result = runWorkflow(process.argv.slice(2), buildRealDeps())
-    process.stdout.write(result.output, () => process.exit(result.exitCode))
-  } catch (error) {
-    const message = `[${new Date().toISOString()}] HOOK ERROR: ${String(error)}\n`
-    process.stderr.write(message)
-    appendFileSync('/tmp/feature-team-hook-errors.log', message)
-    process.exit(EXIT_ERROR)
-  }
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main()
-}
-/* v8 ignore stop */

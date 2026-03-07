@@ -2,7 +2,7 @@ import type { WorkflowEngine, EngineResult } from '@ntcoding/agentic-workflow-bu
 import { BASH_FORBIDDEN, checkWriteAllowed } from '../index.js'
 import type { Workflow, WorkflowDeps } from '../index.js'
 import type { StateName, WorkflowOperation, WorkflowState } from '../domain/workflow-types.js'
-import { WorkflowError } from '../../infra/workflow-error.js'
+import { WorkflowError } from '../infra/workflow-error.js'
 
 type Engine = WorkflowEngine<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation>
 

@@ -1,7 +1,7 @@
-import { isAnalyticsCommand, routeAnalytics } from './cli-routes.js'
+import { isAnalyticsCommand, routeAnalytics } from './entrypoint.js'
 import { EXIT_ERROR, EXIT_ALLOW } from '@ntcoding/agentic-workflow-builder/cli'
-import { WorkflowError } from '../../../infra/workflow-error.js'
-import type { AnalyticsDeps, ReportDeps } from '../entrypoint.js'
+import { WorkflowError } from '../../workflow-definition/index.js'
+import type { AnalyticsDeps, ReportDeps } from './entrypoint.js'
 
 function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
   return {

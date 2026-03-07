@@ -1,7 +1,22 @@
 import type { RunnerResult } from '@ntcoding/agentic-workflow-builder/cli'
 import { EXIT_ALLOW, EXIT_ERROR } from '@ntcoding/agentic-workflow-builder/cli'
-import type { AnalyticsDeps, ReportDeps } from '../entrypoint.js'
-import { WorkflowError } from '../../../infra/workflow-error.js'
+import { WorkflowError } from '../../workflow-definition/index.js'
+
+export type AnalyticsDeps = {
+  readonly computeSession: (sessionId: string) => string
+  readonly computeAll: () => string
+  readonly computeEventContext: (sessionId: string) => string
+}
+
+export type ReportResult = {
+  readonly path: string
+}
+
+export type ReportDeps = {
+  readonly getAnalysisContext: (sessionId: string) => string
+  readonly generateReport: (sessionId: string, options?: { analysis?: string }) => ReportResult
+  readonly readAnalysisFile: (filePath: string) => string
+}
 
 const ANALYTICS_COMMANDS: ReadonlySet<string> = new Set(['analyze', 'view-report'])
 

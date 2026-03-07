@@ -22,3 +22,5 @@ export { applyEvents } from './domain/fold.js'
 
 export { checkWriteAllowed } from './domain/workflow-predicates.js'
 export { BASH_FORBIDDEN } from './domain/registry.js'
+
+export { WorkflowError } from './infra/workflow-error.js'
