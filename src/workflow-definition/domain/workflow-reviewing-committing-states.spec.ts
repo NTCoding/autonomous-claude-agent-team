@@ -10,6 +10,7 @@ import {
   reviewRejected,
   lintRan,
   transitioned,
+  transitionTo,
   developerDoneSignaled,
   eventsToDeveloping,
 } from './workflow-test-fixtures.js'
@@ -19,7 +20,7 @@ describe('Workflow', () => {
     it('transitions to COMMITTING when reviewApproved', () => {
       const { result, state } = spec
         .given(...eventsToReviewing(), reviewApproved())
-        .when((wf) => wf.transitionTo('COMMITTING'))
+        .when((wf) => transitionTo(wf,'COMMITTING'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.currentStateMachineState).toBe('COMMITTING')
     })
@@ -27,21 +28,21 @@ describe('Workflow', () => {
     it('fails transition to COMMITTING when not approved', () => {
       const { result } = spec
         .given(...eventsToReviewing())
-        .when((wf) => wf.transitionTo('COMMITTING'))
+        .when((wf) => transitionTo(wf,'COMMITTING'))
       expect(result.pass).toBe(false)
     })
 
     it('transitions to DEVELOPING when reviewRejected', () => {
       const { result } = spec
         .given(...eventsToReviewing(), reviewRejected())
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(result).toStrictEqual({ pass: true })
     })
 
     it('fails transition to DEVELOPING when not rejected', () => {
       const { result } = spec
         .given(...eventsToReviewing())
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(result.pass).toBe(false)
     })
 
@@ -99,7 +100,7 @@ describe('Workflow', () => {
           lintRan({ files: 1, passed: true, lintedFiles: ['src/a.ts'] }),
         )
         .withDeps({ getGitInfo: () => gitWithCommits })
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(result).toStrictEqual({ pass: true })
     })
 
@@ -115,7 +116,7 @@ describe('Workflow', () => {
           lintRan({ files: 1, passed: true, lintedFiles: ['src/a.ts'] }),
         )
         .withDeps({ getGitInfo: () => gitWithCommits })
-        .when((wf) => wf.transitionTo('CR_REVIEW'))
+        .when((wf) => transitionTo(wf,'CR_REVIEW'))
       expect(result).toStrictEqual({ pass: true })
     })
 
@@ -123,7 +124,7 @@ describe('Workflow', () => {
       const { result } = spec
         .given(...eventsToCommitting())
         .withDeps({ getGitInfo: () => dirtyGit })
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(result.pass).toBe(false)
     })
 
@@ -136,7 +137,7 @@ describe('Workflow', () => {
       const { result } = spec
         .given(...eventsToCommitting())
         .withDeps({ getGitInfo: () => gitWithFiles })
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(result.pass).toBe(false)
     })
 
@@ -152,14 +153,14 @@ describe('Workflow', () => {
           lintRan({ files: 1, passed: true, lintedFiles: ['src/a.ts'] }),
         )
         .withDeps({ getGitInfo: () => gitWithFiles })
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition when no commits beyond default', () => {
       const { result } = spec
         .given(...eventsToCommitting())
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(result.pass).toBe(false)
     })
 
@@ -172,7 +173,7 @@ describe('Workflow', () => {
       const { result } = spec
         .given(...eventsToCommitting())
         .withDeps({ getGitInfo: () => gitWithCommitsNoTs })
-        .when((wf) => wf.transitionTo('CR_REVIEW'))
+        .when((wf) => transitionTo(wf,'CR_REVIEW'))
       expect(result).toStrictEqual({ pass: true })
     })
 

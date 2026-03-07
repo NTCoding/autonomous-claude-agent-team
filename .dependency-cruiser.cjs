@@ -32,9 +32,9 @@ module.exports = {
       name: 'workflow-definition-module-privacy',
       severity: 'error',
       comment:
-        'External code must import from workflow-definition/index.ts — domain internals (registry, states, operations) are private',
-      from: { pathNot: '^src/workflow-definition/' },
-      to: { path: '^src/workflow-definition/domain/' },
+        'External code must import from workflow-definition/index.ts — domain and infra internals are private',
+      from: { pathNot: '^src/(workflow-definition/|shell\\.)' },
+      to: { path: '^src/workflow-definition/(domain|infra)/' },
     },
 
     // Rule 3b: Module privacy — workflow-engine internals are private
@@ -47,30 +47,27 @@ module.exports = {
       to: { path: '^src/workflow-engine/domain/' },
     },
 
-    // Rule 4: workflow-definition must not import from infra
+    // Rule 4: workflow-definition domain must not import from workflow-analysis
     {
-      name: 'workflow-definition-no-upward-deps',
+      name: 'workflow-definition-domain-isolation',
       severity: 'error',
       comment:
-        'workflow-definition may depend on workflow-dsl and workflow-engine — not on infra',
-      from: { path: '^src/workflow-definition/' },
+        'workflow-definition domain must not depend on workflow-analysis',
+      from: { path: '^src/workflow-definition/domain/' },
       to: {
-        path: '^src/infra/',
+        path: '^src/workflow-analysis/',
         dependencyTypesNot: ['type-only'],
       },
     },
 
-    // Rule 5: Entrypoint allowed imports — only workflow-definition/, workflow-engine/, and infra/
+    // Rule 5: workflow-analysis must not import workflow-definition internals (only index.ts)
     {
-      name: 'entrypoint-allowed-imports',
+      name: 'workflow-analysis-no-definition-internals',
       severity: 'error',
       comment:
-        'Entrypoint must import from workflow-definition/, workflow-engine/, or infra/ — never from internal domain/ paths or other modules directly',
-      from: { path: '^src/autonomous-claude-agent-team-workflow\\.ts$' },
-      to: {
-        path: '^src/(?!workflow-definition/|workflow-engine/|infra/)',
-        pathNot: '^src/autonomous-claude-agent-team-workflow\\.ts$',
-      },
+        'workflow-analysis may import workflow-definition/index.ts and workflow-definition/infra/ (shared error types) — not domain internals',
+      from: { path: '^src/workflow-analysis/' },
+      to: { path: '^src/workflow-definition/domain/' },
     },
   ],
 

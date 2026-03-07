@@ -2,7 +2,7 @@ import type { SqliteEventStore } from '@ntcoding/agentic-workflow-builder/event-
 import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 import type { WorkflowEvent } from '../workflow-definition/index.js'
 import { applyEvents, WorkflowEventSchema } from '../workflow-definition/index.js'
-import { WorkflowError } from '../infra/workflow-error.js'
+import { WorkflowError } from '../workflow-definition/index.js'
 
 export function renderBar(ratio: number, width = 40): string {
   const filled = Math.round(Math.max(0, Math.min(1, ratio)) * width)

@@ -281,7 +281,7 @@ describe('generateReportHtml — iteration metrics row', () => {
 describe('generateReportHtml — event log facet filtering', () => {
   it('sets data-outcome to none when event has no outcome', () => {
     const data = buildMinimalReportData({
-      annotatedEvents: [{ event: { type: 'transitioned' as const, at: T0, from: 'idle', to: 'SPAWN' }, state: 'idle', iteration: 0 }],
+      annotatedEvents: [{ event: { type: 'transitioned' as const, at: T0, from: 'SPAWN', to: 'PLANNING' }, state: 'SPAWN', iteration: 0 }],
     })
     expect(generateReportHtml(data)).toContain('data-outcome="none"')
   })
@@ -289,7 +289,7 @@ describe('generateReportHtml — event log facet filtering', () => {
   it('does not include none in outcome facet counts', () => {
     const data = buildMinimalReportData({
       annotatedEvents: [
-        { event: { type: 'transitioned' as const, at: T0, from: 'idle', to: 'SPAWN' }, state: 'idle', iteration: 0 },
+        { event: { type: 'transitioned' as const, at: T0, from: 'SPAWN', to: 'PLANNING' }, state: 'SPAWN', iteration: 0 },
         { event: { type: 'review-approved' as const, at: T1 }, state: 'REVIEWING', iteration: 1 },
       ],
     })

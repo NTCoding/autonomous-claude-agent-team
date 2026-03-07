@@ -1,9 +1,62 @@
-import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs'
-import { execSync } from 'node:child_process'
+import type { RunnerResult } from '@ntcoding/agentic-workflow-builder/cli'
+import { EXIT_ERROR } from '@ntcoding/agentic-workflow-builder/cli'
+import { runWorkflow } from './workflow-definition/entrypoint/entrypoint.js'
+import type { WorkflowEntrypointDeps } from './workflow-definition/entrypoint/entrypoint.js'
+import { isAnalyticsCommand, routeAnalytics } from './workflow-analysis/entrypoint/entrypoint.js'
+import type { AnalyticsDeps, ReportDeps } from './workflow-analysis/entrypoint/entrypoint.js'
+import { WorkflowError } from './workflow-definition/index.js'
+
+export type ShellDeps = WorkflowEntrypointDeps & {
+  readonly analyticsDeps: AnalyticsDeps
+  readonly reportDeps: ReportDeps
+}
+
+export function route(args: readonly string[], deps: ShellDeps): RunnerResult {
+  const command = args[0]
+  if (command === 'init') return runWorkflow(args, deps)
+  if (command && isAnalyticsCommand(command)) return routeAnalytics(command, args, deps)
+  return runWorkflow(args, deps)
+}
+
+export function getSessionId(): string {
+  const value = process.env['CLAUDE_SESSION_ID']
+  if (value === undefined) {
+    throw new WorkflowError('Missing required env var: CLAUDE_SESSION_ID')
+  }
+  return value
+}
+
+export function getPluginRoot(): string {
+  const value = process.env['CLAUDE_PLUGIN_ROOT']
+  if (value === undefined) {
+    throw new WorkflowError('Missing required env var: CLAUDE_PLUGIN_ROOT')
+  }
+  return value
+}
+
+export function getEnvFilePath(): string {
+  const value = process.env['CLAUDE_ENV_FILE']
+  if (value === undefined) {
+    throw new WorkflowError('Missing required env var: CLAUDE_ENV_FILE')
+  }
+  return value
+}
+
+export function getDbPath(): string {
+  return `${homedir()}/.claude/workflow-events.db`
+}
+
+/* v8 ignore start */
+import { fileURLToPath } from 'node:url'
+import { readFileSync, appendFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { homedir } from 'node:os'
+import { createStore } from '@ntcoding/agentic-workflow-builder/event-store'
 import type { WorkflowEngineDeps } from '@ntcoding/agentic-workflow-builder/engine'
-import type { WorkflowDeps } from '../workflow-definition/domain/workflow.js'
+import type { WorkflowDeps } from './workflow-definition/index.js'
+import { getGitInfo, getRepositoryName } from './workflow-definition/infra/git.js'
+import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './workflow-definition/infra/github.js'
+import { runEslintOnFiles } from './workflow-definition/infra/linter.js'
 import {
   computeSessionSummary,
   computeCrossSessionSummary,
@@ -15,43 +68,18 @@ import {
   assembleReportData,
   generateReportHtml,
   formatAnalysisContext,
-} from '../workflow-analysis/index.js'
-import { createStore, resolveSessionId } from '@ntcoding/agentic-workflow-builder/event-store'
-import { WorkflowEventSchema } from '../workflow-definition/index.js'
-import { getSessionId, getPluginRoot, getEnvFilePath, getDbPath } from './environment.js'
-import { getGitInfo, getRepositoryName } from './git.js'
-import { checkPrChecks, createDraftPr, appendIssueChecklist, tickFirstUncheckedIteration } from './github.js'
-import { readStdinSync } from './stdin.js'
-import { runEslintOnFiles } from './linter.js'
+} from './workflow-analysis/index.js'
+import { WorkflowEventSchema } from './workflow-definition/index.js'
+import { resolveSessionId } from '@ntcoding/agentic-workflow-builder/event-store'
+import { writeFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
 
-export type AnalyticsDeps = {
-  readonly computeSession: (sessionId: string) => string
-  readonly computeAll: () => string
-  readonly computeEventContext: (sessionId: string) => string
+function readStdinSync(): string {
+  return readFileSync(0, 'utf-8')
 }
 
-export type ReportResult = {
-  readonly path: string
-}
-
-export type ReportDeps = {
-  readonly getAnalysisContext: (sessionId: string) => string
-  readonly generateReport: (sessionId: string, options?: { analysis?: string }) => ReportResult
-  readonly readAnalysisFile: (filePath: string) => string
-}
-
-export type AdapterDeps = {
-  readonly getSessionId: () => string
-  readonly getRepositoryName: () => string | undefined
-  readonly readStdin: () => string
-  readonly engineDeps: WorkflowEngineDeps
-  readonly workflowDeps: WorkflowDeps
-  readonly analyticsDeps: AnalyticsDeps
-  readonly reportDeps: ReportDeps
-}
-
-/* v8 ignore start */
-export function buildRealDeps(): AdapterDeps {
+function buildRealDeps(): ShellDeps {
   const store = createStore(getDbPath())
 
   const engineDeps: WorkflowEngineDeps = {
@@ -122,5 +150,21 @@ export function buildRealDeps(): AdapterDeps {
     analyticsDeps,
     reportDeps,
   }
+}
+
+function main(): void {
+  try {
+    const result = route(process.argv.slice(2), buildRealDeps())
+    process.stdout.write(result.output, () => process.exit(result.exitCode))
+  } catch (error) {
+    const message = `[${new Date().toISOString()}] HOOK ERROR: ${String(error)}\n`
+    process.stderr.write(message)
+    appendFileSync('/tmp/feature-team-hook-errors.log', message)
+    process.exit(EXIT_ERROR)
+  }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main()
 }
 /* v8 ignore stop */

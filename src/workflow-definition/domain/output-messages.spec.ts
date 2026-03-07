@@ -103,6 +103,39 @@ describe('getOperationBody', () => {
     const body = getOperationBody('coderabbit-feedback-ignored', makeState())
     expect(body).toContain('ignored')
   })
+
+  it('returns session summary with state and iteration for get-session-summary', () => {
+    const body = getOperationBody('get-session-summary', makeState({
+      currentStateMachineState: 'DEVELOPING',
+      iteration: 2,
+    }))
+    expect(body).toContain('DEVELOPING')
+    expect(body).toContain('iteration: 2')
+  })
+
+  it('includes active agents in get-session-summary when present', () => {
+    const body = getOperationBody('get-session-summary', makeState({
+      activeAgents: ['developer-1', 'reviewer-1'],
+    }))
+    expect(body).toContain('developer-1, reviewer-1')
+  })
+
+  it('includes iterations in get-session-summary when present', () => {
+    const body = getOperationBody('get-session-summary', makeState({
+      iterations: [
+        { task: 'Build auth', developerDone: false, reviewApproved: false, reviewRejected: false, coderabbitFeedbackAddressed: false, coderabbitFeedbackIgnored: false, lintedFiles: [], lintRanIteration: false },
+        { task: 'Add tests', developerDone: false, reviewApproved: false, reviewRejected: false, coderabbitFeedbackAddressed: false, coderabbitFeedbackIgnored: false, lintedFiles: [], lintRanIteration: false },
+      ],
+    }))
+    expect(body).toContain('[0] Build auth')
+    expect(body).toContain('[1] Add tests')
+  })
+
+  it('omits agents and iterations when empty in get-session-summary', () => {
+    const body = getOperationBody('get-session-summary', makeState())
+    expect(body).not.toContain('Active agents')
+    expect(body).not.toContain('Iterations')
+  })
 })
 
 describe('getTransitionTitle', () => {

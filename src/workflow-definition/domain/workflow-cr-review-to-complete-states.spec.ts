@@ -15,6 +15,7 @@ import {
   coderabbitIgnored,
   prRecorded,
   transitioned,
+  transitionTo,
   iterationTaskAssigned,
 } from './workflow-test-fixtures.js'
 
@@ -25,28 +26,28 @@ describe('Workflow', () => {
       const { result } = spec
         .given(...eventsToCrReview(), coderabbitAddressed())
         .withDeps({ getGitInfo: () => gitWithCommits })
-        .when((wf) => wf.transitionTo('PR_CREATION'))
+        .when((wf) => transitionTo(wf,'PR_CREATION'))
       expect(result).toStrictEqual({ pass: true })
     })
 
     it('transitions to PR_CREATION when feedback ignored', () => {
       const { result } = spec
         .given(...eventsToCrReview(), coderabbitIgnored())
-        .when((wf) => wf.transitionTo('PR_CREATION'))
+        .when((wf) => transitionTo(wf,'PR_CREATION'))
       expect(result).toStrictEqual({ pass: true })
     })
 
     it('fails transition when neither addressed nor ignored', () => {
       const { result } = spec
         .given(...eventsToCrReview())
-        .when((wf) => wf.transitionTo('PR_CREATION'))
+        .when((wf) => transitionTo(wf,'PR_CREATION'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition when addressed but no commits', () => {
       const { result } = spec
         .given(...eventsToCrReview(), coderabbitAddressed())
-        .when((wf) => wf.transitionTo('PR_CREATION'))
+        .when((wf) => transitionTo(wf,'PR_CREATION'))
       expect(result.pass).toBe(false)
     })
 
@@ -95,7 +96,7 @@ describe('Workflow', () => {
     it('transitions to FEEDBACK when prNumber set and PR checks pass', () => {
       const { result, state } = spec
         .given(...eventsToPrCreation(), prRecorded(42))
-        .when((wf) => wf.transitionTo('FEEDBACK'))
+        .when((wf) => transitionTo(wf,'FEEDBACK'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.currentStateMachineState).toBe('FEEDBACK')
     })
@@ -103,7 +104,7 @@ describe('Workflow', () => {
     it('fails transition when no prNumber', () => {
       const { result } = spec
         .given(...eventsToPrCreation())
-        .when((wf) => wf.transitionTo('FEEDBACK'))
+        .when((wf) => transitionTo(wf,'FEEDBACK'))
       expect(result.pass).toBe(false)
     })
 
@@ -111,20 +112,20 @@ describe('Workflow', () => {
       const { result } = spec
         .given(...eventsToPrCreation(), prRecorded(42))
         .withDeps({ checkPrChecks: () => false })
-        .when((wf) => wf.transitionTo('FEEDBACK'))
+        .when((wf) => transitionTo(wf,'FEEDBACK'))
       expect(result.pass).toBe(false)
     })
 
     it('sets prNumber when recordPr succeeds', () => {
       const { result, state } = spec
         .given(...eventsToPrCreation())
-        .when((wf) => wf.recordPr(99))
+        .when((wf) => wf.executeRecording('record-pr', 99))
       expect(result).toStrictEqual({ pass: true })
       expect(state.prNumber).toBe(99)
     })
 
     it('fails recordPr in non-PR_CREATION states', () => {
-      const { result } = spec.given().when((wf) => wf.recordPr(99))
+      const { result } = spec.given().when((wf) => wf.executeRecording('record-pr', 99))
       expect(result.pass).toBe(false)
     })
 
@@ -149,7 +150,7 @@ describe('Workflow', () => {
     it('transitions to COMPLETE when prNumber set and checks pass', () => {
       const { result, state } = spec
         .given(...eventsToFeedback())
-        .when((wf) => wf.transitionTo('COMPLETE'))
+        .when((wf) => transitionTo(wf,'COMPLETE'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.currentStateMachineState).toBe('COMPLETE')
     })
@@ -160,7 +161,7 @@ describe('Workflow', () => {
           ...eventsToPrCreation(),
           transitioned('PR_CREATION', 'FEEDBACK'),
         )
-        .when((wf) => wf.transitionTo('COMPLETE'))
+        .when((wf) => transitionTo(wf,'COMPLETE'))
       expect(result.pass).toBe(false)
     })
 
@@ -168,7 +169,7 @@ describe('Workflow', () => {
       const { result } = spec
         .given(...eventsToFeedback())
         .withDeps({ checkPrChecks: () => false })
-        .when((wf) => wf.transitionTo('COMPLETE'))
+        .when((wf) => transitionTo(wf,'COMPLETE'))
       expect(result.pass).toBe(false)
     })
 
@@ -178,7 +179,7 @@ describe('Workflow', () => {
           ...eventsToPrCreation(),
           transitioned('PR_CREATION', 'FEEDBACK'),
         )
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(result).toStrictEqual({ pass: true })
     })
   })
@@ -187,7 +188,7 @@ describe('Workflow', () => {
     it('allows transition TO BLOCKED from any state and sets preBlockedState', () => {
       const { result, state, events } = spec
         .given(...eventsToDeveloping())
-        .when((wf) => wf.transitionTo('BLOCKED'))
+        .when((wf) => transitionTo(wf,'BLOCKED'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.currentStateMachineState).toBe('BLOCKED')
       expect(state.preBlockedState).toBe('DEVELOPING')
@@ -202,7 +203,7 @@ describe('Workflow', () => {
           ...eventsToDeveloping(),
           transitioned('DEVELOPING', 'BLOCKED'),
         )
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.currentStateMachineState).toBe('DEVELOPING')
     })
@@ -213,13 +214,14 @@ describe('Workflow', () => {
           ...eventsToDeveloping(),
           transitioned('DEVELOPING', 'BLOCKED'),
         )
-        .when((wf) => wf.transitionTo('PLANNING'))
+        .when((wf) => transitionTo(wf,'PLANNING'))
       expect(result.pass).toBe(false)
     })
 
     it('includes unknown in error when not set', () => {
-      const wf = Workflow.rehydrate({ ...INITIAL_STATE, currentStateMachineState: 'BLOCKED' }, makeDeps())
-      const result = wf.transitionTo('PLANNING')
+      const deps = makeDeps()
+      const wf = Workflow.rehydrate({ ...INITIAL_STATE, currentStateMachineState: 'BLOCKED' }, deps)
+      const result = transitionTo(wf, 'PLANNING', deps)
       expect(result.pass).toBe(false)
       if (!result.pass) {
         expect(result.reason).toContain('unknown')
@@ -231,7 +233,7 @@ describe('Workflow', () => {
     it('fails all transitions since canTransitionTo is empty', () => {
       const { result } = spec
         .given(...eventsToComplete())
-        .when((wf) => wf.transitionTo('SPAWN'))
+        .when((wf) => transitionTo(wf,'SPAWN'))
       expect(result.pass).toBe(false)
     })
   })

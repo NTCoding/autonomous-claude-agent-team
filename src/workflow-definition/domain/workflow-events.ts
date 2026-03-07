@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { StateNameSchema } from './workflow-types.js'
 
 const SessionStartedSchema = z.object({
   type: z.literal('session-started'),
@@ -103,9 +104,9 @@ const AgentShutDownSchema = z.object({
 const TransitionedSchema = z.object({
   type: z.literal('transitioned'),
   at: z.string(),
-  from: z.string(),
-  to: z.string(),
-  preBlockedState: z.string().optional(),
+  from: StateNameSchema,
+  to: StateNameSchema,
+  preBlockedState: StateNameSchema.optional(),
   iteration: z.number().optional(),
   developingHeadCommit: z.string().optional(),
   developerDone: z.boolean().optional(),

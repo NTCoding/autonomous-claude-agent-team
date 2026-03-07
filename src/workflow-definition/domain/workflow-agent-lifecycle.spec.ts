@@ -74,4 +74,14 @@ describe('Workflow', () => {
       )
     })
   })
+
+  describe('getSessionSummary', () => {
+    it('appends context-requested event and returns pass', () => {
+      const { result, events } = spec.given().when((wf) => wf.getSessionSummary('developer-1'))
+      expect(result).toStrictEqual({ pass: true })
+      expect(events).toStrictEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'context-requested', agentName: 'developer-1' })])
+      )
+    })
+  })
 })

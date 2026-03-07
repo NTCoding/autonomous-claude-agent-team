@@ -52,20 +52,20 @@ function buildMinimalReportData(overrides: Partial<ReportData> = {}): ReportData
 
 describe('generateReportHtml — event log tab', () => {
   it('renders log entries with data attributes for filtering', () => {
-    const transitionEvent: WorkflowEvent = { type: 'transitioned' as const, at: T0, from: 'idle', to: 'SPAWN' }
+    const transitionEvent: WorkflowEvent = { type: 'transitioned' as const, at: T0, from: 'SPAWN', to: 'PLANNING' }
     const data = buildMinimalReportData({
-      annotatedEvents: [{ event: transitionEvent, state: 'idle', iteration: 0 }],
+      annotatedEvents: [{ event: transitionEvent, state: 'SPAWN', iteration: 0 }],
     })
     const html = generateReportHtml(data)
     expect(html).toContain('data-cat="transition"')
-    expect(html).toContain('data-state="idle"')
+    expect(html).toContain('data-state="SPAWN"')
     expect(html).toContain('data-iter="0"')
   })
 
   it('renders facet sidebar with category counts', () => {
     const data = buildMinimalReportData({
       annotatedEvents: [
-        { event: { type: 'transitioned' as const, at: T0, from: 'idle', to: 'SPAWN' }, state: 'idle', iteration: 0 },
+        { event: { type: 'transitioned' as const, at: T0, from: 'SPAWN', to: 'PLANNING' }, state: 'SPAWN', iteration: 0 },
         { event: { type: 'session-started' as const, at: T1 }, state: 'SPAWN', iteration: 0 },
       ],
     })
@@ -133,10 +133,11 @@ describe('generateReportHtml — event log tab', () => {
   it('renders events with unknown state using fallback abbreviation', () => {
     const event: WorkflowEvent = { type: 'session-started' as const, at: T0 }
     const data = buildMinimalReportData({
-      annotatedEvents: [{ event, state: 'idle', iteration: 0 }],
+      annotatedEvents: [{ event, state: 'BLOCKED', iteration: 0 }],
     })
     const html = generateReportHtml(data)
     expect(html).toContain('s-plan')
+    expect(html).toContain('BLOC')
   })
 })
 

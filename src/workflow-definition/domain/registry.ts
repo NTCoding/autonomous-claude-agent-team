@@ -1,6 +1,5 @@
 import type { BashForbiddenConfig } from '@ntcoding/agentic-workflow-builder/dsl'
-import type { ConcreteRegistry, ConcreteStateDefinition } from './workflow-types.js'
-import { parseStateName } from './workflow-types.js'
+import type { ConcreteRegistry, ConcreteStateDefinition, StateName } from './workflow-types.js'
 import { spawnState } from './states/spawn.js'
 import { planningState } from './states/planning.js'
 import { respawnState } from './states/respawn.js'
@@ -22,8 +21,8 @@ export const BASH_FORBIDDEN: BashForbiddenConfig = {
 
 export const PLUGIN_SOURCE_PATTERN = /\.claude\/plugins\/cache\//
 
-export function getStateDefinition(state: string): ConcreteStateDefinition {
-  return WORKFLOW_REGISTRY[parseStateName(state)]
+export function getStateDefinition(state: StateName): ConcreteStateDefinition {
+  return WORKFLOW_REGISTRY[state]
 }
 
 export const WORKFLOW_REGISTRY: ConcreteRegistry = {

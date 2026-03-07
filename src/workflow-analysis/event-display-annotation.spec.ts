@@ -1,4 +1,4 @@
-import type { WorkflowEvent } from '../workflow-definition/index.js'
+import type { WorkflowEvent, StateName } from '../workflow-definition/index.js'
 import { annotateEventsWithState, annotateEventsWithIteration, annotateEvents } from './event-display.js'
 
 const T0 = '2026-01-01T00:00:00.000Z'
@@ -7,7 +7,7 @@ const T2 = '2026-01-01T00:02:00.000Z'
 const T3 = '2026-01-01T00:03:00.000Z'
 const T4 = '2026-01-01T00:04:00.000Z'
 
-function transition(at: string, from: string, to: string): WorkflowEvent {
+function transition(at: string, from: StateName, to: StateName): WorkflowEvent {
   return { type: 'transitioned' as const, at, from, to }
 }
 
@@ -26,23 +26,23 @@ describe('annotateEventsWithState', () => {
 
   it('assigns state from most recent transitioned event', () => {
     const events: readonly WorkflowEvent[] = [
-      transition(T0, 'idle', 'SPAWN'),
+      transition(T0, 'SPAWN', 'PLANNING'),
       { type: 'session-started' as const, at: T1 },
     ]
     const result = annotateEventsWithState(events)
-    expect(result[1]?.state).toStrictEqual('SPAWN')
+    expect(result[1]?.state).toStrictEqual('PLANNING')
   })
 
   it('updates state as transitions occur', () => {
     const events: readonly WorkflowEvent[] = [
-      transition(T0, 'idle', 'SPAWN'),
-      transition(T1, 'SPAWN', 'PLANNING'),
+      transition(T0, 'SPAWN', 'PLANNING'),
+      transition(T1, 'PLANNING', 'RESPAWN'),
       { type: 'plan-approval-recorded' as const, at: T2 },
     ]
     const result = annotateEventsWithState(events)
     expect(result[0]?.state).toStrictEqual('idle')
-    expect(result[1]?.state).toStrictEqual('SPAWN')
-    expect(result[2]?.state).toStrictEqual('PLANNING')
+    expect(result[1]?.state).toStrictEqual('PLANNING')
+    expect(result[2]?.state).toStrictEqual('RESPAWN')
   })
 
   it('returns empty array for empty events', () => {
@@ -61,8 +61,8 @@ describe('annotateEventsWithState', () => {
 describe('annotateEventsWithIteration', () => {
   it('assigns iteration 0 to events before any task-assigned', () => {
     const events: readonly WorkflowEvent[] = [
-      transition(T0, 'idle', 'SPAWN'),
-      transition(T1, 'SPAWN', 'PLANNING'),
+      transition(T0, 'SPAWN', 'PLANNING'),
+      transition(T1, 'PLANNING', 'RESPAWN'),
     ]
     const result = annotateEventsWithIteration(events)
     expect(result[0]?.iteration).toStrictEqual(0)
@@ -95,7 +95,7 @@ describe('annotateEventsWithIteration', () => {
 
   it('assigns pre-iteration events iteration 0 and post-iteration events keep last iteration', () => {
     const events: readonly WorkflowEvent[] = [
-      transition(T0, 'idle', 'SPAWN'),
+      transition(T0, 'SPAWN', 'PLANNING'),
       taskAssigned(T1, 'Task A'),
       transition(T2, 'DEVELOPING', 'REVIEWING'),
       { type: 'review-approved' as const, at: T3 },
@@ -111,7 +111,7 @@ describe('annotateEventsWithIteration', () => {
 describe('annotateEvents', () => {
   it('populates both state and iteration for each event', () => {
     const events: readonly WorkflowEvent[] = [
-      transition(T0, 'idle', 'SPAWN'),
+      transition(T0, 'SPAWN', 'PLANNING'),
       taskAssigned(T1, 'Task A'),
       transition(T2, 'DEVELOPING', 'REVIEWING'),
       { type: 'review-approved' as const, at: T3 },
@@ -119,8 +119,8 @@ describe('annotateEvents', () => {
     const result = annotateEvents(events)
     expect(result).toStrictEqual([
       { event: events[0], state: 'idle', iteration: 0 },
-      { event: events[1], state: 'SPAWN', iteration: 1 },
-      { event: events[2], state: 'SPAWN', iteration: 1 },
+      { event: events[1], state: 'PLANNING', iteration: 1 },
+      { event: events[2], state: 'PLANNING', iteration: 1 },
       { event: events[3], state: 'REVIEWING', iteration: 1 },
     ])
   })

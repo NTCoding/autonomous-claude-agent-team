@@ -33,7 +33,7 @@ const IterationStateSchema = z.object({
 
 export type IterationState = z.infer<typeof IterationStateSchema>
 
-export function createWorkflowStateSchema(stateNames: readonly [string, ...string[]]) {
+export function createWorkflowStateSchema<T extends readonly [string, ...string[]]>(stateNames: T) {
   const stateNameSchema = z.enum(stateNames)
   return z.object({
     currentStateMachineState: stateNameSchema,
@@ -45,14 +45,14 @@ export function createWorkflowStateSchema(stateNames: readonly [string, ...strin
     userApprovedPlan: z.boolean(),
     activeAgents: z.array(z.string()),
     transcriptPath: z.string().optional(),
-    preBlockedState: z.string().optional(),
+    preBlockedState: stateNameSchema.optional(),
   })
 }
 
 export const WorkflowStateSchema = createWorkflowStateSchema(STATE_NAMES)
 
 export type WorkflowState = {
-  currentStateMachineState: string
+  currentStateMachineState: StateName
   iteration: number
   iterations: IterationState[]
   githubIssue?: number | undefined
@@ -61,7 +61,7 @@ export type WorkflowState = {
   userApprovedPlan: boolean
   activeAgents: string[]
   transcriptPath?: string | undefined
-  preBlockedState?: string | undefined
+  preBlockedState?: StateName | undefined
 }
 
 export type WorkflowOperation =
@@ -78,6 +78,7 @@ export type WorkflowOperation =
   | 'review-rejected'
   | 'coderabbit-feedback-addressed'
   | 'coderabbit-feedback-ignored'
+  | 'get-session-summary'
 
 export type ConcreteStateDefinition = WorkflowStateDefinition<WorkflowState, StateName, WorkflowOperation>
 
@@ -95,16 +96,4 @@ export function parseStateName(value: string): StateName {
   return StateNameSchema.parse(value)
 }
 
-export const STATE_EMOJI_MAP: Readonly<Record<StateName, string>> = {
-  SPAWN: '🟣',
-  PLANNING: '⚪',
-  RESPAWN: '🔄',
-  DEVELOPING: '🔨',
-  REVIEWING: '📋',
-  COMMITTING: '💾',
-  CR_REVIEW: '🐰',
-  PR_CREATION: '🚀',
-  FEEDBACK: '💬',
-  BLOCKED: '⚠️',
-  COMPLETE: '✅',
-}
+

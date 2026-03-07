@@ -1,22 +1,30 @@
-import type { PreconditionResult, TransitionContext, GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
-import { pass, fail, checkBashCommand } from '@ntcoding/agentic-workflow-builder/dsl'
+import type { PreconditionResult, GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
+import { pass, fail, defineRecordingOps } from '@ntcoding/agentic-workflow-builder/dsl'
 import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
-import type { WorkflowState } from './workflow-types.js'
-import { WORKFLOW_REGISTRY, getStateDefinition, BASH_FORBIDDEN } from './registry.js'
-import type { StateName } from './workflow-types.js'
-import { parseStateName, WorkflowStateSchema, STATE_EMOJI_MAP } from './workflow-types.js'
+import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
+import type { WorkflowState, StateName, WorkflowOperation } from './workflow-types.js'
+import { getStateDefinition } from './registry.js'
+import { WORKFLOW_REGISTRY } from './registry.js'
+import { WorkflowStateSchema } from './workflow-types.js'
 import type { WorkflowEvent } from './workflow-events.js'
+import { WorkflowEventSchema } from './workflow-events.js'
 import { applyEvent, EMPTY_STATE } from './fold.js'
 import {
-  FILE_WRITING_TOOLS,
   READ_TOOLS,
   BASH_READ_PATTERN,
-  isStateFile,
   isPluginSourcePath,
   checkLeadIdle,
   checkDeveloperIdle,
   checkOperationGate,
 } from './workflow-predicates.js'
+
+const RECORDING_OPS = defineRecordingOps<StateName, WorkflowState, WorkflowOperation>(WORKFLOW_REGISTRY, {
+  'record-issue':          { event: 'issue-recorded',         payload: (n: number) => ({ issueNumber: n }) },
+  'record-branch':         { event: 'branch-recorded',        payload: (b: string) => ({ branch: b }) },
+  'record-plan-approval':  { event: 'plan-approval-recorded', payload: () => ({}) },
+  'assign-iteration-task': { event: 'iteration-task-assigned', payload: (t: string) => ({ task: t }) },
+  'record-pr':             { event: 'pr-recorded',            payload: (n: number) => ({ prNumber: n }) },
+})
 
 export type WorkflowDeps = {
   readonly getGitInfo: () => GitInfo
@@ -48,12 +56,18 @@ export class Workflow {
     return new Workflow(WorkflowStateSchema.parse(state), deps)
   }
 
-  static procedurePath(state: string, pluginRoot: string): string {
+  static procedurePath(state: StateName, pluginRoot: string): string {
     return `${pluginRoot}/${getStateDefinition(state).agentInstructions}`
   }
 
   getPendingEvents(): readonly WorkflowEvent[] {
     return this.pendingEvents
+  }
+
+  appendEvent(event: BaseEvent): void {
+    const workflowEvent = WorkflowEventSchema.parse(event)
+    this.pendingEvents = [...this.pendingEvents, workflowEvent]
+    this.state = applyEvent(this.state, workflowEvent)
   }
 
   private append(event: WorkflowEvent): void {
@@ -73,31 +87,11 @@ export class Workflow {
     this.append({ type: 'session-started', at: this.deps.now(), ...(transcriptPath === undefined ? {} : { transcriptPath }), ...(repository === undefined ? {} : { repository }) })
   }
 
-  recordIssue(issueNumber: number): PreconditionResult {
-    const gate = checkOperationGate('record-issue', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'issue-recorded', at: this.deps.now(), issueNumber })
-    return pass()
-  }
-
-  recordBranch(branch: string): PreconditionResult {
-    const gate = checkOperationGate('record-branch', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'branch-recorded', at: this.deps.now(), branch })
-    return pass()
-  }
-
-  recordPlanApproval(): PreconditionResult {
-    const gate = checkOperationGate('record-plan-approval', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'plan-approval-recorded', at: this.deps.now() })
-    return pass()
-  }
-
-  assignIterationTask(task: string): PreconditionResult {
-    const gate = checkOperationGate('assign-iteration-task', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'iteration-task-assigned', at: this.deps.now(), task })
+  executeRecording(op: WorkflowOperation, ...args: readonly unknown[]): PreconditionResult {
+    const result = RECORDING_OPS.executeOp(op, this.state, this.deps.now(), args)
+    if (!result.pass) return fail(result.reason)
+    const parsed = WorkflowEventSchema.parse(result.event)
+    this.append(parsed)
     return pass()
   }
 
@@ -111,13 +105,6 @@ export class Workflow {
     }
 
     this.append({ type: 'developer-done-signaled', at: this.deps.now() })
-    return pass()
-  }
-
-  recordPr(prNumber: number): PreconditionResult {
-    const gate = checkOperationGate('record-pr', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'pr-recorded', at: this.deps.now(), prNumber })
     return pass()
   }
 
@@ -221,48 +208,6 @@ export class Workflow {
     return pass()
   }
 
-  checkWriteAllowed(toolName: string, filePath: string): PreconditionResult {
-    const currentDef = getStateDefinition(this.state.currentStateMachineState)
-    if (!currentDef.forbidden?.write) {
-      this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: true })
-      return pass()
-    }
-
-    if (!FILE_WRITING_TOOLS.has(toolName)) {
-      this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: true })
-      return pass()
-    }
-
-    if (isStateFile(filePath)) {
-      this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: true })
-      return pass()
-    }
-
-    const reason = `Write operation '${toolName}' is forbidden in state: ${this.state.currentStateMachineState}`
-    this.append({ type: 'write-checked', at: this.deps.now(), tool: toolName, filePath, allowed: false, reason })
-    return fail(reason)
-  }
-
-  checkBashAllowed(toolName: string, command: string): PreconditionResult {
-    if (toolName !== 'Bash') {
-      this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: true })
-      return pass()
-    }
-
-    const currentDef = getStateDefinition(this.state.currentStateMachineState)
-    const exemptions = currentDef.allowForbidden?.bash ?? []
-    const check = checkBashCommand(command, BASH_FORBIDDEN, exemptions)
-
-    if (!check.pass) {
-      const reason = `Bash command blocked in ${this.state.currentStateMachineState}. ${check.reason}`
-      this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: false, reason })
-      return fail(reason)
-    }
-
-    this.append({ type: 'bash-checked', at: this.deps.now(), tool: toolName, command, allowed: true })
-    return pass()
-  }
-
   checkPluginSourceRead(toolName: string, filePath: string, command: string): PreconditionResult {
     const pluginRoot = this.deps.getPluginRoot()
 
@@ -325,46 +270,10 @@ export class Workflow {
     return pass()
   }
 
-  transitionTo(target: string): PreconditionResult {
-    const from = parseStateName(this.state.currentStateMachineState)
-    const targetState = parseStateName(target)
-
-    const currentDef = WORKFLOW_REGISTRY[from]
-    if (!currentDef.canTransitionTo.includes(targetState)) {
-      return fail(`Illegal transition ${from} -> ${targetState}. Legal targets from ${from}: [${currentDef.canTransitionTo.join(', ') || 'none'}].`)
-    }
-
-    if (targetState !== 'BLOCKED' && currentDef.transitionGuard) {
-      const ctx = this.buildTransitionContext(from, targetState)
-      const guardResult = currentDef.transitionGuard(ctx)
-      if (!guardResult.pass) return guardResult
-    }
-
-    const targetDef = WORKFLOW_REGISTRY[targetState]
-    const base = targetDef.onEntry ? targetDef.onEntry(this.state, this.buildTransitionContext(from, targetState)) : this.state
-
-    const iterationChanged = base.iteration !== this.state.iteration
-    const developingHeadCommit = targetState === 'DEVELOPING'
-      ? base.iterations[base.iteration]?.developingHeadCommit
-      : undefined
-
-    this.append({
-      type: 'transitioned',
-      at: this.deps.now(),
-      from,
-      to: targetState,
-      ...(iterationChanged ? { iteration: base.iteration } : {}),
-      ...(developingHeadCommit === undefined ? {} : { developingHeadCommit }),
-    })
-
+  getSessionSummary(agentName: string): PreconditionResult {
+    this.append({ type: 'context-requested', at: this.deps.now(), agentName })
     return pass()
   }
 
-  private buildTransitionContext(from: StateName, to: StateName): TransitionContext<WorkflowState, StateName> {
-    const prChecksPass = this.state.prNumber === undefined
-      ? false
-      : this.deps.checkPrChecks(this.state.prNumber)
-    return { state: this.state, gitInfo: this.deps.getGitInfo(), prChecksPass, from, to }
-  }
 }
 

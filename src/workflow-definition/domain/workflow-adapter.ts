@@ -1,11 +1,14 @@
-import type { WorkflowFactory, BaseEvent, PrefixConfig } from '@ntcoding/agentic-workflow-builder/engine'
+import type { WorkflowDefinition, BaseEvent, PrefixConfig } from '@ntcoding/agentic-workflow-builder/engine'
 import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
-import type { WorkflowState } from './workflow-types.js'
+import type { TransitionContext } from '@ntcoding/agentic-workflow-builder/dsl'
+import type { WorkflowState, StateName, WorkflowOperation } from './workflow-types.js'
+import { parseStateName } from './workflow-types.js'
 import { Workflow, type WorkflowDeps } from './workflow.js'
-import { INITIAL_STATE, STATE_EMOJI_MAP, parseStateName } from './workflow-types.js'
+import { INITIAL_STATE } from './workflow-types.js'
 import { getOperationBody, getTransitionTitle } from './output-messages.js'
 import { applyEvents } from './fold.js'
 import { WorkflowEventSchema } from './workflow-events.js'
+import { WORKFLOW_REGISTRY } from './registry.js'
 
 const LEAD_PREFIX_PATTERN = /^LEAD:/m
 
@@ -24,7 +27,7 @@ function buildRecoveryMessage(state: string, emoji: string, _pluginRoot: string)
   )
 }
 
-export const WorkflowAdapter: WorkflowFactory<Workflow, WorkflowState, WorkflowDeps> = {
+export const FeatureTeamWorkflowDefinition: WorkflowDefinition<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation> = {
   createFresh(deps: WorkflowDeps): Workflow {
     return Workflow.createFresh(deps)
   },
@@ -39,17 +42,37 @@ export const WorkflowAdapter: WorkflowFactory<Workflow, WorkflowState, WorkflowD
     const state = applyEvents(workflowEvents)
     return Workflow.rehydrate(state, deps)
   },
-  procedurePath(state: string, pluginRoot: string): string {
+  procedurePath(state: StateName, pluginRoot: string): string {
     return Workflow.procedurePath(state, pluginRoot)
   },
   initialState(): typeof INITIAL_STATE {
     return INITIAL_STATE
   },
-  getEmojiForState(state: string): string {
-    return STATE_EMOJI_MAP[parseStateName(state)]
+  getRegistry() {
+    return WORKFLOW_REGISTRY
+  },
+  buildTransitionContext(state: WorkflowState, from: StateName, to: StateName, deps: WorkflowDeps): TransitionContext<WorkflowState, StateName> {
+    const prChecksPass = state.prNumber === undefined ? false : deps.checkPrChecks(state.prNumber)
+    return { state, gitInfo: deps.getGitInfo(), prChecksPass, from, to }
   },
   getOperationBody,
   getTransitionTitle,
+  buildTransitionEvent(from: StateName, to: StateName, stateBefore: WorkflowState, stateAfter: WorkflowState, now: string): BaseEvent {
+    const iterationChanged = stateAfter.iteration !== stateBefore.iteration
+    const developingHeadCommit = to === 'DEVELOPING'
+      ? stateAfter.iterations[stateAfter.iteration]?.developingHeadCommit
+      : undefined
+    const event = {
+      type: 'transitioned',
+      at: now,
+      from,
+      to,
+      ...(iterationChanged ? { iteration: stateAfter.iteration } : {}),
+      ...(developingHeadCommit === undefined ? {} : { developingHeadCommit }),
+    }
+    return event
+  },
+  parseStateName,
   getPrefixConfig(): PrefixConfig {
     return { pattern: LEAD_PREFIX_PATTERN, buildRecoveryMessage }
   },

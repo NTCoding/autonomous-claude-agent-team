@@ -32,7 +32,7 @@ export { WorkflowEngine } from './domain/workflow-engine.js'
 export type {
   EngineResult,
   RehydratableWorkflow,
-  WorkflowFactory,
+  WorkflowDefinition,
   WorkflowEventStore,
   WorkflowEngineDeps,
 } from './domain/workflow-engine.js'
