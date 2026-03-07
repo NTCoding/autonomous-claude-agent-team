@@ -12,8 +12,28 @@ import type { HookDefinition } from './hook-definition.js'
 import type { PreToolUseInput, SubagentStartInput, TeammateIdleInput } from './hook-schemas.js'
 import { EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from './exit-codes.js'
 import { HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema, TeammateIdleInputSchema } from './hook-schemas.js'
+import { formatDenyDecision, formatContextInjection } from './hook-output.js'
 
 export type RunnerResult = { readonly output: string; readonly exitCode: number }
+
+export type PreToolUseHandlerFn<
+  TWorkflow extends RehydratableWorkflow<TState>,
+  TState extends BaseWorkflowState<TStateName>,
+  TDeps,
+  TStateName extends string = string,
+  TOperation extends string = string,
+> = (
+  engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  sessionId: string,
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  transcriptPath: string | undefined,
+) => EngineResult
+
+export type RunnerOptions = {
+  readonly readStdin?: () => string
+  readonly getSessionId?: () => string
+}
 
 export type WorkflowRunnerConfig<
   TWorkflow extends RehydratableWorkflow<TState>,
@@ -25,6 +45,7 @@ export type WorkflowRunnerConfig<
   readonly workflowDefinition: WorkflowDefinition<TWorkflow, TState, TDeps, TStateName, TOperation>
   readonly routes: RouteMap<TWorkflow, TState>
   readonly hooks?: HookDefinition<TWorkflow>
+  readonly preToolUseHandler?: PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation>
 }
 
 function engineResultToRunnerResult(result: EngineResult): RunnerResult {
@@ -78,20 +99,20 @@ export function createWorkflowRunner<
   TOperation extends string = string,
 >(
   config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
-): (args: readonly string[], engineDeps: WorkflowEngineDeps, workflowDeps: TDeps, readStdin?: () => string) => RunnerResult {
-  return (args, engineDeps, workflowDeps, readStdin) => {
+): (args: readonly string[], engineDeps: WorkflowEngineDeps, workflowDeps: TDeps, options?: RunnerOptions) => RunnerResult {
+  return (args, engineDeps, workflowDeps, options) => {
     const engine = new WorkflowEngine(config.workflowDefinition, engineDeps, workflowDeps)
     const routeName = args[0]
 
     if (routeName !== undefined) {
-      return handleRoute(engine, config, args, routeName)
+      return handleRoute(engine, config, args, routeName, options?.getSessionId)
     }
 
-    if (readStdin === undefined) {
+    if (options?.readStdin === undefined) {
       return { output: 'No command and no stdin available', exitCode: EXIT_ERROR }
     }
 
-    return handleHook(engine, config, readStdin)
+    return handleHook(engine, config, options.readStdin)
   }
 }
 
@@ -106,6 +127,7 @@ function handleRoute<
   config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   args: readonly string[],
   routeName: string,
+  getSessionId?: () => string,
 ): RunnerResult {
   const routeDef = config.routes[routeName]
   if (routeDef === undefined) {
@@ -117,21 +139,41 @@ function handleRoute<
     return { output: parsedArgs.message, exitCode: EXIT_ERROR }
   }
 
+  const resolveSessionId = (): string => {
+    if (getSessionId !== undefined) return getSessionId()
+    return assertSessionId(parsedArgs.values)
+  }
+
+  const argsAfterSessionId = (): readonly unknown[] => {
+    if (getSessionId !== undefined) return parsedArgs.values
+    return parsedArgs.values.slice(1)
+  }
+
+  const resolveTarget = (): string => {
+    if (getSessionId !== undefined) {
+      const target = parsedArgs.values[0]
+      /* v8 ignore next */
+      if (typeof target !== 'string') throw new Error('target argument must be a string')
+      return target
+    }
+    return assertTarget(parsedArgs.values)
+  }
+
   switch (routeDef.type) {
     case 'session-start': {
-      const sessionId = assertSessionId(parsedArgs.values)
+      const sessionId = resolveSessionId()
       const result = engine.startSession(sessionId)
       return engineResultToRunnerResult(result)
     }
     case 'transition': {
-      const sessionId = assertSessionId(parsedArgs.values)
-      const target = config.workflowDefinition.parseStateName(assertTarget(parsedArgs.values))
+      const sessionId = resolveSessionId()
+      const target = config.workflowDefinition.parseStateName(resolveTarget())
       const result = engine.transition(sessionId, target)
       return engineResultToRunnerResult(result)
     }
     case 'transaction': {
-      const sessionId = assertSessionId(parsedArgs.values)
-      const restArgs = parsedArgs.values.slice(1)
+      const sessionId = resolveSessionId()
+      const restArgs = argsAfterSessionId()
       const result = engine.transaction(sessionId, routeName, (w: TWorkflow) =>
         routeDef.handler(w, ...restArgs),
       )
@@ -209,11 +251,19 @@ function handlePreToolUse<
   config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   input: PreToolUseInput,
 ): RunnerResult {
-  if (config.hooks?.preToolUse === undefined) {
+  if (!engine.hasSession(input.session_id)) {
     return { output: '', exitCode: EXIT_ALLOW }
   }
 
-  if (!engine.hasSession(input.session_id)) {
+  if (config.preToolUseHandler !== undefined) {
+    const result = config.preToolUseHandler(engine, input.session_id, input.tool_name, input.tool_input, input.transcript_path)
+    if (result.type === 'blocked') {
+      return { output: formatDenyDecision(result.output), exitCode: EXIT_BLOCK }
+    }
+    return engineResultToRunnerResult(result)
+  }
+
+  if (config.hooks?.preToolUse === undefined) {
     return { output: '', exitCode: EXIT_ALLOW }
   }
 
@@ -261,7 +311,9 @@ function handleSubagentStartHook<
     (w: TWorkflow) => handler.register(w, input.agent_type, input.agent_id),
   )
 
-  return engineResultToRunnerResult(result)
+  /* v8 ignore next */
+  const contextOutput = result.type === 'success' ? result.output : ''
+  return { output: formatContextInjection(contextOutput), exitCode: EXIT_ALLOW }
 }
 
 function handleTeammateIdleHook<

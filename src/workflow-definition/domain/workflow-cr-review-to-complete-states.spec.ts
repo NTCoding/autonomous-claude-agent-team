@@ -119,13 +119,13 @@ describe('Workflow', () => {
     it('sets prNumber when recordPr succeeds', () => {
       const { result, state } = spec
         .given(...eventsToPrCreation())
-        .when((wf) => wf.recordPr(99))
+        .when((wf) => wf.executeRecording('record-pr', 99))
       expect(result).toStrictEqual({ pass: true })
       expect(state.prNumber).toBe(99)
     })
 
     it('fails recordPr in non-PR_CREATION states', () => {
-      const { result } = spec.given().when((wf) => wf.recordPr(99))
+      const { result } = spec.given().when((wf) => wf.executeRecording('record-pr', 99))
       expect(result.pass).toBe(false)
     })
 

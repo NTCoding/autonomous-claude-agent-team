@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { arg, extractField, defineRoutes, defineHooks, createWorkflowRunner, EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK, HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema, TeammateIdleInputSchema } from './index.js'
+import { arg, extractField, defineRoutes, defineHooks, createWorkflowRunner, EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK, HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema, TeammateIdleInputSchema, formatDenyDecision, formatContextInjection } from './index.js'
 
 describe('cli barrel exports', () => {
   it('exports all public API', () => {
@@ -15,5 +15,7 @@ describe('cli barrel exports', () => {
     expect(PreToolUseInputSchema).toBeDefined()
     expect(SubagentStartInputSchema).toBeDefined()
     expect(TeammateIdleInputSchema).toBeDefined()
+    expect(formatDenyDecision).toBeDefined()
+    expect(formatContextInjection).toBeDefined()
   })
 })

@@ -98,7 +98,7 @@ describe('Workflow', () => {
     })
 
     it('sets githubIssue and emits event when recordIssue succeeds', () => {
-      const { result, state, events } = spec.given().when((wf) => wf.recordIssue(42))
+      const { result, state, events } = spec.given().when((wf) => wf.executeRecording('record-issue', 42))
       expect(result).toStrictEqual({ pass: true })
       expect(state.githubIssue).toBe(42)
       expect(events).toStrictEqual(
@@ -109,7 +109,7 @@ describe('Workflow', () => {
     it('fails recordIssue in non-SPAWN states', () => {
       const { result } = spec
         .given(...eventsToPlanning())
-        .when((wf) => wf.recordIssue(42))
+        .when((wf) => wf.executeRecording('record-issue', 42))
       expect(result.pass).toBe(false)
     })
   })
@@ -141,7 +141,7 @@ describe('Workflow', () => {
     it('sets featureBranch when recordBranch succeeds', () => {
       const { result, state, events } = spec
         .given(...eventsToPlanning())
-        .when((wf) => wf.recordBranch('feature/x'))
+        .when((wf) => wf.executeRecording('record-branch', 'feature/x'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.featureBranch).toBe('feature/x')
       expect(events).toStrictEqual(
@@ -150,14 +150,14 @@ describe('Workflow', () => {
     })
 
     it('fails recordBranch in non-PLANNING states', () => {
-      const { result } = spec.given().when((wf) => wf.recordBranch('feature/x'))
+      const { result } = spec.given().when((wf) => wf.executeRecording('record-branch', 'feature/x'))
       expect(result.pass).toBe(false)
     })
 
     it('sets userApprovedPlan when recordPlanApproval succeeds', () => {
       const { result, state, events } = spec
         .given(...eventsToPlanning())
-        .when((wf) => wf.recordPlanApproval())
+        .when((wf) => wf.executeRecording('record-plan-approval'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.userApprovedPlan).toBe(true)
       expect(events).toStrictEqual(
@@ -166,7 +166,7 @@ describe('Workflow', () => {
     })
 
     it('fails recordPlanApproval in non-PLANNING states', () => {
-      const { result } = spec.given().when((wf) => wf.recordPlanApproval())
+      const { result } = spec.given().when((wf) => wf.executeRecording('record-plan-approval'))
       expect(result.pass).toBe(false)
     })
 
@@ -224,7 +224,7 @@ describe('Workflow', () => {
     it('pushes new iteration when assignIterationTask succeeds', () => {
       const { result, state } = spec
         .given(...eventsToRespawn())
-        .when((wf) => wf.assignIterationTask('build feature'))
+        .when((wf) => wf.executeRecording('assign-iteration-task', 'build feature'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.iterations).toStrictEqual(
         expect.arrayContaining([expect.objectContaining({ task: 'build feature' })])
@@ -232,7 +232,7 @@ describe('Workflow', () => {
     })
 
     it('fails assignIterationTask in non-RESPAWN states', () => {
-      const { result } = spec.given().when((wf) => wf.assignIterationTask('task'))
+      const { result } = spec.given().when((wf) => wf.executeRecording('assign-iteration-task', 'task'))
       expect(result.pass).toBe(false)
     })
   })

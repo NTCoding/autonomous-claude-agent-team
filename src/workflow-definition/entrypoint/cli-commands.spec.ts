@@ -1,5 +1,5 @@
 import { runWorkflow } from './entrypoint.js'
-import { EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
+import { EXIT_ALLOW, EXIT_BLOCK } from '@ntcoding/agentic-workflow-builder/cli'
 import {
   makeDeps,
   makeHookStdin,
@@ -10,10 +10,10 @@ import {
   committingEvents,
   crReviewEvents,
   prCreationEvents,
-} from './autonomous-claude-agent-team-workflow-cli-test-fixtures.js'
+} from './cli-test-fixtures.js'
 
 describe('runWorkflow - routing overview', () => {
-  it('delegates to hook handling when no command is given', () => {
+  it('delegates to platform runner hook handling when no command is given', () => {
     const result = runWorkflow(
       [],
       makeDeps({ readStdin: () => makeHookStdin({ hook_event_name: 'SessionStart' }) }),
@@ -23,6 +23,56 @@ describe('runWorkflow - routing overview', () => {
 
   it('delegates to analytics when command is analyze', () => {
     const result = runWorkflow(['analyze', '--all'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+  })
+
+  it('delegates SubagentStart to platform runner', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({
+          hook_event_name: 'SubagentStart',
+          agent_id: 'agt-1',
+          agent_type: 'developer-1',
+        }),
+        engineDeps: { store: { sessionExists: () => true, readEvents: () => [] } },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    const parsed = JSON.parse(result.output)
+    expect(parsed).toHaveProperty('additionalContext')
+  })
+
+  it('delegates TeammateIdle to platform runner', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({
+          hook_event_name: 'TeammateIdle',
+          teammate_name: 'lead-1',
+        }),
+        engineDeps: {
+          store: { sessionExists: () => true, readEvents: () => developingEvents() },
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
+
+  it('delegates PreToolUse to platform runner via preToolUseHandler', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({
+          hook_event_name: 'PreToolUse',
+          tool_name: 'Bash',
+          tool_input: { command: 'ls' },
+        }),
+        engineDeps: {
+          store: { sessionExists: () => true, readEvents: () => planningEvents() },
+        },
+      }),
+    )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
 })

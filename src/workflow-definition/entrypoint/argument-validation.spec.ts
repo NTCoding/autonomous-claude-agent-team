@@ -1,7 +1,7 @@
 import { runWorkflow } from './entrypoint.js'
-import { EXIT_ERROR, EXIT_ALLOW } from './infra/hook-io.js'
-import type { WorkflowEvent } from './workflow-definition/index.js'
-import { makeDeps } from './autonomous-claude-agent-team-workflow-cli-test-fixtures.js'
+import { EXIT_ERROR, EXIT_ALLOW } from '@ntcoding/agentic-workflow-builder/cli'
+import type { WorkflowEvent } from '../index.js'
+import { makeDeps } from './cli-test-fixtures.js'
 
 const AT = '2026-01-01T00:00:00Z'
 

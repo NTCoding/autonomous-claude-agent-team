@@ -1,7 +1,7 @@
 import { runWorkflow } from './entrypoint.js'
-import { EXIT_ERROR, EXIT_ALLOW } from './infra/hook-io.js'
-import { WorkflowError } from './infra/workflow-error.js'
-import { makeDeps } from './autonomous-claude-agent-team-workflow-cli-test-fixtures.js'
+import { EXIT_ERROR, EXIT_ALLOW } from '@ntcoding/agentic-workflow-builder/cli'
+import { WorkflowError } from '../../infra/workflow-error.js'
+import { makeDeps } from './cli-test-fixtures.js'
 
 describe('runWorkflow - view-report command', () => {
   it('returns EXIT_ERROR when no sessionId is given', () => {

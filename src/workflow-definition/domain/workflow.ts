@@ -1,9 +1,10 @@
 import type { PreconditionResult, GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
-import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
+import { pass, fail, defineRecordingOps } from '@ntcoding/agentic-workflow-builder/dsl'
 import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
 import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
-import type { WorkflowState, StateName } from './workflow-types.js'
+import type { WorkflowState, StateName, WorkflowOperation } from './workflow-types.js'
 import { getStateDefinition } from './registry.js'
+import { WORKFLOW_REGISTRY } from './registry.js'
 import { WorkflowStateSchema } from './workflow-types.js'
 import type { WorkflowEvent } from './workflow-events.js'
 import { WorkflowEventSchema } from './workflow-events.js'
@@ -16,6 +17,14 @@ import {
   checkDeveloperIdle,
   checkOperationGate,
 } from './workflow-predicates.js'
+
+const RECORDING_OPS = defineRecordingOps<StateName, WorkflowState, WorkflowOperation>(WORKFLOW_REGISTRY, {
+  'record-issue':          { event: 'issue-recorded',         payload: (n: number) => ({ issueNumber: n }) },
+  'record-branch':         { event: 'branch-recorded',        payload: (b: string) => ({ branch: b }) },
+  'record-plan-approval':  { event: 'plan-approval-recorded', payload: () => ({}) },
+  'assign-iteration-task': { event: 'iteration-task-assigned', payload: (t: string) => ({ task: t }) },
+  'record-pr':             { event: 'pr-recorded',            payload: (n: number) => ({ prNumber: n }) },
+})
 
 export type WorkflowDeps = {
   readonly getGitInfo: () => GitInfo
@@ -78,31 +87,11 @@ export class Workflow {
     this.append({ type: 'session-started', at: this.deps.now(), ...(transcriptPath === undefined ? {} : { transcriptPath }), ...(repository === undefined ? {} : { repository }) })
   }
 
-  recordIssue(issueNumber: number): PreconditionResult {
-    const gate = checkOperationGate('record-issue', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'issue-recorded', at: this.deps.now(), issueNumber })
-    return pass()
-  }
-
-  recordBranch(branch: string): PreconditionResult {
-    const gate = checkOperationGate('record-branch', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'branch-recorded', at: this.deps.now(), branch })
-    return pass()
-  }
-
-  recordPlanApproval(): PreconditionResult {
-    const gate = checkOperationGate('record-plan-approval', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'plan-approval-recorded', at: this.deps.now() })
-    return pass()
-  }
-
-  assignIterationTask(task: string): PreconditionResult {
-    const gate = checkOperationGate('assign-iteration-task', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'iteration-task-assigned', at: this.deps.now(), task })
+  executeRecording(op: WorkflowOperation, ...args: readonly unknown[]): PreconditionResult {
+    const result = RECORDING_OPS.executeOp(op, this.state, this.deps.now(), args)
+    if (!result.pass) return fail(result.reason)
+    const parsed = WorkflowEventSchema.parse(result.event)
+    this.append(parsed)
     return pass()
   }
 
@@ -116,13 +105,6 @@ export class Workflow {
     }
 
     this.append({ type: 'developer-done-signaled', at: this.deps.now() })
-    return pass()
-  }
-
-  recordPr(prNumber: number): PreconditionResult {
-    const gate = checkOperationGate('record-pr', this.state)
-    if (!gate.pass) return gate
-    this.append({ type: 'pr-recorded', at: this.deps.now(), prNumber })
     return pass()
   }
 

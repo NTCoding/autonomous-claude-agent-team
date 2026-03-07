@@ -167,6 +167,56 @@ describe('createWorkflowRunner', () => {
       const result = runner(['no-extra-args', 'session-1'], deps, {})
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
+
+    it('uses getSessionId from options instead of parsing session-id arg', () => {
+      const config: WorkflowRunnerConfig<TestWorkflow, TestState, TestDeps> = {
+        workflowDefinition: createMockFactory(),
+        routes: {
+          'do-something': {
+            type: 'transaction',
+            args: [],
+            handler: (w: TestWorkflow) => w.doSomething(),
+          },
+        },
+      }
+      const runner = createWorkflowRunner(config)
+      const deps = createMockEngineDeps(true)
+      const result = runner(['do-something'], deps, {}, { getSessionId: () => 'injected-session' })
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
+
+    it('uses getSessionId for transition commands without session-id arg', () => {
+      const config: WorkflowRunnerConfig<TestWorkflow, TestState, TestDeps> = {
+        workflowDefinition: createMockFactory(),
+        routes: {
+          transition: {
+            type: 'transition',
+            args: [arg.string('target')],
+          },
+        },
+      }
+      const runner = createWorkflowRunner(config)
+      const deps = createMockEngineDeps(true)
+      const result = runner(['transition', 'coding'], deps, {}, { getSessionId: () => 'injected-session' })
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+      expect(result.output).toContain('Transitioned to coding')
+    })
+
+    it('uses getSessionId for session-start commands without session-id arg', () => {
+      const config: WorkflowRunnerConfig<TestWorkflow, TestState, TestDeps> = {
+        workflowDefinition: createMockFactory(),
+        routes: {
+          init: {
+            type: 'session-start',
+            args: [],
+          },
+        },
+      }
+      const runner = createWorkflowRunner(config)
+      const deps = createMockEngineDeps()
+      const result = runner(['init'], deps, {}, { getSessionId: () => 'injected-session' })
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
   })
 
   describe('engine result mapping', () => {
@@ -215,7 +265,7 @@ describe('createWorkflowRunner', () => {
         ...createMockEngineDeps(),
         appendToFile: (path: string) => { appendedFiles.push(path) },
       }
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
       expect(appendedFiles).toContain('/tmp/.env')
     })
@@ -245,7 +295,7 @@ describe('createWorkflowRunner', () => {
         tool_use_id: 'tool-1',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
@@ -262,7 +312,7 @@ describe('createWorkflowRunner', () => {
         tool_use_id: 'tool-1',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
@@ -288,7 +338,7 @@ describe('createWorkflowRunner', () => {
         tool_use_id: 'tool-1',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
@@ -314,7 +364,7 @@ describe('createWorkflowRunner', () => {
         tool_use_id: 'tool-1',
       })
       const deps = createMockEngineDeps(false)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
@@ -327,7 +377,7 @@ describe('createWorkflowRunner', () => {
         cwd: '/home/user',
         hook_event_name: 'UnknownEvent',
       })
-      const result = runner([], createMockEngineDeps(), {}, () => hookInput)
+      const result = runner([], createMockEngineDeps(), {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
       expect(result.output).toBe('')
     })
@@ -335,7 +385,7 @@ describe('createWorkflowRunner', () => {
     it('returns error for invalid hook input JSON', () => {
       const config = createTestConfig()
       const runner = createWorkflowRunner(config)
-      const result = runner([], createMockEngineDeps(), {}, () => '{}')
+      const result = runner([], createMockEngineDeps(), {}, { readStdin: () => '{}' })
       expect(result.exitCode).toBe(EXIT_ERROR)
       expect(result.output).toContain('Invalid hook input')
     })
@@ -350,7 +400,7 @@ describe('createWorkflowRunner', () => {
         hook_event_name: 'PreToolUse',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ERROR)
       expect(result.output).toContain('Invalid pre-tool-use input')
     })
@@ -377,8 +427,83 @@ describe('createWorkflowRunner', () => {
         tool_use_id: 'tool-1',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_BLOCK)
+    })
+
+    it('dispatches to preToolUseHandler when configured', () => {
+      const config = createTestConfig({
+        preToolUseHandler: (_engine, _sessionId, toolName, toolInput) => {
+          if (toolName === 'Bash' && toolInput['command'] === 'ls') {
+            return { type: 'success', output: '' }
+          }
+          return { type: 'blocked', output: 'Denied by handler' }
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'ls' },
+        tool_use_id: 'tool-1',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
+
+    it('wraps preToolUseHandler blocked result with formatDenyDecision', () => {
+      const config = createTestConfig({
+        preToolUseHandler: () => ({ type: 'blocked', output: 'Not permitted' }),
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Write',
+        tool_input: { file_path: '/some/file.ts' },
+        tool_use_id: 'tool-2',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
+      expect(result.exitCode).toBe(EXIT_BLOCK)
+      const parsed = JSON.parse(result.output)
+      expect(parsed).toStrictEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: 'Not permitted',
+        },
+      })
+    })
+
+    it('skips preToolUseHandler when session does not exist', () => {
+      let handlerCalled = false
+      const config = createTestConfig({
+        preToolUseHandler: () => {
+          handlerCalled = true
+          return { type: 'success', output: '' }
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'no-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'ls' },
+        tool_use_id: 'tool-1',
+      })
+      const deps = createMockEngineDeps(false)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+      expect(handlerCalled).toBe(false)
     })
 
     it('returns allow for SubagentStart when no handler configured', () => {
@@ -393,11 +518,11 @@ describe('createWorkflowRunner', () => {
         agent_type: 'developer-1',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
-    it('handles SubagentStart hook with registered handler', () => {
+    it('handles SubagentStart hook with registered handler and wraps output with formatContextInjection', () => {
       const registered: Array<{ agentType: string; agentId: string }> = []
       const config = createTestConfig({
         hooks: {
@@ -419,9 +544,11 @@ describe('createWorkflowRunner', () => {
         agent_type: 'developer-1',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
       expect(registered[0]).toEqual({ agentType: 'developer-1', agentId: 'agt-1' })
+      const parsed = JSON.parse(result.output)
+      expect(parsed).toHaveProperty('additionalContext')
     })
 
     it('returns allow for SubagentStart when session does not exist', () => {
@@ -442,7 +569,7 @@ describe('createWorkflowRunner', () => {
         agent_type: 'developer-1',
       })
       const deps = createMockEngineDeps(false)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
@@ -457,7 +584,7 @@ describe('createWorkflowRunner', () => {
         teammate_name: 'developer-1',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
@@ -481,7 +608,7 @@ describe('createWorkflowRunner', () => {
         teammate_name: 'developer-1',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
@@ -505,7 +632,7 @@ describe('createWorkflowRunner', () => {
         teammate_name: 'lead-1',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_BLOCK)
     })
 
@@ -525,7 +652,7 @@ describe('createWorkflowRunner', () => {
         hook_event_name: 'TeammateIdle',
       })
       const deps = createMockEngineDeps(false)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
@@ -549,7 +676,7 @@ describe('createWorkflowRunner', () => {
         hook_event_name: 'TeammateIdle',
       })
       const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, () => hookInput)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
       expect(receivedNames[0]).toBe('')
     })

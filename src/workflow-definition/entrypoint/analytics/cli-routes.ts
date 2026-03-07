@@ -1,7 +1,7 @@
 import type { RunnerResult } from '@ntcoding/agentic-workflow-builder/cli'
 import { EXIT_ALLOW, EXIT_ERROR } from '@ntcoding/agentic-workflow-builder/cli'
-import type { AnalyticsDeps, ReportDeps } from '../infra/composition-root.js'
-import { WorkflowError } from '../infra/workflow-error.js'
+import type { AnalyticsDeps, ReportDeps } from '../entrypoint.js'
+import { WorkflowError } from '../../../infra/workflow-error.js'
 
 const ANALYTICS_COMMANDS: ReadonlySet<string> = new Set(['analyze', 'view-report'])
 

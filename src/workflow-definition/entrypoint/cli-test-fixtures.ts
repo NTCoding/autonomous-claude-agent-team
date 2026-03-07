@@ -1,7 +1,7 @@
 import type { AdapterDeps, AnalyticsDeps, ReportDeps } from './entrypoint.js'
 import type { WorkflowEngineDeps, WorkflowEventStore } from '@ntcoding/agentic-workflow-builder/engine'
-import type { WorkflowDeps } from './workflow-definition/index.js'
-import type { WorkflowEvent } from './workflow-definition/index.js'
+import type { WorkflowDeps } from '../index.js'
+import type { WorkflowEvent } from '../index.js'
 
 const AT = '2026-01-01T00:00:00Z'
 
