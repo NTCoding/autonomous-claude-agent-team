@@ -1,33 +1,33 @@
 import type { PreconditionResult } from '../../dsl/index.js'
 import type { ArgParser } from './arg-helpers.js'
 
-type CommandHandler<TWorkflow> = (workflow: TWorkflow, ...parsedArgs: readonly unknown[]) => PreconditionResult
+type RouteHandler<TWorkflow> = (workflow: TWorkflow, ...parsedArgs: readonly unknown[]) => PreconditionResult
 
-type TransactionCommand<TWorkflow> = {
+type TransactionRoute<TWorkflow> = {
   readonly type: 'transaction'
   readonly args?: readonly ArgParser<unknown>[]
-  readonly handler: CommandHandler<TWorkflow>
+  readonly handler: RouteHandler<TWorkflow>
 }
 
-type TransitionCommand = {
+type TransitionRoute = {
   readonly type: 'transition'
   readonly args?: readonly ArgParser<unknown>[]
 }
 
-type SessionStartCommand = {
+type SessionStartRoute = {
   readonly type: 'session-start'
   readonly args?: readonly ArgParser<unknown>[]
 }
 
-export type CommandDefinition<TWorkflow, TState> =
-  | TransactionCommand<TWorkflow>
-  | TransitionCommand
-  | SessionStartCommand
+export type RouteDefinition<TWorkflow, TState> =
+  | TransactionRoute<TWorkflow>
+  | TransitionRoute
+  | SessionStartRoute
 
-export type CommandMap<TWorkflow, TState> = Record<string, CommandDefinition<TWorkflow, TState>>
+export type RouteMap<TWorkflow, TState> = Record<string, RouteDefinition<TWorkflow, TState>>
 
-export function defineCommands<TWorkflow, TState>(
-  commands: CommandMap<TWorkflow, TState>,
-): CommandMap<TWorkflow, TState> {
-  return commands
+export function defineRoutes<TWorkflow, TState>(
+  routes: RouteMap<TWorkflow, TState>,
+): RouteMap<TWorkflow, TState> {
+  return routes
 }

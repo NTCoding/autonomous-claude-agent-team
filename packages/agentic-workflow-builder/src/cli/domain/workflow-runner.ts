@@ -2,28 +2,28 @@ import type { BaseWorkflowState } from '../../engine/index.js'
 import { WorkflowEngine } from '../../engine/index.js'
 import type {
   RehydratableWorkflow,
-  WorkflowFactory,
+  WorkflowDefinition,
   WorkflowEngineDeps,
   EngineResult,
 } from '../../engine/index.js'
 import type { ArgParser } from './arg-helpers.js'
-import type { CommandMap } from './command-definition.js'
+import type { RouteMap } from './command-definition.js'
 import type { HookDefinition } from './hook-definition.js'
-import type { PreToolUseInput } from './hook-schemas.js'
+import type { PreToolUseInput, SubagentStartInput, TeammateIdleInput } from './hook-schemas.js'
 import { EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from './exit-codes.js'
-import { HookCommonInputSchema, PreToolUseInputSchema } from './hook-schemas.js'
+import { HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema, TeammateIdleInputSchema } from './hook-schemas.js'
 
 export type RunnerResult = { readonly output: string; readonly exitCode: number }
 
-export type WorkflowCliConfig<
+export type WorkflowRunnerConfig<
   TWorkflow extends RehydratableWorkflow<TState>,
   TState extends BaseWorkflowState<TStateName>,
   TDeps,
   TStateName extends string = string,
   TOperation extends string = string,
 > = {
-  readonly factory: WorkflowFactory<TWorkflow, TState, TDeps, TStateName, TOperation>
-  readonly commands: CommandMap<TWorkflow, TState>
+  readonly workflowDefinition: WorkflowDefinition<TWorkflow, TState, TDeps, TStateName, TOperation>
+  readonly routes: RouteMap<TWorkflow, TState>
   readonly hooks?: HookDefinition<TWorkflow>
 }
 
@@ -42,12 +42,12 @@ function engineResultToRunnerResult(result: EngineResult): RunnerResult {
 function parseArgs(
   argParsers: readonly ArgParser<unknown>[] | undefined,
   args: readonly string[],
-  commandName: string,
+  routeName: string,
 ): { readonly ok: true; readonly values: readonly unknown[] } | { readonly ok: false; readonly message: string } {
   const values: unknown[] = []
   /* v8 ignore next */
   for (const [i, parser] of (argParsers ?? []).entries()) {
-    const result = parser.parse(args, i + 1, commandName)
+    const result = parser.parse(args, i + 1, routeName)
     if (!result.ok) {
       return { ok: false, message: result.message }
     }
@@ -77,14 +77,14 @@ export function createWorkflowRunner<
   TStateName extends string = string,
   TOperation extends string = string,
 >(
-  config: WorkflowCliConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
 ): (args: readonly string[], engineDeps: WorkflowEngineDeps, workflowDeps: TDeps, readStdin?: () => string) => RunnerResult {
   return (args, engineDeps, workflowDeps, readStdin) => {
-    const engine = new WorkflowEngine(config.factory, engineDeps, workflowDeps)
-    const commandName = args[0]
+    const engine = new WorkflowEngine(config.workflowDefinition, engineDeps, workflowDeps)
+    const routeName = args[0]
 
-    if (commandName !== undefined) {
-      return handleCommand(engine, config, args, commandName)
+    if (routeName !== undefined) {
+      return handleRoute(engine, config, args, routeName)
     }
 
     if (readStdin === undefined) {
@@ -95,7 +95,7 @@ export function createWorkflowRunner<
   }
 }
 
-function handleCommand<
+function handleRoute<
   TWorkflow extends RehydratableWorkflow<TState>,
   TState extends BaseWorkflowState<TStateName>,
   TDeps,
@@ -103,21 +103,21 @@ function handleCommand<
   TOperation extends string,
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
-  config: WorkflowCliConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   args: readonly string[],
-  commandName: string,
+  routeName: string,
 ): RunnerResult {
-  const commandDef = config.commands[commandName]
-  if (commandDef === undefined) {
-    return { output: `Unknown command: ${commandName}`, exitCode: EXIT_ERROR }
+  const routeDef = config.routes[routeName]
+  if (routeDef === undefined) {
+    return { output: `Unknown command: ${routeName}`, exitCode: EXIT_ERROR }
   }
 
-  const parsedArgs = parseArgs(commandDef.args, args, commandName)
+  const parsedArgs = parseArgs(routeDef.args, args, routeName)
   if (!parsedArgs.ok) {
     return { output: parsedArgs.message, exitCode: EXIT_ERROR }
   }
 
-  switch (commandDef.type) {
+  switch (routeDef.type) {
     case 'session-start': {
       const sessionId = assertSessionId(parsedArgs.values)
       const result = engine.startSession(sessionId)
@@ -125,15 +125,15 @@ function handleCommand<
     }
     case 'transition': {
       const sessionId = assertSessionId(parsedArgs.values)
-      const target = config.factory.parseStateName(assertTarget(parsedArgs.values))
+      const target = config.workflowDefinition.parseStateName(assertTarget(parsedArgs.values))
       const result = engine.transition(sessionId, target)
       return engineResultToRunnerResult(result)
     }
     case 'transaction': {
       const sessionId = assertSessionId(parsedArgs.values)
       const restArgs = parsedArgs.values.slice(1)
-      const result = engine.transaction(sessionId, commandName, (w: TWorkflow) =>
-        commandDef.handler(w, ...restArgs),
+      const result = engine.transaction(sessionId, routeName, (w: TWorkflow) =>
+        routeDef.handler(w, ...restArgs),
       )
       return engineResultToRunnerResult(result)
     }
@@ -148,7 +148,7 @@ function handleHook<
   TOperation extends string,
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
-  config: WorkflowCliConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   readStdin: () => string,
 ): RunnerResult {
   const stdin = readStdin()
@@ -158,22 +158,44 @@ function handleHook<
   }
   const common = commonParse.data
 
+  if (common.hook_event_name === 'SessionStart') {
+    const result = engine.startSession(common.session_id, common.transcript_path)
+    engine.persistSessionId(common.session_id)
+    return engineResultToRunnerResult(result)
+  }
+
+  if (!engine.hasSession(common.session_id)) {
+    return { output: '', exitCode: EXIT_ALLOW }
+  }
+
   switch (common.hook_event_name) {
-    case 'SessionStart': {
-      const result = engine.startSession(common.session_id, common.transcript_path)
-      engine.persistSessionId(common.session_id)
-      return engineResultToRunnerResult(result)
-    }
-    case 'PreToolUse': {
-      const toolParse = PreToolUseInputSchema.safeParse(JSON.parse(stdin))
-      if (!toolParse.success) {
-        return { output: `Invalid pre-tool-use input: ${toolParse.error.message}`, exitCode: EXIT_ERROR }
-      }
-      return handlePreToolUse(engine, config, toolParse.data)
-    }
+    case 'PreToolUse':
+      return handlePreToolUseHook(engine, config, stdin)
+    case 'SubagentStart':
+      return handleSubagentStartHook(engine, config, stdin)
+    case 'TeammateIdle':
+      return handleTeammateIdleHook(engine, config, stdin)
     default:
       return { output: '', exitCode: EXIT_ALLOW }
   }
+}
+
+function handlePreToolUseHook<
+  TWorkflow extends RehydratableWorkflow<TState>,
+  TState extends BaseWorkflowState<TStateName>,
+  TDeps,
+  TStateName extends string,
+  TOperation extends string,
+>(
+  engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  stdin: string,
+): RunnerResult {
+  const toolParse = PreToolUseInputSchema.safeParse(JSON.parse(stdin))
+  if (!toolParse.success) {
+    return { output: `Invalid pre-tool-use input: ${toolParse.error.message}`, exitCode: EXIT_ERROR }
+  }
+  return handlePreToolUse(engine, config, toolParse.data)
 }
 
 function handlePreToolUse<
@@ -184,7 +206,7 @@ function handlePreToolUse<
   TOperation extends string,
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
-  config: WorkflowCliConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   input: PreToolUseInput,
 ): RunnerResult {
   if (config.hooks?.preToolUse === undefined) {
@@ -206,6 +228,69 @@ function handlePreToolUse<
     `hook:${input.tool_name}`,
     (w: TWorkflow) => hookCheck.check(w, extracted, input.tool_name),
     input.transcript_path,
+  )
+
+  return engineResultToRunnerResult(result)
+}
+
+function handleSubagentStartHook<
+  TWorkflow extends RehydratableWorkflow<TState>,
+  TState extends BaseWorkflowState<TStateName>,
+  TDeps,
+  TStateName extends string,
+  TOperation extends string,
+>(
+  engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  stdin: string,
+): RunnerResult {
+  const handler = config.hooks?.subagentStart
+  if (handler === undefined) {
+    return { output: '', exitCode: EXIT_ALLOW }
+  }
+
+  const parsed = SubagentStartInputSchema.safeParse(JSON.parse(stdin))
+  if (!parsed.success) {
+    return { output: `Invalid subagent-start input: ${parsed.error.message}`, exitCode: EXIT_ERROR }
+  }
+  const input = parsed.data
+
+  const result = engine.transaction(
+    input.session_id,
+    'register-agent',
+    (w: TWorkflow) => handler.register(w, input.agent_type, input.agent_id),
+  )
+
+  return engineResultToRunnerResult(result)
+}
+
+function handleTeammateIdleHook<
+  TWorkflow extends RehydratableWorkflow<TState>,
+  TState extends BaseWorkflowState<TStateName>,
+  TDeps,
+  TStateName extends string,
+  TOperation extends string,
+>(
+  engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  stdin: string,
+): RunnerResult {
+  const handler = config.hooks?.teammateIdle
+  if (handler === undefined) {
+    return { output: '', exitCode: EXIT_ALLOW }
+  }
+
+  const parsed = TeammateIdleInputSchema.safeParse(JSON.parse(stdin))
+  if (!parsed.success) {
+    return { output: `Invalid teammate-idle input: ${parsed.error.message}`, exitCode: EXIT_ERROR }
+  }
+  const input = parsed.data
+  const agentName = input.teammate_name ?? ''
+
+  const result = engine.transaction(
+    input.session_id,
+    'check-idle',
+    (w: TWorkflow) => handler.check(w, agentName),
   )
 
   return engineResultToRunnerResult(result)

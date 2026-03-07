@@ -78,6 +78,7 @@ export type WorkflowOperation =
   | 'review-rejected'
   | 'coderabbit-feedback-addressed'
   | 'coderabbit-feedback-ignored'
+  | 'get-session-summary'
 
 export type ConcreteStateDefinition = WorkflowStateDefinition<WorkflowState, StateName, WorkflowOperation>
 

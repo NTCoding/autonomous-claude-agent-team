@@ -288,5 +288,10 @@ export class Workflow {
     return pass()
   }
 
+  getSessionSummary(agentName: string): PreconditionResult {
+    this.append({ type: 'context-requested', at: this.deps.now(), agentName })
+    return pass()
+  }
+
 }
 

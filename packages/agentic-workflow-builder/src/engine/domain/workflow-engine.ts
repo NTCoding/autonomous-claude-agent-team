@@ -29,7 +29,7 @@ export interface RehydratableWorkflow<TState extends BaseWorkflowState> {
   startSession(transcriptPath: string | undefined, repository: string | undefined): void
 }
 
-export interface WorkflowFactory<
+export interface WorkflowDefinition<
   TWorkflow extends RehydratableWorkflow<TState>,
   TState extends BaseWorkflowState<TStateName>,
   TDeps,
@@ -72,12 +72,12 @@ export class WorkflowEngine<
   TStateName extends string = string,
   TOperation extends string = string,
 > {
-  private readonly factory: WorkflowFactory<TWorkflow, TState, TDeps, TStateName, TOperation>
+  private readonly factory: WorkflowDefinition<TWorkflow, TState, TDeps, TStateName, TOperation>
   private readonly engineDeps: WorkflowEngineDeps
   private readonly workflowDeps: TDeps
 
   constructor(
-    factory: WorkflowFactory<TWorkflow, TState, TDeps, TStateName, TOperation>,
+    factory: WorkflowDefinition<TWorkflow, TState, TDeps, TStateName, TOperation>,
     engineDeps: WorkflowEngineDeps,
     workflowDeps: TDeps,
   ) {

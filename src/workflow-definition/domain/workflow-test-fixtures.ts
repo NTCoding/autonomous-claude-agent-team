@@ -8,7 +8,7 @@ import type { WorkflowDeps } from './workflow.js'
 import { Workflow } from './workflow.js'
 import { applyEvents } from './fold.js'
 import { WORKFLOW_REGISTRY } from './registry.js'
-import { WorkflowAdapter } from './workflow-adapter.js'
+import { FeatureTeamWorkflowDefinition } from './workflow-adapter.js'
 import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 const AT = '2026-01-01T00:00:00Z'
@@ -238,20 +238,20 @@ export function transitionTo(wf: Workflow, target: StateName, depsOverride?: Wor
   }
 
   if (target !== 'BLOCKED' && currentDef.transitionGuard) {
-    const ctx = WorkflowAdapter.buildTransitionContext(state, from, target, deps)
+    const ctx = FeatureTeamWorkflowDefinition.buildTransitionContext(state, from, target, deps)
     const guardResult = currentDef.transitionGuard(ctx)
     if (!guardResult.pass) return guardResult
   }
 
   const targetDef = WORKFLOW_REGISTRY[target]
   const stateBefore = wf.getState()
-  const ctx = WorkflowAdapter.buildTransitionContext(stateBefore, from, target, deps)
+  const ctx = FeatureTeamWorkflowDefinition.buildTransitionContext(stateBefore, from, target, deps)
   const stateAfter = targetDef.onEntry
     ? targetDef.onEntry(stateBefore, ctx)
     : stateBefore
 
-  const event = WorkflowAdapter.buildTransitionEvent
-    ? WorkflowAdapter.buildTransitionEvent(from, target, stateBefore, stateAfter, AT)
+  const event = FeatureTeamWorkflowDefinition.buildTransitionEvent
+    ? FeatureTeamWorkflowDefinition.buildTransitionEvent(from, target, stateBefore, stateAfter, AT)
     : { type: 'transitioned', at: AT }
   wf.appendEvent(event)
   targetDef.afterEntry?.()

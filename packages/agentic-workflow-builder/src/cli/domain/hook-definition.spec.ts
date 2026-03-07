@@ -15,4 +15,17 @@ describe('defineHooks', () => {
     const result = defineHooks(hooks)
     expect(result).toBe(hooks)
   })
+
+  it('returns hooks with subagentStart and teammateIdle unchanged', () => {
+    const hooks = {
+      subagentStart: {
+        register: () => pass(),
+      },
+      teammateIdle: {
+        check: () => pass(),
+      },
+    }
+    const result = defineHooks(hooks)
+    expect(result).toBe(hooks)
+  })
 })

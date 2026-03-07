@@ -103,6 +103,26 @@ describe('arg.state', () => {
   })
 })
 
+describe('arg.rest', () => {
+  const parser = arg.rest('files')
+
+  it('collects all remaining args from position', () => {
+    const result = parser.parse(['cmd', 'session-1', 'a.ts', 'b.ts'], 2, 'cmd')
+    expect(result).toEqual({ ok: true, value: ['a.ts', 'b.ts'] })
+  })
+
+  it('returns empty array when no remaining args', () => {
+    const result = parser.parse(['cmd', 'session-1'], 2, 'cmd')
+    expect(result).toEqual({ ok: true, value: [] })
+  })
+
+  it('optional rest with no args at position returns undefined', () => {
+    const optional = parser.optional()
+    const result = optional.parse(['cmd'], 1, 'cmd')
+    expect(result).toEqual({ ok: true, value: undefined })
+  })
+})
+
 describe('double optional', () => {
   it('calling optional twice still works', () => {
     const parser = arg.string('name').optional().optional()

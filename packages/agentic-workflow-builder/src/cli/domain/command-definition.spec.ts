@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { defineCommands } from './command-definition.js'
+import { defineRoutes } from './command-definition.js'
 import { pass } from '../../dsl/index.js'
 
-describe('defineCommands', () => {
-  it('returns the commands map unchanged', () => {
-    const commands = {
+describe('defineRoutes', () => {
+  it('returns the routes map unchanged', () => {
+    const routes = {
       init: {
         type: 'session-start' as const,
       },
@@ -13,7 +13,7 @@ describe('defineCommands', () => {
         handler: () => pass(),
       },
     }
-    const result = defineCommands(commands)
-    expect(result).toBe(commands)
+    const result = defineRoutes(routes)
+    expect(result).toBe(routes)
   })
 })

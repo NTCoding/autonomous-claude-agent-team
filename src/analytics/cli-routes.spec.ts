@@ -1,18 +1,94 @@
-import { runWorkflow } from './entrypoint.js'
-import { EXIT_ERROR, EXIT_ALLOW } from './infra/hook-io.js'
-import { WorkflowError } from './infra/workflow-error.js'
-import { makeDeps } from './autonomous-claude-agent-team-workflow-cli-test-fixtures.js'
+import { isAnalyticsCommand, routeAnalytics } from './cli-routes.js'
+import { EXIT_ERROR, EXIT_ALLOW } from '@ntcoding/agentic-workflow-builder/cli'
+import { WorkflowError } from '../infra/workflow-error.js'
+import type { AnalyticsDeps, ReportDeps } from '../infra/composition-root.js'
 
-describe('runWorkflow - view-report command', () => {
+function makeAnalyticsDeps(overrides?: Partial<AnalyticsDeps>): AnalyticsDeps {
+  return {
+    computeSession: (_sessionId: string) => 'Session: test-session\n===',
+    computeAll: () => 'Total Sessions: 0',
+    computeEventContext: (_sessionId: string) => 'Session: test-session\nState: SPAWN (iteration: 0)',
+    ...overrides,
+  }
+}
+
+function makeReportDeps(overrides?: Partial<ReportDeps>): ReportDeps {
+  return {
+    getAnalysisContext: () => '# Session Analysis Context\ntest data',
+    generateReport: () => ({ path: '/tmp/session-report-test.html' }),
+    readAnalysisFile: () => '# Analysis\ntest',
+    ...overrides,
+  }
+}
+
+function makeDeps(overrides?: { analyticsDeps?: Partial<AnalyticsDeps>; reportDeps?: Partial<ReportDeps> }) {
+  return {
+    analyticsDeps: makeAnalyticsDeps(overrides?.analyticsDeps),
+    reportDeps: makeReportDeps(overrides?.reportDeps),
+  }
+}
+
+describe('isAnalyticsCommand', () => {
+  it('returns true for analyze', () => {
+    expect(isAnalyticsCommand('analyze')).toStrictEqual(true)
+  })
+
+  it('returns true for view-report', () => {
+    expect(isAnalyticsCommand('view-report')).toStrictEqual(true)
+  })
+
+  it('returns false for non-analytics commands', () => {
+    expect(isAnalyticsCommand('init')).toStrictEqual(false)
+    expect(isAnalyticsCommand('transition')).toStrictEqual(false)
+  })
+})
+
+describe('routeAnalytics - analyze command', () => {
+  it('returns EXIT_ERROR when no sessionId or --all is given', () => {
+    const result = routeAnalytics('analyze', ['analyze'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
+    expect(result.output).toContain('missing required argument')
+  })
+
+  it('returns EXIT_ALLOW and calls computeSession with the given sessionId', () => {
+    const calledWith: string[] = []
+    const result = routeAnalytics('analyze', ['analyze', 'my-session'], makeDeps({
+      analyticsDeps: {
+        computeSession: (sessionId) => {
+          calledWith.push(sessionId)
+          return 'Session: my-session\n==='
+        },
+      },
+    }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(calledWith[0]).toStrictEqual('my-session')
+  })
+
+  it('returns EXIT_ALLOW and calls computeAll when --all is given', () => {
+    const computeAllCalls: string[] = []
+    const result = routeAnalytics('analyze', ['analyze', '--all'], makeDeps({
+      analyticsDeps: {
+        computeAll: () => {
+          computeAllCalls.push('called')
+          return 'Total Sessions: 5'
+        },
+      },
+    }))
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+    expect(computeAllCalls).toHaveLength(1)
+  })
+})
+
+describe('routeAnalytics - view-report command', () => {
   it('returns EXIT_ERROR when no sessionId is given', () => {
-    const result = runWorkflow(['view-report'], makeDeps())
+    const result = routeAnalytics('view-report', ['view-report'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_ERROR)
     expect(result.output).toContain('missing required argument')
   })
 
   describe('phase 1 — analysis context output', () => {
     it('outputs analysisContext from getAnalysisContext when no flags are given', () => {
-      const result = runWorkflow(['view-report', 'my-session'], makeDeps({
+      const result = routeAnalytics('view-report', ['view-report', 'my-session'], makeDeps({
         reportDeps: {
           getAnalysisContext: (sessionId) => `# Context for ${sessionId}`,
         },
@@ -23,7 +99,7 @@ describe('runWorkflow - view-report command', () => {
 
     it('does not call generateReport in phase 1', () => {
       const calls: string[] = []
-      runWorkflow(['view-report', 'abc'], makeDeps({
+      routeAnalytics('view-report', ['view-report', 'abc'], makeDeps({
         reportDeps: {
           getAnalysisContext: () => 'context',
           generateReport: () => { calls.push('called'); return { path: '/tmp/report.html' } },
@@ -36,7 +112,7 @@ describe('runWorkflow - view-report command', () => {
   describe('phase 2 — render with analysis file', () => {
     it('reads analysis file and passes content to generateReport', () => {
       const capturedAnalysis: Array<string | undefined> = []
-      const result = runWorkflow(['view-report', 'abc-123', '--render', '/tmp/analysis.md'], makeDeps({
+      const result = routeAnalytics('view-report', ['view-report', 'abc-123', '--render', '/tmp/analysis.md'], makeDeps({
         reportDeps: {
           readAnalysisFile: (path) => `analysis from ${path}`,
           generateReport: (_id, options) => {
@@ -52,7 +128,7 @@ describe('runWorkflow - view-report command', () => {
 
     it('handles --render before sessionId in args', () => {
       const calledWith: string[] = []
-      const result = runWorkflow(['view-report', '--render', '/tmp/a.md', 'abc-123'], makeDeps({
+      const result = routeAnalytics('view-report', ['view-report', '--render', '/tmp/a.md', 'abc-123'], makeDeps({
         reportDeps: {
           readAnalysisFile: () => 'content',
           generateReport: (sessionId) => {
@@ -69,7 +145,7 @@ describe('runWorkflow - view-report command', () => {
   describe('simple mode — no analysis', () => {
     it('generates report without analysis and outputs only link', () => {
       const capturedOptions: Array<{ analysis?: string } | undefined> = []
-      const result = runWorkflow(['view-report', 'abc-123', '--simple'], makeDeps({
+      const result = routeAnalytics('view-report', ['view-report', 'abc-123', '--simple'], makeDeps({
         reportDeps: {
           generateReport: (_id, options) => {
             capturedOptions.push(options)
@@ -84,7 +160,7 @@ describe('runWorkflow - view-report command', () => {
 
     it('handles --simple before sessionId in args', () => {
       const calledWith: string[] = []
-      const result = runWorkflow(['view-report', '--simple', 'abc-123'], makeDeps({
+      const result = routeAnalytics('view-report', ['view-report', '--simple', 'abc-123'], makeDeps({
         reportDeps: {
           generateReport: (sessionId) => {
             calledWith.push(sessionId)
@@ -99,7 +175,7 @@ describe('runWorkflow - view-report command', () => {
 
   describe('error handling', () => {
     it('returns EXIT_ERROR with message when getAnalysisContext throws WorkflowError', () => {
-      const result = runWorkflow(['view-report', 'bad-id'], makeDeps({
+      const result = routeAnalytics('view-report', ['view-report', 'bad-id'], makeDeps({
         reportDeps: {
           getAnalysisContext: () => { throw new WorkflowError('No events found for session "bad-id"') },
         },
@@ -109,7 +185,7 @@ describe('runWorkflow - view-report command', () => {
     })
 
     it('returns EXIT_ERROR with message when generateReport throws WorkflowError', () => {
-      const result = runWorkflow(['view-report', 'bad-id', '--simple'], makeDeps({
+      const result = routeAnalytics('view-report', ['view-report', 'bad-id', '--simple'], makeDeps({
         reportDeps: {
           generateReport: () => { throw new WorkflowError('No events found for session "bad-id"') },
         },
@@ -119,7 +195,7 @@ describe('runWorkflow - view-report command', () => {
     })
 
     it('returns EXIT_ERROR with message when readAnalysisFile throws WorkflowError', () => {
-      const result = runWorkflow(['view-report', 'abc', '--render', '/tmp/missing.md'], makeDeps({
+      const result = routeAnalytics('view-report', ['view-report', 'abc', '--render', '/tmp/missing.md'], makeDeps({
         reportDeps: {
           readAnalysisFile: () => { throw new WorkflowError('File not found') },
         },
@@ -129,7 +205,7 @@ describe('runWorkflow - view-report command', () => {
     })
 
     it('re-throws non-WorkflowError exceptions', () => {
-      expect(() => runWorkflow(['view-report', 'bad-id'], makeDeps({
+      expect(() => routeAnalytics('view-report', ['view-report', 'bad-id'], makeDeps({
         reportDeps: {
           getAnalysisContext: () => { throw new TypeError('unexpected') },
         },

@@ -1,6 +1,6 @@
 export { Workflow } from './domain/workflow.js'
 export type { WorkflowDeps } from './domain/workflow.js'
-export { WorkflowAdapter } from './domain/workflow-adapter.js'
+export { FeatureTeamWorkflowDefinition } from './domain/workflow-adapter.js'
 
 export {
   StateNameSchema,

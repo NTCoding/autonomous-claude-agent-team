@@ -1,4 +1,4 @@
-import type { WorkflowFactory, BaseEvent, PrefixConfig } from '@ntcoding/agentic-workflow-builder/engine'
+import type { WorkflowDefinition, BaseEvent, PrefixConfig } from '@ntcoding/agentic-workflow-builder/engine'
 import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
 import type { TransitionContext } from '@ntcoding/agentic-workflow-builder/dsl'
 import type { WorkflowState, StateName, WorkflowOperation } from './workflow-types.js'
@@ -27,7 +27,7 @@ function buildRecoveryMessage(state: string, emoji: string, _pluginRoot: string)
   )
 }
 
-export const WorkflowAdapter: WorkflowFactory<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation> = {
+export const FeatureTeamWorkflowDefinition: WorkflowDefinition<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation> = {
   createFresh(deps: WorkflowDeps): Workflow {
     return Workflow.createFresh(deps)
   },

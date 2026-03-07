@@ -1,7 +1,8 @@
-import { runWorkflow } from './autonomous-claude-agent-team-workflow.js'
-import { EXIT_ERROR, EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
+import { runWorkflow } from './entrypoint.js'
+import { EXIT_ALLOW, EXIT_BLOCK } from './infra/hook-io.js'
 import {
   makeDeps,
+  makeHookStdin,
   spawnReadyEvents,
   planningEvents,
   developingEvents,
@@ -11,17 +12,31 @@ import {
   prCreationEvents,
 } from './autonomous-claude-agent-team-workflow-cli-test-fixtures.js'
 
+describe('runWorkflow - routing overview', () => {
+  it('delegates to hook handling when no command is given', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({ readStdin: () => makeHookStdin({ hook_event_name: 'SessionStart' }) }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+  })
+
+  it('delegates to analytics when command is analyze', () => {
+    const result = runWorkflow(['analyze', '--all'], makeDeps())
+    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
+  })
+})
+
 describe('runWorkflow - CLI command routing', () => {
   it('dispatches init and returns success', () => {
     const result = runWorkflow(['init'], makeDeps())
     expect(result.exitCode).toStrictEqual(0)
   })
 
-  it('dispatches run-lint with no files and returns success when no session', () => {
-    const result = runWorkflow(['run-lint'], makeDeps({
+  it('throws when run-lint has no session', () => {
+    expect(() => runWorkflow(['run-lint'], makeDeps({
       engineDeps: { store: { sessionExists: () => false } },
-    }))
-    expect(result.exitCode).toStrictEqual(0)
+    }))).toThrow("No session found for 'test-session'. Run init first.")
   })
 
   it('dispatches run-lint with no files and returns success when session exists with iteration', () => {
@@ -146,41 +161,5 @@ describe('runWorkflow - new review and coderabbit commands', () => {
   it('dispatches coderabbit-feedback-ignored and returns gate error for SPAWN state', () => {
     const result = runWorkflow(['coderabbit-feedback-ignored'], makeDeps())
     expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
-  })
-})
-
-describe('runWorkflow - analyze command', () => {
-  it('returns EXIT_ERROR when no sessionId or --all is given', () => {
-    const result = runWorkflow(['analyze'], makeDeps())
-    expect(result.exitCode).toStrictEqual(EXIT_ERROR)
-    expect(result.output).toContain('missing required argument')
-  })
-
-  it('returns EXIT_ALLOW and calls computeSession with the given sessionId', () => {
-    const calledWith: string[] = []
-    const result = runWorkflow(['analyze', 'my-session'], makeDeps({
-      analyticsDeps: {
-        computeSession: (sessionId) => {
-          calledWith.push(sessionId)
-          return 'Session: my-session\n==='
-        },
-      },
-    }))
-    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(calledWith[0]).toStrictEqual('my-session')
-  })
-
-  it('returns EXIT_ALLOW and calls computeAll when --all is given', () => {
-    const computeAllCalls: string[] = []
-    const result = runWorkflow(['analyze', '--all'], makeDeps({
-      analyticsDeps: {
-        computeAll: () => {
-          computeAllCalls.push('called')
-          return 'Total Sessions: 5'
-        },
-      },
-    }))
-    expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(computeAllCalls).toHaveLength(1)
   })
 })

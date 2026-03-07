@@ -53,6 +53,15 @@ export const arg = {
     },
   }),
 
+  rest: (_name: string): ArgParser<readonly string[]> => ({
+    parse: (args, position) => {
+      return { ok: true, value: args.slice(position) }
+    },
+    optional: function () {
+      return makeOptional(this)
+    },
+  }),
+
   state: <T extends string>(name: string, schema: ZodType<T>): ArgParser<T> => ({
     parse: (args, position, commandName) => {
       const raw = args[position]

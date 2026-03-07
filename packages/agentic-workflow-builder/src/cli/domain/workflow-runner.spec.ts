@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { createWorkflowRunner } from './workflow-runner.js'
-import type { WorkflowCliConfig } from './workflow-runner.js'
+import type { WorkflowRunnerConfig } from './workflow-runner.js'
 import { pass, fail } from '../../dsl/index.js'
 import type { PreconditionResult } from '../../dsl/index.js'
 import type {
   RehydratableWorkflow,
-  WorkflowFactory,
+  WorkflowDefinition,
   WorkflowEngineDeps,
   WorkflowEventStore,
 } from '../../engine/index.js'
@@ -58,7 +58,7 @@ function createMockEngineDeps(hasSession = false): WorkflowEngineDeps {
   }
 }
 
-function createMockFactory(): WorkflowFactory<TestWorkflow, TestState, TestDeps> {
+function createMockFactory(): WorkflowDefinition<TestWorkflow, TestState, TestDeps> {
   return {
     rehydrate: (_events: readonly BaseEvent[]) => createMockWorkflow(),
     createFresh: () => createMockWorkflow(),
@@ -91,10 +91,10 @@ function createMockFactory(): WorkflowFactory<TestWorkflow, TestState, TestDeps>
   }
 }
 
-function createTestConfig(overrides?: Partial<WorkflowCliConfig<TestWorkflow, TestState, TestDeps>>): WorkflowCliConfig<TestWorkflow, TestState, TestDeps> {
+function createTestConfig(overrides?: Partial<WorkflowRunnerConfig<TestWorkflow, TestState, TestDeps>>): WorkflowRunnerConfig<TestWorkflow, TestState, TestDeps> {
   return {
-    factory: createMockFactory(),
-    commands: {
+    workflowDefinition: createMockFactory(),
+    routes: {
       init: {
         type: 'session-start',
         args: [arg.string('session-id')],
@@ -176,7 +176,7 @@ describe('createWorkflowRunner', () => {
         ...createMockWorkflow(),
         doSomething: () => fail('not allowed'),
       })
-      const config = createTestConfig({ factory })
+      const config = createTestConfig({ workflowDefinition: factory })
       const runner = createWorkflowRunner(config)
       const deps = createMockEngineDeps(true)
       const result = runner(['do-something', 'session-1'], deps, {})
@@ -349,7 +349,8 @@ describe('createWorkflowRunner', () => {
         cwd: '/home/user',
         hook_event_name: 'PreToolUse',
       })
-      const result = runner([], createMockEngineDeps(), {}, () => hookInput)
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, () => hookInput)
       expect(result.exitCode).toBe(EXIT_ERROR)
       expect(result.output).toContain('Invalid pre-tool-use input')
     })
@@ -378,6 +379,179 @@ describe('createWorkflowRunner', () => {
       const deps = createMockEngineDeps(true)
       const result = runner([], deps, {}, () => hookInput)
       expect(result.exitCode).toBe(EXIT_BLOCK)
+    })
+
+    it('returns allow for SubagentStart when no handler configured', () => {
+      const config = createTestConfig()
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'SubagentStart',
+        agent_id: 'agt-1',
+        agent_type: 'developer-1',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, () => hookInput)
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
+
+    it('handles SubagentStart hook with registered handler', () => {
+      const registered: Array<{ agentType: string; agentId: string }> = []
+      const config = createTestConfig({
+        hooks: {
+          subagentStart: {
+            register: (_w, agentType, agentId) => {
+              registered.push({ agentType, agentId })
+              return pass()
+            },
+          },
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'SubagentStart',
+        agent_id: 'agt-1',
+        agent_type: 'developer-1',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, () => hookInput)
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+      expect(registered[0]).toEqual({ agentType: 'developer-1', agentId: 'agt-1' })
+    })
+
+    it('returns allow for SubagentStart when session does not exist', () => {
+      const config = createTestConfig({
+        hooks: {
+          subagentStart: {
+            register: () => fail('should not reach'),
+          },
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'no-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'SubagentStart',
+        agent_id: 'agt-1',
+        agent_type: 'developer-1',
+      })
+      const deps = createMockEngineDeps(false)
+      const result = runner([], deps, {}, () => hookInput)
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
+
+    it('returns allow for TeammateIdle when no handler configured', () => {
+      const config = createTestConfig()
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'developer-1',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, () => hookInput)
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
+
+    it('handles TeammateIdle hook that allows', () => {
+      const config = createTestConfig({
+        hooks: {
+          teammateIdle: {
+            check: (_w, agentName) => {
+              if (agentName.includes('lead')) return fail('Lead cannot go idle')
+              return pass()
+            },
+          },
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'developer-1',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, () => hookInput)
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
+
+    it('handles TeammateIdle hook that blocks', () => {
+      const config = createTestConfig({
+        hooks: {
+          teammateIdle: {
+            check: (_w, agentName) => {
+              if (agentName.includes('lead')) return fail('Lead cannot go idle')
+              return pass()
+            },
+          },
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'lead-1',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, () => hookInput)
+      expect(result.exitCode).toBe(EXIT_BLOCK)
+    })
+
+    it('returns allow for TeammateIdle when session does not exist', () => {
+      const config = createTestConfig({
+        hooks: {
+          teammateIdle: {
+            check: () => fail('should not reach'),
+          },
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'no-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'TeammateIdle',
+      })
+      const deps = createMockEngineDeps(false)
+      const result = runner([], deps, {}, () => hookInput)
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
+
+    it('handles TeammateIdle with missing teammate_name', () => {
+      const receivedNames: string[] = []
+      const config = createTestConfig({
+        hooks: {
+          teammateIdle: {
+            check: (_w, agentName) => {
+              receivedNames.push(agentName)
+              return pass()
+            },
+          },
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'TeammateIdle',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, () => hookInput)
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+      expect(receivedNames[0]).toBe('')
     })
   })
 })

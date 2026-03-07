@@ -1,7 +1,7 @@
 /* v8 ignore start */
 import type { BaseWorkflowState } from '../../engine/index.js'
 import type { RehydratableWorkflow, WorkflowEngineDeps } from '../../engine/index.js'
-import type { WorkflowCliConfig } from './workflow-runner.js'
+import type { WorkflowRunnerConfig } from './workflow-runner.js'
 import { createWorkflowRunner } from './workflow-runner.js'
 
 export function createWorkflowCli<
@@ -9,7 +9,7 @@ export function createWorkflowCli<
   TState extends BaseWorkflowState,
   TDeps,
 >(
-  config: WorkflowCliConfig<TWorkflow, TState, TDeps>,
+  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps>,
   buildDeps: () => { engineDeps: WorkflowEngineDeps; workflowDeps: TDeps; readStdin: () => string },
 ): void {
   const runner = createWorkflowRunner(config)

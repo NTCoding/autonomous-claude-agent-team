@@ -1,4 +1,4 @@
-import type { AdapterDeps, AnalyticsDeps, ReportDeps } from './autonomous-claude-agent-team-workflow.js'
+import type { AdapterDeps, AnalyticsDeps, ReportDeps } from './entrypoint.js'
 import type { WorkflowEngineDeps, WorkflowEventStore } from '@ntcoding/agentic-workflow-builder/engine'
 import type { WorkflowDeps } from './workflow-definition/index.js'
 import type { WorkflowEvent } from './workflow-definition/index.js'

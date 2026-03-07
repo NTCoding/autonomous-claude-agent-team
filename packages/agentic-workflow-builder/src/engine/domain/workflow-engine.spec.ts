@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { WorkflowEngine } from './workflow-engine.js'
 import type {
   RehydratableWorkflow,
-  WorkflowFactory,
+  WorkflowDefinition,
   WorkflowEventStore,
   WorkflowEngineDeps,
 } from './workflow-engine.js'
@@ -108,7 +108,7 @@ const TEST_REGISTRY: WorkflowRegistry<TestState, TestStateName, string> = {
   },
 }
 
-function makeFactory(workflow?: StubWorkflow): WorkflowFactory<StubWorkflow, TestState, TestDeps, TestStateName, string> {
+function makeFactory(workflow?: StubWorkflow): WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> {
   return {
     rehydrate: (_events, _deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
     createFresh: (_deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
@@ -356,7 +356,7 @@ describe('WorkflowEngine.transaction', () => {
 
   it('uses default operation body when getOperationBody is not provided', () => {
     const { getOperationBody: _, ...rest } = makeFactory()
-    const factory: WorkflowFactory<StubWorkflow, TestState, TestDeps, TestStateName, string> = rest
+    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = rest
     const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
     const result = engine.transaction('sess1', 'record-issue', () => pass())
     expect(result.type).toStrictEqual('success')
@@ -392,7 +392,7 @@ describe('WorkflowEngine.transition', () => {
         transitionGuard: () => fail('Guard failed: missing issue'),
       },
     }
-    const factory: WorkflowFactory<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
+    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
       ...makeFactory(),
       getRegistry: () => guardRegistry,
     }
@@ -412,7 +412,7 @@ describe('WorkflowEngine.transition', () => {
         transitionGuard: () => fail('Should not run'),
       },
     }
-    const factory: WorkflowFactory<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
+    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
       ...makeFactory(),
       getRegistry: () => guardRegistry,
     }
@@ -433,7 +433,7 @@ describe('WorkflowEngine.transition', () => {
         },
       },
     }
-    const factory: WorkflowFactory<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
+    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
       ...makeFactory(),
       getRegistry: () => entryRegistry,
     }
@@ -453,7 +453,7 @@ describe('WorkflowEngine.transition', () => {
         afterEntry: () => { afterEntryCalled = true },
       },
     }
-    const factory: WorkflowFactory<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
+    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
       ...makeFactory(),
       getRegistry: () => afterEntryRegistry,
     }
@@ -465,7 +465,7 @@ describe('WorkflowEngine.transition', () => {
 
   it('uses custom buildTransitionEvent when provided', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const factory: WorkflowFactory<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
+    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
       ...makeFactory(),
       buildTransitionEvent: (from, to, _before, _after, now) => ({
         type: 'transitioned',
@@ -498,7 +498,7 @@ describe('WorkflowEngine.transition', () => {
 
   it('uses default transition title when getTransitionTitle is not provided', () => {
     const { getTransitionTitle: _, ...rest } = makeFactory()
-    const factory: WorkflowFactory<StubWorkflow, TestState, TestDeps, TestStateName, string> = rest
+    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = rest
     const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
     const result = engine.transition('sess1', 'PLANNING')
     expect(result.type).toStrictEqual('success')

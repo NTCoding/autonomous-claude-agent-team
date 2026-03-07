@@ -35,7 +35,25 @@ const OPERATION_BODIES: Readonly<Record<string, OperationBodyFn | undefined>> = 
   'review-rejected': () => `Review rejected.\n\n  ${CMD} transition DEVELOPING`,
   'coderabbit-feedback-addressed': () => `CodeRabbit feedback marked as addressed.\n\n  ${CMD} transition PR_CREATION`,
   'coderabbit-feedback-ignored': () => `CodeRabbit feedback marked as ignored.\n\n  ${CMD} transition PR_CREATION`,
+  'get-session-summary': (s) => formatSessionSummaryBody(s),
 } satisfies Record<WorkflowOperation, OperationBodyFn>
+
+function formatSessionSummaryBody(state: WorkflowState): string {
+  const lines: string[] = [
+    `State: ${state.currentStateMachineState} (iteration: ${state.iteration})`,
+  ]
+  if (state.activeAgents.length > 0) {
+    lines.push(`Active agents: ${state.activeAgents.join(', ')}`)
+  }
+  if (state.iterations.length > 0) {
+    lines.push('')
+    lines.push('Iterations:')
+    for (const [i, iter] of state.iterations.entries()) {
+      lines.push(`  [${i}] ${iter.task}`)
+    }
+  }
+  return lines.join('\n')
+}
 
 export function getOperationBody(op: string, state: WorkflowState): string {
   const bodyFn = OPERATION_BODIES[op]

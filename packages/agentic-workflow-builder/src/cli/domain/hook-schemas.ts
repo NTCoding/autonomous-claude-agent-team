@@ -14,4 +14,15 @@ export const PreToolUseInputSchema = HookCommonInputSchema.extend({
   tool_use_id: z.string(),
 })
 
+export const SubagentStartInputSchema = HookCommonInputSchema.extend({
+  agent_id: z.string(),
+  agent_type: z.string(),
+})
+
+export const TeammateIdleInputSchema = HookCommonInputSchema.extend({
+  teammate_name: z.string().optional(),
+})
+
 export type PreToolUseInput = z.infer<typeof PreToolUseInputSchema>
+export type SubagentStartInput = z.infer<typeof SubagentStartInputSchema>
+export type TeammateIdleInput = z.infer<typeof TeammateIdleInputSchema>
