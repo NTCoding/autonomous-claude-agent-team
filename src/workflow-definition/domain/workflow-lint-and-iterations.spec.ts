@@ -10,6 +10,7 @@ import {
   reviewRejected,
   lintRan,
   transitioned,
+  transitionTo,
   planApprovalRecorded,
   agentShutDown,
   iterationTaskAssigned,
@@ -118,7 +119,7 @@ describe('Workflow', () => {
     it('emits transitioned event for transition', () => {
       const { events } = spec
         .given(...eventsToPlanning(), planApprovalRecorded())
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(events).toStrictEqual(
         expect.arrayContaining([expect.objectContaining({ type: 'transitioned', from: 'PLANNING', to: 'RESPAWN' })])
       )
@@ -127,7 +128,7 @@ describe('Workflow', () => {
     it('emits transitioned event for BLOCKED transition', () => {
       const { events } = spec
         .given(...eventsToPlanning())
-        .when((wf) => wf.transitionTo('BLOCKED'))
+        .when((wf) => transitionTo(wf,'BLOCKED'))
       expect(events).toStrictEqual(
         expect.arrayContaining([expect.objectContaining({ type: 'transitioned', from: 'PLANNING', to: 'BLOCKED' })])
       )
@@ -139,7 +140,7 @@ describe('Workflow', () => {
           ...eventsToPlanning(),
           transitioned('PLANNING', 'BLOCKED'),
         )
-        .when((wf) => wf.transitionTo('PLANNING'))
+        .when((wf) => transitionTo(wf,'PLANNING'))
       expect(events).toStrictEqual(
         expect.arrayContaining([expect.objectContaining({ type: 'transitioned', from: 'BLOCKED', to: 'PLANNING' })])
       )

@@ -5,4 +5,4 @@ export class WorkflowStateError extends Error {
   }
 }
 
-export type BaseWorkflowState = { currentStateMachineState: string }
+export type BaseWorkflowState<TStateName extends string = string> = { currentStateMachineState: TStateName }

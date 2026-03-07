@@ -1,6 +1,7 @@
 import type { EnhancedSessionSummary, IterationMetrics } from './session-report.js'
 import { evaluateInsightRules } from './insight-rules.js'
 import type { Insight } from './insight-rules.js'
+import type { WorkflowEvent } from '../workflow-definition/index.js'
 
 function ms(minutes: number): number {
   return minutes * 60_000
@@ -107,7 +108,7 @@ describe('rework-dominated-iteration insight', () => {
 
 describe('hook-denial-cluster insight', () => {
   it('fires warning when totalDenials >= 3 and >60% in one state', () => {
-    const events = [
+    const events: WorkflowEvent[] = [
       { type: 'transitioned' as const, at: '2026-01-01T00:00:00.000Z', from: 'RESPAWN', to: 'REVIEWING' },
       { type: 'bash-checked' as const, at: '2026-01-01T00:00:30.000Z', tool: 'Bash', command: 'rm x', allowed: false },
       { type: 'transitioned' as const, at: '2026-01-01T00:01:00.000Z', from: 'REVIEWING', to: 'DEVELOPING' },
@@ -121,7 +122,7 @@ describe('hook-denial-cluster insight', () => {
   })
 
   it('does not fire when denials >= 3 but spread across states below 60% threshold', () => {
-    const events = [
+    const events: WorkflowEvent[] = [
       { type: 'transitioned' as const, at: '2026-01-01T00:00:00.000Z', from: 'RESPAWN', to: 'DEVELOPING' },
       { type: 'write-checked' as const, at: '2026-01-01T00:01:00.000Z', tool: 'Write', filePath: 'a.ts', allowed: false },
       { type: 'transitioned' as const, at: '2026-01-01T00:02:00.000Z', from: 'DEVELOPING', to: 'REVIEWING' },

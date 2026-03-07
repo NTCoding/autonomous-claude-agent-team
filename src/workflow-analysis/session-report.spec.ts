@@ -1,4 +1,4 @@
-import type { WorkflowEvent } from '../workflow-definition/index.js'
+import type { WorkflowEvent, StateName } from '../workflow-definition/index.js'
 import type { SessionSummary } from './workflow-analytics.js'
 import type { SessionViewData, IterationGroup } from './session-view.js'
 import { computeEnhancedSessionSummary } from './session-report.js'
@@ -15,7 +15,7 @@ function ms(minutes: number): number {
   return minutes * 60_000
 }
 
-function transition(at: string, from: string, to: string): WorkflowEvent {
+function transition(at: string, from: StateName, to: StateName): WorkflowEvent {
   return { type: 'transitioned' as const, at, from, to }
 }
 
@@ -183,7 +183,6 @@ describe('computeEnhancedSessionSummary — single clean iteration', () => {
   })
   const allEvents: readonly WorkflowEvent[] = [
     sessionStarted(T0, 'sess-1'),
-    transition(T0, 'idle', 'SPAWN'),
     transition(T0, 'SPAWN', 'PLANNING'),
     transition(T1, 'PLANNING', 'RESPAWN'),
     ...iterEvents,

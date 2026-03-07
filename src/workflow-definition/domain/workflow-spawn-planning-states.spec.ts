@@ -9,6 +9,7 @@ import {
   agentRegistered,
   agentShutDown,
   transitioned,
+  transitionTo,
   branchRecorded,
   planApprovalRecorded,
   iterationTaskAssigned,
@@ -63,7 +64,7 @@ describe('Workflow', () => {
     it('transitions to PLANNING when issue set and developer and reviewer agents present', () => {
       const { result, state } = spec
         .given(issueRecorded(1), agentRegistered('developer-1'), agentRegistered('reviewer-1'))
-        .when((wf) => wf.transitionTo('PLANNING'))
+        .when((wf) => transitionTo(wf,'PLANNING'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.currentStateMachineState).toBe('PLANNING')
     })
@@ -71,28 +72,28 @@ describe('Workflow', () => {
     it('fails transition to PLANNING when no githubIssue', () => {
       const { result } = spec
         .given(agentRegistered('developer-1'), agentRegistered('reviewer-1'))
-        .when((wf) => wf.transitionTo('PLANNING'))
+        .when((wf) => transitionTo(wf,'PLANNING'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition to PLANNING when no developer agent', () => {
       const { result } = spec
         .given(issueRecorded(1), agentRegistered('reviewer-1'))
-        .when((wf) => wf.transitionTo('PLANNING'))
+        .when((wf) => transitionTo(wf,'PLANNING'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition to PLANNING when no reviewer agent', () => {
       const { result } = spec
         .given(issueRecorded(1), agentRegistered('developer-1'))
-        .when((wf) => wf.transitionTo('PLANNING'))
+        .when((wf) => transitionTo(wf,'PLANNING'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition to non-PLANNING states', () => {
       const { result } = spec
         .given(issueRecorded(1), agentRegistered('developer-1'), agentRegistered('reviewer-1'))
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(result.pass).toBe(false)
     })
 
@@ -117,7 +118,7 @@ describe('Workflow', () => {
     it('transitions to RESPAWN when plan approved and clean tree', () => {
       const { result, state } = spec
         .given(...eventsToPlanning(), planApprovalRecorded())
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.currentStateMachineState).toBe('RESPAWN')
     })
@@ -125,7 +126,7 @@ describe('Workflow', () => {
     it('fails transition to RESPAWN when plan not approved', () => {
       const { result } = spec
         .given(...eventsToPlanning())
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(result.pass).toBe(false)
     })
 
@@ -133,7 +134,7 @@ describe('Workflow', () => {
       const { result } = spec
         .given(...eventsToPlanning(), planApprovalRecorded())
         .withDeps({ getGitInfo: () => dirtyGit })
-        .when((wf) => wf.transitionTo('RESPAWN'))
+        .when((wf) => transitionTo(wf,'RESPAWN'))
       expect(result.pass).toBe(false)
     })
 
@@ -197,7 +198,7 @@ describe('Workflow', () => {
           agentShutDown('reviewer-1'),
           iterationTaskAssigned('test task'),
         )
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.currentStateMachineState).toBe('DEVELOPING')
     })
@@ -209,14 +210,14 @@ describe('Workflow', () => {
           agentShutDown('developer-1'),
           agentShutDown('reviewer-1'),
         )
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition to DEVELOPING when active agents present', () => {
       const { result } = spec
         .given(...eventsToRespawn(), iterationTaskAssigned('test task'))
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(result.pass).toBe(false)
     })
 
@@ -241,7 +242,7 @@ describe('Workflow', () => {
       const { result, state } = spec
         .given(...eventsToDeveloping(), developerDoneSignaled())
         .withDeps({ getGitInfo: () => dirtyGit })
-        .when((wf) => wf.transitionTo('REVIEWING'))
+        .when((wf) => transitionTo(wf,'REVIEWING'))
       expect(result).toStrictEqual({ pass: true })
       expect(state.currentStateMachineState).toBe('REVIEWING')
     })
@@ -250,14 +251,14 @@ describe('Workflow', () => {
       const { result } = spec
         .given(...eventsToDeveloping())
         .withDeps({ getGitInfo: () => dirtyGit })
-        .when((wf) => wf.transitionTo('REVIEWING'))
+        .when((wf) => transitionTo(wf,'REVIEWING'))
       expect(result.pass).toBe(false)
     })
 
     it('fails transition to REVIEWING when tree is clean', () => {
       const { result } = spec
         .given(...eventsToDeveloping(), developerDoneSignaled())
-        .when((wf) => wf.transitionTo('REVIEWING'))
+        .when((wf) => transitionTo(wf,'REVIEWING'))
       expect(result.pass).toBe(false)
     })
 
@@ -265,7 +266,7 @@ describe('Workflow', () => {
       const { result } = spec
         .given(...eventsToDeveloping(), developerDoneSignaled())
         .withDeps({ getGitInfo: () => ({ ...dirtyGit, headCommit: 'different' }) })
-        .when((wf) => wf.transitionTo('REVIEWING'))
+        .when((wf) => transitionTo(wf,'REVIEWING'))
       expect(result.pass).toBe(false)
     })
 
@@ -278,7 +279,7 @@ describe('Workflow', () => {
       ]
       const { state } = spec
         .given(...events)
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(state.iteration).toBe(0)
       expect(state.iterations[0]?.developingHeadCommit).toBe('abc123')
     })
@@ -293,7 +294,7 @@ describe('Workflow', () => {
       ]
       const { state } = spec
         .given(...events)
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(state.iteration).toBe(1)
     })
 
@@ -306,7 +307,7 @@ describe('Workflow', () => {
       ]
       const { state } = spec
         .given(...events)
-        .when((wf) => wf.transitionTo('DEVELOPING'))
+        .when((wf) => transitionTo(wf,'DEVELOPING'))
       expect(state.iteration).toBe(0)
       expect(state.iterations[0]?.developerDone).toBe(false)
     })

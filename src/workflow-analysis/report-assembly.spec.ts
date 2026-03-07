@@ -172,7 +172,7 @@ describe('assembleReportData', () => {
 
   const baseEvents: readonly WorkflowEvent[] = [
     { type: 'session-started' as const, at: T0 },
-    { type: 'transitioned' as const, at: T1, from: 'idle', to: 'SPAWN' },
+    { type: 'transitioned' as const, at: T1, from: 'SPAWN', to: 'PLANNING' },
   ]
 
   it('returns ReportData with all fields populated', () => {

@@ -1,5 +1,6 @@
 import { WorkflowAdapter } from './workflow-adapter.js'
 import type { WorkflowDeps } from '../../workflow-definition/domain/workflow.js'
+import type { WorkflowState } from './workflow-types.js'
 import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 
 function makeWorkflowDeps(): WorkflowDeps {
@@ -47,18 +48,51 @@ describe('WorkflowAdapter', () => {
     expect(path).toContain('/plugin/')
   })
 
-  it('returns emoji for known state', () => {
-    const emoji = WorkflowAdapter.getEmojiForState('SPAWN')
-    expect(typeof emoji).toStrictEqual('string')
-  })
-
-  it('throws on unknown state', () => {
-    expect(() => WorkflowAdapter.getEmojiForState('UNKNOWN_STATE')).toThrow('invalid_enum_value')
-  })
-
   it('returns initial state with SPAWN', () => {
     const initial = WorkflowAdapter.initialState()
     expect(initial.currentStateMachineState).toStrictEqual('SPAWN')
+  })
+
+  it('returns workflow registry', () => {
+    const registry = WorkflowAdapter.getRegistry()
+    expect(registry['SPAWN']).toBeDefined()
+    expect(registry['SPAWN']?.emoji).toStrictEqual('🟣')
+  })
+
+  it('builds transition context with git info and PR checks from deps', () => {
+    const deps = makeWorkflowDeps()
+    const state = WorkflowAdapter.initialState()
+    const ctx = WorkflowAdapter.buildTransitionContext(state, 'SPAWN', 'PLANNING', deps)
+    expect(ctx).toMatchObject({ state, from: 'SPAWN', to: 'PLANNING', prChecksPass: false })
+    expect(ctx.gitInfo.currentBranch).toStrictEqual('main')
+  })
+
+  it('builds transition context with prChecksPass true when PR exists', () => {
+    const deps = makeWorkflowDeps()
+    const state = { ...WorkflowAdapter.initialState(), prNumber: 42 }
+    const ctx = WorkflowAdapter.buildTransitionContext(state, 'PR_CREATION', 'FEEDBACK', deps)
+    expect(ctx.prChecksPass).toStrictEqual(true)
+  })
+
+  it('builds transition event with from/to', () => {
+    const stateBefore = WorkflowAdapter.initialState()
+    const stateAfter: WorkflowState = { ...stateBefore, currentStateMachineState: 'PLANNING' as const }
+    const event = WorkflowAdapter.buildTransitionEvent?.('SPAWN', 'PLANNING', stateBefore, stateAfter, '2026-01-01T00:00:00Z')
+    expect(event).toMatchObject({ type: 'transitioned', from: 'SPAWN', to: 'PLANNING' })
+  })
+
+  it('builds transition event with iteration when changed', () => {
+    const stateBefore = { ...WorkflowAdapter.initialState(), iteration: 0 }
+    const stateAfter = { ...stateBefore, iteration: 1 }
+    const event = WorkflowAdapter.buildTransitionEvent?.('COMMITTING', 'RESPAWN', stateBefore, stateAfter, '2026-01-01T00:00:00Z')
+    expect(event).toMatchObject({ iteration: 1 })
+  })
+
+  it('builds transition event with developingHeadCommit for DEVELOPING', () => {
+    const stateBefore = { ...WorkflowAdapter.initialState(), iteration: 0, iterations: [{ task: 't', developerDone: false, developingHeadCommit: 'abc123', reviewApproved: false, reviewRejected: false, coderabbitFeedbackAddressed: false, coderabbitFeedbackIgnored: false, lintedFiles: [], lintRanIteration: false }] }
+    const stateAfter = { ...stateBefore }
+    const event = WorkflowAdapter.buildTransitionEvent?.('RESPAWN', 'DEVELOPING', stateBefore, stateAfter, '2026-01-01T00:00:00Z')
+    expect(event).toMatchObject({ developingHeadCommit: 'abc123' })
   })
 
   it('returns prefix config with LEAD pattern', () => {

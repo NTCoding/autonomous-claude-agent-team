@@ -19,3 +19,6 @@ export type { WorkflowEvent } from './domain/workflow-events.js'
 export { WorkflowEventSchema } from './domain/workflow-events.js'
 
 export { applyEvents } from './domain/fold.js'
+
+export { checkWriteAllowed } from './domain/workflow-predicates.js'
+export { BASH_FORBIDDEN } from './domain/registry.js'

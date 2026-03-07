@@ -38,6 +38,7 @@ export type WorkflowStateDefinition<
   }
   readonly transitionGuard?: (ctx: TransitionContext<TState, TStateName>) => PreconditionResult
   readonly onEntry?: (state: TState, ctx: TransitionContext<TState, TStateName>) => TState
+  readonly afterEntry?: () => void
 }
 
 export type WorkflowRegistry<

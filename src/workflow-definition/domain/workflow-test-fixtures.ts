@@ -1,9 +1,14 @@
 import { workflowSpec } from '@ntcoding/agentic-workflow-builder/testing'
+import type { PreconditionResult } from '@ntcoding/agentic-workflow-builder/dsl'
+import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
 import type { WorkflowEvent } from './workflow-events.js'
-import type { WorkflowState, IterationState } from './workflow-types.js'
+import type { WorkflowState, IterationState, StateName } from './workflow-types.js'
+import { parseStateName } from './workflow-types.js'
 import type { WorkflowDeps } from './workflow.js'
 import { Workflow } from './workflow.js'
 import { applyEvents } from './fold.js'
+import { WORKFLOW_REGISTRY } from './registry.js'
+import { WorkflowAdapter } from './workflow-adapter.js'
 import type { GitInfo } from '@ntcoding/agentic-workflow-builder/dsl'
 
 const AT = '2026-01-01T00:00:00Z'
@@ -64,8 +69,8 @@ export function agentShutDown(agentName: string): WorkflowEvent {
 }
 
 export function transitioned(
-  from: string,
-  to: string,
+  from: StateName,
+  to: StateName,
   extras?: {
     readonly iteration?: number
     readonly developingHeadCommit?: string
@@ -206,11 +211,49 @@ export function eventsToComplete(): readonly WorkflowEvent[] {
 }
 
 
+const capturedDepsRef: { current: WorkflowDeps } = { current: makeDeps() }
+
 export const spec = workflowSpec<WorkflowEvent, WorkflowState, WorkflowDeps, Workflow>({
   fold: applyEvents,
-  rehydrate: (state, deps) => Workflow.rehydrate(state, deps),
+  rehydrate: (state, deps) => {
+    capturedDepsRef.current = deps
+    return Workflow.rehydrate(state, deps)
+  },
   defaultDeps: makeDeps,
   getPendingEvents: (wf) => wf.getPendingEvents(),
   getState: (wf) => wf.getState(),
   mergeDeps: (defaults, overrides) => ({ ...defaults, ...overrides }),
 })
+
+export function transitionTo(wf: Workflow, target: StateName, depsOverride?: WorkflowDeps): PreconditionResult {
+  const deps = depsOverride ?? capturedDepsRef.current
+  const state = wf.getState()
+  const from = state.currentStateMachineState
+  const currentDef = WORKFLOW_REGISTRY[from]
+
+  if (!currentDef.canTransitionTo.includes(target)) {
+    return fail(
+      `Illegal transition ${from} -> ${target}. Legal targets from ${from}: [${currentDef.canTransitionTo.join(', ') || 'none'}].`,
+    )
+  }
+
+  if (target !== 'BLOCKED' && currentDef.transitionGuard) {
+    const ctx = WorkflowAdapter.buildTransitionContext(state, from, target, deps)
+    const guardResult = currentDef.transitionGuard(ctx)
+    if (!guardResult.pass) return guardResult
+  }
+
+  const targetDef = WORKFLOW_REGISTRY[target]
+  const stateBefore = wf.getState()
+  const ctx = WorkflowAdapter.buildTransitionContext(stateBefore, from, target, deps)
+  const stateAfter = targetDef.onEntry
+    ? targetDef.onEntry(stateBefore, ctx)
+    : stateBefore
+
+  const event = WorkflowAdapter.buildTransitionEvent
+    ? WorkflowAdapter.buildTransitionEvent(from, target, stateBefore, stateAfter, AT)
+    : { type: 'transitioned', at: AT }
+  wf.appendEvent(event)
+  targetDef.afterEntry?.()
+  return pass()
+}

@@ -1,4 +1,4 @@
-import type { WorkflowEvent } from '../workflow-definition/index.js'
+import type { WorkflowEvent, StateName } from '../workflow-definition/index.js'
 import {
   categorizeEvent,
   extractStructuredFields,
@@ -8,7 +8,7 @@ import {
 } from './event-display.js'
 import type { EventCategory, AnnotatedEvent } from './event-display.js'
 
-function transition(at: string, from: string, to: string): WorkflowEvent {
+function transition(at: string, from: StateName, to: StateName): WorkflowEvent {
   return { type: 'transitioned' as const, at, from, to }
 }
 
