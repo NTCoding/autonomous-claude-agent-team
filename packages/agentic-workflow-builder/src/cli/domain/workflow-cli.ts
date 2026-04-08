@@ -1,12 +1,20 @@
-/* v8 ignore start */
-import { readFileSync, appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { BaseWorkflowState } from '../../engine/index.js'
-import type { RehydratableWorkflow, WorkflowEngineDeps } from '../../engine/index.js'
-import { createStore } from '../../event-store/index.js'
+import type { BaseWorkflowState, WorkflowEventStore, WorkflowEngineDeps } from '../../engine/index.js'
+import type { RehydratableWorkflow } from '../../engine/index.js'
 import type { WorkflowRunnerConfig, RunnerResult } from './workflow-runner.js'
 import { createWorkflowRunner } from './workflow-runner.js'
 import type { PlatformContext } from './platform-context.js'
+
+export type ProcessDeps = {
+  readonly getEnv: (name: string) => string | undefined
+  readonly exit: (code: number) => void
+  readonly writeStdout: (s: string) => void
+  readonly writeStderr: (s: string) => void
+  readonly getArgv: () => readonly string[]
+  readonly readFile: (path: string) => string
+  readonly appendToFile: (path: string, content: string) => void
+  readonly buildStore: (dbPath: string) => WorkflowEventStore
+}
 
 export type WorkflowCliConfig<
   TWorkflow extends RehydratableWorkflow<TState>,
@@ -15,14 +23,17 @@ export type WorkflowCliConfig<
 > = WorkflowRunnerConfig<TWorkflow, TState, TDeps> & {
   readonly buildWorkflowDeps: (platform: PlatformContext) => TDeps
   readonly customRouter?: (command: string, args: readonly string[], platform: PlatformContext) => RunnerResult | undefined
+  readonly processDeps: ProcessDeps
 }
 
-function readEnvVar(name: string): string {
-  const value = process.env[name]
-  if (value === undefined || value === '') {
-    throw new Error(`Missing required environment variable: ${name}`)
+function buildReadEnvVar(getEnv: (name: string) => string | undefined) {
+  return function readEnvVar(name: string): string {
+    const value = getEnv(name)
+    if (value === undefined || value === '') {
+      throw new Error(`Missing required environment variable: ${name}`)
+    }
+    return value
   }
-  return value
 }
 
 export function createWorkflowCli<
@@ -32,43 +43,44 @@ export function createWorkflowCli<
 >(
   config: WorkflowCliConfig<TWorkflow, TState, TDeps>,
 ): void {
-  const pluginRoot = readEnvVar('CLAUDE_PLUGIN_ROOT')
-  const sessionId = readEnvVar('CLAUDE_SESSION_ID')
+  const { processDeps } = config
+  const readEnvVar = buildReadEnvVar(processDeps.getEnv)
 
-  const store = createStore(join(pluginRoot, 'workflow.db'))
+  const pluginRoot = readEnvVar('CLAUDE_PLUGIN_ROOT')
+  const getSessionId = () => readEnvVar('CLAUDE_SESSION_ID')
+
+  const store = processDeps.buildStore(join(pluginRoot, 'workflow.db'))
   const now = () => new Date().toISOString()
 
   const platformCtx: PlatformContext = {
     getPluginRoot: () => pluginRoot,
     now,
-    getSessionId: () => sessionId,
+    getSessionId,
     store,
   }
 
   const engineDeps: WorkflowEngineDeps = {
     store,
     getPluginRoot: () => pluginRoot,
-    getEnvFilePath: () => join(process.env['HOME'] ?? '', '.claude', 'claude.env'),
-    readFile: (path) => readFileSync(path, 'utf8'),
-    appendToFile: (path, content) => appendFileSync(path, content),
+    getEnvFilePath: () => join(readEnvVar('HOME'), '.claude', 'claude.env'),
+    readFile: processDeps.readFile,
+    appendToFile: processDeps.appendToFile,
     now,
   }
 
   const workflowDeps = config.buildWorkflowDeps(platformCtx)
-
-  const readStdin = () => readFileSync('/dev/stdin', 'utf8')
-
+  const readStdin = () => processDeps.readFile('/dev/stdin')
   const errorLogPath = join(pluginRoot, 'error.log')
 
   try {
-    const args = process.argv.slice(2)
+    const args = processDeps.getArgv().slice(2)
     const command = args[0]
 
     if (command !== undefined && config.customRouter !== undefined) {
       const custom = config.customRouter(command, args, platformCtx)
       if (custom !== undefined) {
-        if (custom.output) process.stdout.write(custom.output)
-        process.exit(custom.exitCode)
+        if (custom.output) processDeps.writeStdout(custom.output)
+        processDeps.exit(custom.exitCode)
         return
       }
     }
@@ -76,22 +88,21 @@ export function createWorkflowCli<
     const runner = createWorkflowRunner(config)
     const result = runner(args, engineDeps, workflowDeps, {
       readStdin,
-      getSessionId: () => sessionId,
+      getSessionId,
     })
 
     if (result.output) {
-      process.stdout.write(result.output)
+      processDeps.writeStdout(result.output)
     }
-    process.exit(result.exitCode)
+    processDeps.exit(result.exitCode)
   } catch (error: unknown) {
     const message = `[${new Date().toISOString()}] ERROR: ${String(error)}\n`
-    process.stderr.write(message)
+    processDeps.writeStderr(message)
     try {
-      appendFileSync(errorLogPath, message)
+      processDeps.appendToFile(errorLogPath, message)
     } catch {
       // Ignore write failures to error log
     }
-    process.exit(1)
+    processDeps.exit(1)
   }
 }
-/* v8 ignore stop */
