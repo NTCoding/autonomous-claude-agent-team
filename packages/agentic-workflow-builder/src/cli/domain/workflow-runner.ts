@@ -13,22 +13,11 @@ import type { PreToolUseInput, SubagentStartInput, TeammateIdleInput } from './h
 import { EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from './exit-codes.js'
 import { HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema, TeammateIdleInputSchema } from './hook-schemas.js'
 import { formatDenyDecision, formatContextInjection } from './hook-output.js'
+import type { PreToolUseHandlerFn } from './pre-tool-use-handler.js'
 
 export type RunnerResult = { readonly output: string; readonly exitCode: number }
 
-export type PreToolUseHandlerFn<
-  TWorkflow extends RehydratableWorkflow<TState>,
-  TState extends BaseWorkflowState<TStateName>,
-  TDeps,
-  TStateName extends string = string,
-  TOperation extends string = string,
-> = (
-  engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
-  sessionId: string,
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  transcriptPath: string | undefined,
-) => EngineResult
+export type { PreToolUseHandlerFn } from './pre-tool-use-handler.js'
 
 export type RunnerOptions = {
   readonly readStdin?: () => string
@@ -174,8 +163,11 @@ function handleRoute<
     case 'transaction': {
       const sessionId = resolveSessionId()
       const restArgs = argsAfterSessionId()
-      const result = engine.transaction(sessionId, routeName, (w: TWorkflow) =>
-        routeDef.handler(w, ...restArgs),
+      const result = engine.transaction(
+        sessionId,
+        routeName,
+        (w: TWorkflow) => routeDef.handler(w, ...restArgs),
+        { kind: 'skip' },
       )
       return engineResultToRunnerResult(result)
     }
@@ -251,10 +243,6 @@ function handlePreToolUse<
   config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   input: PreToolUseInput,
 ): RunnerResult {
-  if (!engine.hasSession(input.session_id)) {
-    return { output: '', exitCode: EXIT_ALLOW }
-  }
-
   if (config.preToolUseHandler !== undefined) {
     const result = config.preToolUseHandler(engine, input.session_id, input.tool_name, input.tool_input, input.transcript_path)
     if (result.type === 'blocked') {
@@ -277,7 +265,7 @@ function handlePreToolUse<
     input.session_id,
     `hook:${input.tool_name}`,
     (w: TWorkflow) => hookCheck.check(w, extracted, input.tool_name),
-    input.transcript_path,
+    { kind: 'verify', transcriptPath: input.transcript_path },
   )
 
   return engineResultToRunnerResult(result)
@@ -309,6 +297,7 @@ function handleSubagentStartHook<
     input.session_id,
     'register-agent',
     (w: TWorkflow) => handler.register(w, input.agent_type, input.agent_id),
+    { kind: 'skip' },
   )
 
   /* v8 ignore next */
@@ -343,6 +332,7 @@ function handleTeammateIdleHook<
     input.session_id,
     'check-idle',
     (w: TWorkflow) => handler.check(w, agentName),
+    { kind: 'skip' },
   )
 
   return engineResultToRunnerResult(result)

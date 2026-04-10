@@ -21,6 +21,10 @@ export type EngineResult =
   | { readonly type: 'blocked'; readonly output: string }
   | { readonly type: 'error'; readonly output: string }
 
+export type IdentityCheck =
+  | { readonly kind: 'skip' }
+  | { readonly kind: 'verify'; readonly transcriptPath: string }
+
 export interface RehydratableWorkflow<TState extends BaseWorkflowState> {
   getState(): TState
   getAgentInstructions(pluginRoot: string): string
@@ -103,11 +107,11 @@ export class WorkflowEngine<
     sessionId: string,
     op: string,
     fn: (w: TWorkflow) => PreconditionResult,
-    transcriptPath?: string,
+    identityCheck: IdentityCheck,
   ): EngineResult {
     this.requireSession(sessionId)
     const workflow = this.rehydrateFromEvents(sessionId)
-    const identityResult = this.verifyIdentity(sessionId, workflow, transcriptPath)
+    const identityResult = this.verifyIdentity(sessionId, workflow, identityCheck)
     if (identityResult !== undefined) {
       this.persistEvents(sessionId, workflow)
       return { type: 'blocked', output: formatOperationGateError(op, identityResult) }
@@ -170,11 +174,11 @@ export class WorkflowEngine<
     toolName: string,
     command: string,
     bashForbidden: BashForbiddenConfig,
-    transcriptPath?: string,
+    identityCheck: IdentityCheck,
   ): EngineResult {
     this.requireSession(sessionId)
     const workflow = this.rehydrateFromEvents(sessionId)
-    const identityResult = this.verifyIdentity(sessionId, workflow, transcriptPath)
+    const identityResult = this.verifyIdentity(sessionId, workflow, identityCheck)
     if (identityResult !== undefined) {
       this.persistEvents(sessionId, workflow)
       return { type: 'blocked', output: formatOperationGateError('bash-check', identityResult) }
@@ -211,11 +215,11 @@ export class WorkflowEngine<
     toolName: string,
     filePath: string,
     isWriteAllowed: (toolName: string, filePath: string, state: TState) => PreconditionResult,
-    transcriptPath?: string,
+    identityCheck: IdentityCheck,
   ): EngineResult {
     this.requireSession(sessionId)
     const workflow = this.rehydrateFromEvents(sessionId)
-    const identityResult = this.verifyIdentity(sessionId, workflow, transcriptPath)
+    const identityResult = this.verifyIdentity(sessionId, workflow, identityCheck)
     if (identityResult !== undefined) {
       this.persistEvents(sessionId, workflow)
       return { type: 'blocked', output: formatOperationGateError('write-check', identityResult) }
@@ -273,13 +277,19 @@ export class WorkflowEngine<
     }
   }
 
-  private verifyIdentity(sessionId: string, workflow: TWorkflow, transcriptPath: string | undefined): string | undefined {
-    const prefixConfig = this.factory.getPrefixConfig?.()
-    if (prefixConfig === undefined || transcriptPath === undefined) {
+  private verifyIdentity(sessionId: string, workflow: TWorkflow, check: IdentityCheck): string | undefined {
+    if (check.kind === 'skip') {
       return undefined
     }
+    const prefixConfig = this.factory.getPrefixConfig?.()
+    if (prefixConfig === undefined) {
+      throw new WorkflowStateError(
+        'Identity verification requested but WorkflowDefinition.getPrefixConfig is not implemented. '
+        + 'Either implement getPrefixConfig on your WorkflowDefinition or pass { kind: "skip" } for non-hook call sites.',
+      )
+    }
     const reader = this.engineDeps.transcriptReader ?? new ClaudeCodeTranscriptReader()
-    const messages = reader.readMessages(transcriptPath)
+    const messages = reader.readMessages(check.transcriptPath)
     const state = workflow.getState().currentStateMachineState
     const registry = this.factory.getRegistry()
     const emoji = registry[state].emoji
@@ -288,7 +298,7 @@ export class WorkflowEngine<
       type: 'identity-verified',
       at: this.engineDeps.now(),
       status: result.status,
-      transcriptPath,
+      transcriptPath: check.transcriptPath,
     }
     this.engineDeps.store.appendEvents(sessionId, [identityEvent])
     if (result.status === 'lost') {

@@ -82,3 +82,9 @@ flowchart LR
 ## Global Forbidden Rules
 
 `GLOBAL_FORBIDDEN` defines patterns blocked across states: `git commit`, `git push`, `git checkout` via bash, and reading plugin source code. State-specific enforcement adds further restrictions (e.g., DEVELOPING blocks commits, RESPAWN blocks all writes, COMMITTING allows commits).
+
+## PreToolUse Routing & Identity Verification
+
+PreToolUse routing lives in `@ntcoding/agentic-workflow-builder` (`createPreToolUseHandler`). The entrypoint adapter supplies only policy (`bashForbidden`, `isWriteAllowed`, optional `customGates`); the factory wires them into `engine.checkWrite` / `engine.checkBash` / `engine.transaction` in the correct order and always passes `{ kind: 'verify', transcriptPath }`.
+
+`IdentityCheck` is a discriminated union. Every call into the engine is explicit about whether identity is verified (`{ kind: 'verify', transcriptPath }`) or skipped (`{ kind: 'skip' }`). If any call site requests verification but the `WorkflowDefinition` does not implement `getPrefixConfig`, the engine throws `WorkflowStateError` — there is no silent fail-open path.

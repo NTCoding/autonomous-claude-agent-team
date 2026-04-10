@@ -1,11 +1,10 @@
 import type { EngineResult, WorkflowEngineDeps } from '@ntcoding/agentic-workflow-builder/engine'
 import { WorkflowEngine } from '@ntcoding/agentic-workflow-builder/engine'
-import { createWorkflowRunner, defineRoutes, defineHooks, arg, EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from '@ntcoding/agentic-workflow-builder/cli'
+import { createWorkflowRunner, createPreToolUseHandler, defineRoutes, defineHooks, arg, EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from '@ntcoding/agentic-workflow-builder/cli'
 import type { RunnerResult } from '@ntcoding/agentic-workflow-builder/cli'
-import { FeatureTeamWorkflowDefinition, StateNameSchema } from '../index.js'
+import { BASH_FORBIDDEN, checkWriteAllowed, FeatureTeamWorkflowDefinition, StateNameSchema } from '../index.js'
 import type { Workflow, WorkflowDeps } from '../index.js'
 import type { StateName, WorkflowOperation, WorkflowState } from '../domain/workflow-types.js'
-import { preToolUseHandler } from './pre-tool-use-handler.js'
 import { parseNumber, parseString, parseStringArray } from '../infra/arg-parsing.js'
 
 export type WorkflowEntrypointDeps = {
@@ -44,6 +43,17 @@ const HOOKS = defineHooks<Workflow>({
   teammateIdle: {
     check: (w, agentName) => w.checkIdleAllowed(agentName),
   },
+})
+
+const preToolUseHandler = createPreToolUseHandler<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation>({
+  bashForbidden: BASH_FORBIDDEN,
+  isWriteAllowed: checkWriteAllowed,
+  customGates: [
+    {
+      name: 'plugin-source-read',
+      check: (w, toolName, filePath, command) => w.checkPluginSourceRead(toolName, filePath, command),
+    },
+  ],
 })
 
 const platformRunner = createWorkflowRunner<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation>({

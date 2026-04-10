@@ -22,7 +22,7 @@ src/
 └── infra/                 ← All I/O: filesystem, git, GitHub, stdin, linter
 ```
 
-See [docs/architecture.md](docs/architecture.md) for dependency rules and module privacy.
+PreToolUse routing (Write/Bash/custom gates → engine calls) lives in the `@ntcoding/agentic-workflow-builder` package via `createPreToolUseHandler`. The entrypoint supplies only policy; identity verification is fail-closed (see [docs/architecture.md](docs/architecture.md) for dependency rules, module privacy, and `IdentityCheck`).
 
 ## Design Principles
 

@@ -31,6 +31,7 @@ export type {
 export { WorkflowEngine } from './domain/workflow-engine.js'
 export type {
   EngineResult,
+  IdentityCheck,
   RehydratableWorkflow,
   WorkflowDefinition,
   WorkflowEventStore,

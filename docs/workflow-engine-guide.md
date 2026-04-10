@@ -273,42 +273,48 @@ Claude Code calls the same script for every hook event. The script reads stdin t
 
 ### The entrypoint script
 
-The script reads JSON from stdin, runs the workflow engine, and communicates back via exit codes and stdout:
+Use `createWorkflowRunner` + `createPreToolUseHandler` from the package. The runner handles stdin parsing, exit codes, and hook dispatch; the PreToolUse handler encapsulates routing of Write/Bash/custom-gate checks into the engine with fail-closed identity verification:
 
 ```typescript
 // my-entrypoint.ts
-import { WorkflowEngine } from '@ntcoding/agentic-workflow-builder/engine'
+import { createWorkflowRunner, createPreToolUseHandler } from '@ntcoding/agentic-workflow-builder/cli'
 
-const stdin = fs.readFileSync(0, 'utf-8')
-const input = JSON.parse(stdin)
-// input contains: session_id, hook_event_name, tool_name, tool_input, etc.
+const preToolUseHandler = createPreToolUseHandler<MyWorkflow, MyState, MyDeps, MyStateName, MyOperation>({
+  bashForbidden: { patterns: [/rm -rf \//], flags: [] },
+  isWriteAllowed: (toolName, filePath, state) => {
+    if (state.currentStateMachineState === 'REVIEWING' && toolName === 'Write') {
+      return fail('No writes during review.')
+    }
+    return pass()
+  },
+  customGates: [
+    { name: 'plugin-source-read', check: (w, tool, path) => w.checkPluginSourceRead(tool, path) },
+  ],
+})
 
-const engine = new WorkflowEngine(MyAdapter, engineDeps, workflowDeps)
+const runner = createWorkflowRunner<MyWorkflow, MyState, MyDeps, MyStateName, MyOperation>({
+  workflowDefinition: MyWorkflowDefinition,
+  routes: ROUTES,
+  hooks: HOOKS,
+  preToolUseHandler,
+})
 
-if (input.hook_event_name === 'SessionStart') {
-  engine.startSession(input.session_id)
-  process.exit(0) // 0 = allow
-}
-
-if (input.hook_event_name === 'PreToolUse') {
-  // Example: block git commit while in CODING state
-  const result = engine.transaction(input.session_id, 'check-tool', (w) =>
-    w.checkBashAllowed(input.tool_name, input.tool_input.command ?? '')
-  )
-  if (result.type === 'blocked') {
-    // Tell Claude Code to deny the tool use, with a reason
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: result.output,
-      },
-    }))
-    process.exit(2) // 2 = block
-  }
-  process.exit(0) // 0 = allow
-}
+const result = runner(process.argv.slice(2), engineDeps, workflowDeps, {
+  readStdin: () => fs.readFileSync(0, 'utf-8'),
+  getSessionId: () => process.env.CLAUDE_SESSION_ID ?? '',
+})
+process.stdout.write(result.output)
+process.exit(result.exitCode)
 ```
+
+### Identity verification (fail-closed)
+
+Engine call sites take an explicit `IdentityCheck`:
+
+- `{ kind: 'verify', transcriptPath }` — hook paths that should enforce "every agent message begins with the current state prefix". Requires `WorkflowDefinition.getPrefixConfig` to be implemented; if it isn't, the engine throws `WorkflowStateError`.
+- `{ kind: 'skip' }` — CLI / non-hook paths where there is no meaningful transcript.
+
+`createPreToolUseHandler` uses `{ kind: 'verify' }` automatically for all PreToolUse routing. Implement `getPrefixConfig` on your `WorkflowDefinition` to opt in to identity enforcement.
 
 ### Exit codes
 

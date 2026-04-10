@@ -55,6 +55,7 @@ function createMockEngineDeps(hasSession = false): WorkflowEngineDeps {
     readFile: () => '# Procedure content',
     appendToFile: () => undefined,
     now: () => '2024-01-01T00:00:00Z',
+    transcriptReader: { readMessages: () => [] },
   }
 }
 
@@ -88,6 +89,10 @@ function createMockFactory(): WorkflowDefinition<TestWorkflow, TestState, TestDe
     getOperationBody: (op: string) => `Body for ${op}`,
     getTransitionTitle: (to: string) => `Transitioned to ${to}`,
     parseStateName: (v: string) => v,
+    getPrefixConfig: () => ({
+      pattern: /^\[.+\]/,
+      buildRecoveryMessage: () => 'Recovery message',
+    }),
   }
 }
 
@@ -377,7 +382,7 @@ describe('createWorkflowRunner', () => {
         cwd: '/home/user',
         hook_event_name: 'UnknownEvent',
       })
-      const result = runner([], createMockEngineDeps(), {}, { readStdin: () => hookInput })
+      const result = runner([], createMockEngineDeps(true), {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
       expect(result.output).toBe('')
     })
@@ -654,6 +659,49 @@ describe('createWorkflowRunner', () => {
       const deps = createMockEngineDeps(false)
       const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
+
+    it('returns error for invalid subagent-start input', () => {
+      const config = createTestConfig({
+        hooks: {
+          subagentStart: {
+            register: () => fail('should not reach'),
+          },
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'SubagentStart',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
+      expect(result.exitCode).toBe(EXIT_ERROR)
+      expect(result.output).toContain('Invalid subagent-start input')
+    })
+
+    it('returns error for invalid teammate-idle input', () => {
+      const config = createTestConfig({
+        hooks: {
+          teammateIdle: {
+            check: () => fail('should not reach'),
+          },
+        },
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 42,
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
+      expect(result.exitCode).toBe(EXIT_ERROR)
+      expect(result.output).toContain('Invalid teammate-idle input')
     })
 
     it('handles TeammateIdle with missing teammate_name', () => {
