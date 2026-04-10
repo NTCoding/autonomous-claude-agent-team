@@ -729,4 +729,85 @@ describe('createWorkflowRunner', () => {
       expect(receivedNames[0]).toBe('')
     })
   })
+
+  describe('preToolUse policy resolution', () => {
+    const BASH_FORBIDDEN = { patterns: [/rm -rf \//], flags: [] }
+    const ALLOW_WRITE = (): PreconditionResult => pass()
+
+    it('throws when preToolUseHandler and policy fields are both provided', () => {
+      expect(() => createWorkflowRunner(createTestConfig({
+        preToolUseHandler: () => ({ type: 'success', output: '' }),
+        bashForbidden: BASH_FORBIDDEN,
+      }))).toThrow(/mutually exclusive/)
+    })
+
+    it('throws when customGates is set without bashForbidden and isWriteAllowed', () => {
+      expect(() => createWorkflowRunner(createTestConfig({
+        customGates: [{ name: 'g', check: () => pass() }],
+      }))).toThrow(/customGates requires bashForbidden and isWriteAllowed/)
+    })
+
+    it('throws when bashForbidden is set without isWriteAllowed', () => {
+      expect(() => createWorkflowRunner(createTestConfig({
+        bashForbidden: BASH_FORBIDDEN,
+      }))).toThrow(/must be provided together/)
+    })
+
+    it('throws when isWriteAllowed is set without bashForbidden', () => {
+      expect(() => createWorkflowRunner(createTestConfig({
+        isWriteAllowed: ALLOW_WRITE,
+      }))).toThrow(/must be provided together/)
+    })
+
+    it('builds default handler from bashForbidden + isWriteAllowed', () => {
+      const config = createTestConfig({
+        bashForbidden: BASH_FORBIDDEN,
+        isWriteAllowed: ALLOW_WRITE,
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'rm -rf /' },
+        tool_use_id: 'tool-1',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
+      expect(result.exitCode).toBe(EXIT_BLOCK)
+    })
+
+    it('builds default handler with customGates', () => {
+      const gateCalls: string[] = []
+      const config = createTestConfig({
+        bashForbidden: BASH_FORBIDDEN,
+        isWriteAllowed: ALLOW_WRITE,
+        customGates: [
+          {
+            name: 'record',
+            check: (_w, toolName) => {
+              gateCalls.push(toolName)
+              return pass()
+            },
+          },
+        ],
+      })
+      const runner = createWorkflowRunner(config)
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/home/user',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'ls' },
+        tool_use_id: 'tool-1',
+      })
+      const deps = createMockEngineDeps(true)
+      const result = runner([], deps, {}, { readStdin: () => hookInput })
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+      expect(gateCalls).toEqual(['Bash'])
+    })
+  })
 })

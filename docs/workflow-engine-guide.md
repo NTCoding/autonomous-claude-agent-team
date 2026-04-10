@@ -273,13 +273,16 @@ Claude Code calls the same script for every hook event. The script reads stdin t
 
 ### The entrypoint script
 
-Use `createWorkflowRunner` + `createPreToolUseHandler` from the package. The runner handles stdin parsing, exit codes, and hook dispatch; the PreToolUse handler encapsulates routing of Write/Bash/custom-gate checks into the engine with fail-closed identity verification:
+Use `createWorkflowRunner` from the package. The runner handles stdin parsing, exit codes, hook dispatch, and PreToolUse routing. Pass `bashForbidden` and `isWriteAllowed` directly on the config — the runner builds the Write/Bash/custom-gate routing internally with fail-closed identity verification:
 
 ```typescript
 // my-entrypoint.ts
-import { createWorkflowRunner, createPreToolUseHandler } from '@ntcoding/agentic-workflow-builder/cli'
+import { createWorkflowRunner } from '@ntcoding/agentic-workflow-builder/cli'
 
-const preToolUseHandler = createPreToolUseHandler<MyWorkflow, MyState, MyDeps, MyStateName, MyOperation>({
+const runner = createWorkflowRunner<MyWorkflow, MyState, MyDeps, MyStateName, MyOperation>({
+  workflowDefinition: MyWorkflowDefinition,
+  routes: ROUTES,
+  hooks: HOOKS,
   bashForbidden: { patterns: [/rm -rf \//], flags: [] },
   isWriteAllowed: (toolName, filePath, state) => {
     if (state.currentStateMachineState === 'REVIEWING' && toolName === 'Write') {
@@ -292,13 +295,6 @@ const preToolUseHandler = createPreToolUseHandler<MyWorkflow, MyState, MyDeps, M
   ],
 })
 
-const runner = createWorkflowRunner<MyWorkflow, MyState, MyDeps, MyStateName, MyOperation>({
-  workflowDefinition: MyWorkflowDefinition,
-  routes: ROUTES,
-  hooks: HOOKS,
-  preToolUseHandler,
-})
-
 const result = runner(process.argv.slice(2), engineDeps, workflowDeps, {
   readStdin: () => fs.readFileSync(0, 'utf-8'),
   getSessionId: () => process.env.CLAUDE_SESSION_ID ?? '',
@@ -307,6 +303,10 @@ process.stdout.write(result.output)
 process.exit(result.exitCode)
 ```
 
+### Exotic routing (escape hatch)
+
+If you need completely custom PreToolUse routing (not just `bashForbidden` + `isWriteAllowed` + `customGates`), supply a handler via the `preToolUseHandler` field built with `createPreToolUseHandler`. It is mutually exclusive with the policy fields above — providing both throws at runner construction time.
+
 ### Identity verification (fail-closed)
 
 Engine call sites take an explicit `IdentityCheck`:
@@ -314,7 +314,7 @@ Engine call sites take an explicit `IdentityCheck`:
 - `{ kind: 'verify', transcriptPath }` — hook paths that should enforce "every agent message begins with the current state prefix". Requires `WorkflowDefinition.getPrefixConfig` to be implemented; if it isn't, the engine throws `WorkflowStateError`.
 - `{ kind: 'skip' }` — CLI / non-hook paths where there is no meaningful transcript.
 
-`createPreToolUseHandler` uses `{ kind: 'verify' }` automatically for all PreToolUse routing. Implement `getPrefixConfig` on your `WorkflowDefinition` to opt in to identity enforcement.
+The runner-built PreToolUse handler uses `{ kind: 'verify' }` automatically for all PreToolUse routing. Implement `getPrefixConfig` on your `WorkflowDefinition` to opt in to identity enforcement.
 
 ### Exit codes
 

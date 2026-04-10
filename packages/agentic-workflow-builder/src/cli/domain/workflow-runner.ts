@@ -6,6 +6,7 @@ import type {
   WorkflowEngineDeps,
   EngineResult,
 } from '../../engine/index.js'
+import type { BashForbiddenConfig, PreconditionResult } from '../../dsl/index.js'
 import type { ArgParser } from './arg-helpers.js'
 import type { RouteMap } from './command-definition.js'
 import type { HookDefinition } from './hook-definition.js'
@@ -13,7 +14,8 @@ import type { PreToolUseInput, SubagentStartInput, TeammateIdleInput } from './h
 import { EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from './exit-codes.js'
 import { HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema, TeammateIdleInputSchema } from './hook-schemas.js'
 import { formatDenyDecision, formatContextInjection } from './hook-output.js'
-import type { PreToolUseHandlerFn } from './pre-tool-use-handler.js'
+import type { PreToolUseHandlerFn, CustomPreToolUseGate } from './pre-tool-use-handler.js'
+import { createPreToolUseHandler } from './pre-tool-use-handler.js'
 
 export type RunnerResult = { readonly output: string; readonly exitCode: number }
 
@@ -34,7 +36,61 @@ export type WorkflowRunnerConfig<
   readonly workflowDefinition: WorkflowDefinition<TWorkflow, TState, TDeps, TStateName, TOperation>
   readonly routes: RouteMap<TWorkflow, TState>
   readonly hooks?: HookDefinition<TWorkflow>
+  readonly bashForbidden?: BashForbiddenConfig
+  readonly isWriteAllowed?: (toolName: string, filePath: string, state: TState) => PreconditionResult
+  readonly customGates?: readonly CustomPreToolUseGate<TWorkflow, TState, TStateName>[]
   readonly preToolUseHandler?: PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation>
+}
+
+function resolvePreToolUseHandler<
+  TWorkflow extends RehydratableWorkflow<TState>,
+  TState extends BaseWorkflowState<TStateName>,
+  TDeps,
+  TStateName extends string,
+  TOperation extends string,
+>(
+  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+): PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation> | undefined {
+  const hasPolicy = config.bashForbidden !== undefined
+    || config.isWriteAllowed !== undefined
+    || config.customGates !== undefined
+
+  if (config.preToolUseHandler !== undefined) {
+    if (hasPolicy) {
+      throw new Error(
+        'WorkflowRunnerConfig: preToolUseHandler is mutually exclusive with bashForbidden/isWriteAllowed/customGates. '
+        + 'Provide either policy fields (default path) or a custom handler (escape hatch), not both.',
+      )
+    }
+    return config.preToolUseHandler
+  }
+
+  if (config.bashForbidden === undefined && config.isWriteAllowed === undefined) {
+    if (config.customGates !== undefined) {
+      throw new Error(
+        'WorkflowRunnerConfig: customGates requires bashForbidden and isWriteAllowed to also be set.',
+      )
+    }
+    return undefined
+  }
+
+  if (config.bashForbidden === undefined || config.isWriteAllowed === undefined) {
+    throw new Error(
+      'WorkflowRunnerConfig: bashForbidden and isWriteAllowed must be provided together.',
+    )
+  }
+
+  const handlerConfig = config.customGates === undefined
+    ? {
+        bashForbidden: config.bashForbidden,
+        isWriteAllowed: config.isWriteAllowed,
+      }
+    : {
+        bashForbidden: config.bashForbidden,
+        isWriteAllowed: config.isWriteAllowed,
+        customGates: config.customGates,
+      }
+  return createPreToolUseHandler<TWorkflow, TState, TDeps, TStateName, TOperation>(handlerConfig)
 }
 
 function engineResultToRunnerResult(result: EngineResult): RunnerResult {
@@ -89,6 +145,7 @@ export function createWorkflowRunner<
 >(
   config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
 ): (args: readonly string[], engineDeps: WorkflowEngineDeps, workflowDeps: TDeps, options?: RunnerOptions) => RunnerResult {
+  const resolvedHandler = resolvePreToolUseHandler(config)
   return (args, engineDeps, workflowDeps, options) => {
     const engine = new WorkflowEngine(config.workflowDefinition, engineDeps, workflowDeps)
     const routeName = args[0]
@@ -101,7 +158,7 @@ export function createWorkflowRunner<
       return { output: 'No command and no stdin available', exitCode: EXIT_ERROR }
     }
 
-    return handleHook(engine, config, options.readStdin)
+    return handleHook(engine, config, resolvedHandler, options.readStdin)
   }
 }
 
@@ -183,6 +240,7 @@ function handleHook<
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
   config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  resolvedHandler: PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation> | undefined,
   readStdin: () => string,
 ): RunnerResult {
   const stdin = readStdin()
@@ -204,7 +262,7 @@ function handleHook<
 
   switch (common.hook_event_name) {
     case 'PreToolUse':
-      return handlePreToolUseHook(engine, config, stdin)
+      return handlePreToolUseHook(engine, config, resolvedHandler, stdin)
     case 'SubagentStart':
       return handleSubagentStartHook(engine, config, stdin)
     case 'TeammateIdle':
@@ -223,13 +281,14 @@ function handlePreToolUseHook<
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
   config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  resolvedHandler: PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation> | undefined,
   stdin: string,
 ): RunnerResult {
   const toolParse = PreToolUseInputSchema.safeParse(JSON.parse(stdin))
   if (!toolParse.success) {
     return { output: `Invalid pre-tool-use input: ${toolParse.error.message}`, exitCode: EXIT_ERROR }
   }
-  return handlePreToolUse(engine, config, toolParse.data)
+  return handlePreToolUse(engine, config, resolvedHandler, toolParse.data)
 }
 
 function handlePreToolUse<
@@ -241,10 +300,11 @@ function handlePreToolUse<
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
   config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
+  resolvedHandler: PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation> | undefined,
   input: PreToolUseInput,
 ): RunnerResult {
-  if (config.preToolUseHandler !== undefined) {
-    const result = config.preToolUseHandler(engine, input.session_id, input.tool_name, input.tool_input, input.transcript_path)
+  if (resolvedHandler !== undefined) {
+    const result = resolvedHandler(engine, input.session_id, input.tool_name, input.tool_input, input.transcript_path)
     if (result.type === 'blocked') {
       return { output: formatDenyDecision(result.output), exitCode: EXIT_BLOCK }
     }

@@ -1,6 +1,6 @@
 import type { EngineResult, WorkflowEngineDeps } from '@ntcoding/agentic-workflow-builder/engine'
 import { WorkflowEngine } from '@ntcoding/agentic-workflow-builder/engine'
-import { createWorkflowRunner, createPreToolUseHandler, defineRoutes, defineHooks, arg, EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from '@ntcoding/agentic-workflow-builder/cli'
+import { createWorkflowRunner, defineRoutes, defineHooks, arg, EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from '@ntcoding/agentic-workflow-builder/cli'
 import type { RunnerResult } from '@ntcoding/agentic-workflow-builder/cli'
 import { BASH_FORBIDDEN, checkWriteAllowed, FeatureTeamWorkflowDefinition, StateNameSchema } from '../index.js'
 import type { Workflow, WorkflowDeps } from '../index.js'
@@ -45,7 +45,10 @@ const HOOKS = defineHooks<Workflow>({
   },
 })
 
-const preToolUseHandler = createPreToolUseHandler<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation>({
+const platformRunner = createWorkflowRunner<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation>({
+  workflowDefinition: FeatureTeamWorkflowDefinition,
+  routes: ROUTES,
+  hooks: HOOKS,
   bashForbidden: BASH_FORBIDDEN,
   isWriteAllowed: checkWriteAllowed,
   customGates: [
@@ -54,13 +57,6 @@ const preToolUseHandler = createPreToolUseHandler<Workflow, WorkflowState, Workf
       check: (w, toolName, filePath, command) => w.checkPluginSourceRead(toolName, filePath, command),
     },
   ],
-})
-
-const platformRunner = createWorkflowRunner<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation>({
-  workflowDefinition: FeatureTeamWorkflowDefinition,
-  routes: ROUTES,
-  hooks: HOOKS,
-  preToolUseHandler,
 })
 
 export function runWorkflow(args: readonly string[], deps: WorkflowEntrypointDeps): RunnerResult {

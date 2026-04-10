@@ -85,6 +85,8 @@ flowchart LR
 
 ## PreToolUse Routing & Identity Verification
 
-PreToolUse routing lives in `@ntcoding/agentic-workflow-builder` (`createPreToolUseHandler`). The entrypoint adapter supplies only policy (`bashForbidden`, `isWriteAllowed`, optional `customGates`); the factory wires them into `engine.checkWrite` / `engine.checkBash` / `engine.transaction` in the correct order and always passes `{ kind: 'verify', transcriptPath }`.
+PreToolUse routing lives in `@ntcoding/agentic-workflow-builder`. Consumers supply policy directly on `WorkflowRunnerConfig` / `WorkflowCliConfig` via `bashForbidden`, `isWriteAllowed`, and optional `customGates`. The runner resolves these into an internal `PreToolUseHandlerFn` that wires them into `engine.checkWrite` / `engine.checkBash` / `engine.transaction` in the correct order and always passes `{ kind: 'verify', transcriptPath }`.
+
+For exotic routing needs, consumers may instead pass a pre-built `preToolUseHandler` (constructed via the exported `createPreToolUseHandler` factory). The two paths are mutually exclusive — mixing them throws at runner construction time.
 
 `IdentityCheck` is a discriminated union. Every call into the engine is explicit about whether identity is verified (`{ kind: 'verify', transcriptPath }`) or skipped (`{ kind: 'skip' }`). If any call site requests verification but the `WorkflowDefinition` does not implement `getPrefixConfig`, the engine throws `WorkflowStateError` — there is no silent fail-open path.
