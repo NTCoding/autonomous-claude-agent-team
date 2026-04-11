@@ -51,7 +51,7 @@ class StubWorkflow implements RehydratableWorkflow<TestState> {
   }
 
   startSession(transcriptPath: string, repository: string | undefined): void {
-    const event: BaseEvent = {
+    const event = {
       type: 'session-started',
       at: '2026-01-01T00:00:00.000Z',
       transcriptPath,
@@ -67,7 +67,8 @@ class StubWorkflow implements RehydratableWorkflow<TestState> {
   }
 
   registerAgent(agentType: string, agentId: string): PreconditionResult {
-    this.pending = [...this.pending, { type: 'agent-registered', at: '2026-01-01T00:00:00.000Z', agentType, agentId }]
+    const agentRegisteredEvent = { type: 'agent-registered', at: '2026-01-01T00:00:00.000Z', agentType, agentId }
+    this.pending = [...this.pending, agentRegisteredEvent]
     return pass()
   }
 
@@ -854,8 +855,9 @@ describe('WorkflowEngine.hasSessionStarted', () => {
 
 describe('WorkflowEngine rehydration', () => {
   it('uses fold to rehydrate state from events', () => {
+    const transitionedEvent = { type: 'transitioned', at: '2026-01-01T00:00:00.000Z', from: 'SPAWN', to: 'PLANNING' }
     const events: BaseEvent[] = [
-      { type: 'transitioned', at: '2026-01-01T00:00:00.000Z', from: 'SPAWN', to: 'PLANNING' },
+      transitionedEvent,
     ]
     let capturedState: TestState | undefined
     const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {

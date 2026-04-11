@@ -24,7 +24,6 @@ function createMockWorkflow(): TestWorkflow {
   const state: TestState = { currentStateMachineState: 'planning' }
   return {
     getState: () => state,
-    getAgentInstructions: () => '/tmp/instructions.md',
     appendEvent: () => undefined,
     getPendingEvents: () => [] as readonly BaseEvent[],
     startSession: () => undefined,

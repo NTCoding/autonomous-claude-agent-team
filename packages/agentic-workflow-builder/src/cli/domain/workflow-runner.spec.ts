@@ -10,6 +10,7 @@ import type {
   WorkflowEngineDeps,
   WorkflowEventStore,
 } from '../../engine/index.js'
+import { EngineEventSchema } from '../../engine/index.js'
 import type { BaseEvent } from '../../engine/index.js'
 import { arg } from './arg-helpers.js'
 import { EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from './exit-codes.js'
@@ -27,7 +28,6 @@ function createMockWorkflow(initialState: TestState = { currentStateMachineState
   let transcriptPath = '/tmp/transcript.json'
   return {
     getState: () => state,
-    getAgentInstructions: () => '/tmp/instructions.md',
     appendEvent: (event: BaseEvent) => {
       pending.push(event)
       if (event.type === 'transitioned') {
@@ -38,7 +38,8 @@ function createMockWorkflow(initialState: TestState = { currentStateMachineState
     getPendingEvents: () => pending,
     startSession: (nextTranscriptPath: string) => {
       transcriptPath = nextTranscriptPath
-      pending.push({ type: 'session-started', at: '2024-01-01T00:00:00Z', transcriptPath: nextTranscriptPath })
+      const sessionStartedEvent = { type: 'session-started', at: '2024-01-01T00:00:00Z', transcriptPath: nextTranscriptPath }
+      pending.push(sessionStartedEvent)
     },
     getTranscriptPath: () => transcriptPath,
     registerAgent: () => pass(),
@@ -259,8 +260,14 @@ describe('createWorkflowRunner', () => {
       )
 
       expect(result.exitCode).toBe(EXIT_ALLOW)
-      const sessionStarted = appended.flat().find((event) => event.type === 'session-started')
-      expect(sessionStarted?.['transcriptPath']).toBe('/tmp/opencode.db')
+      const parsedSessionStarted = appended
+        .flat()
+        .map((event) => EngineEventSchema.safeParse(event))
+        .find((event) => event.success && event.data.type === 'session-started')
+      if (parsedSessionStarted === undefined || !parsedSessionStarted.success || parsedSessionStarted.data.type !== 'session-started') {
+        throw new Error('Expected session-started event')
+      }
+      expect(parsedSessionStarted.data.transcriptPath).toBe('/tmp/opencode.db')
     })
   })
 

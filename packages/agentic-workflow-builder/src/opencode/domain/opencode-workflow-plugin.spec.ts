@@ -13,6 +13,7 @@ import type {
   RehydratableWorkflow,
   WorkflowDefinition,
 } from '../../engine/index.js'
+import { EngineEventSchema } from '../../engine/index.js'
 import type { BaseEvent } from '../../engine/index.js'
 import type { PlatformContext, CustomPreToolUseGate, RouteMap } from '../../cli/index.js'
 import { pass } from '../../dsl/index.js'
@@ -26,16 +27,19 @@ function createMockWorkflow(initialState: TestState = { currentStateMachineState
   const pendingEvents: BaseEvent[] = []
   let transcriptPath = initialState.transcriptPath
   return {
-    getState: () => ({ currentStateMachineState: 'planning', transcriptPath }),
+    getState: () => transcriptPath === undefined
+      ? { currentStateMachineState: 'planning' }
+      : { currentStateMachineState: 'planning', transcriptPath },
     appendEvent: (event) => { pendingEvents.push(event) },
     getPendingEvents: () => pendingEvents as readonly BaseEvent[],
     startSession: (nextTranscriptPath) => {
       transcriptPath = nextTranscriptPath
-      pendingEvents.push({
+      const sessionStartedEvent = {
         type: 'session-started',
         at: new Date().toISOString(),
         transcriptPath: nextTranscriptPath,
-      })
+      }
+      pendingEvents.push(sessionStartedEvent)
     },
     getTranscriptPath: () => {
       if (transcriptPath === undefined) {
@@ -51,8 +55,9 @@ function createMockWorkflow(initialState: TestState = { currentStateMachineState
 function createMockWorkflowDefinition(): WorkflowDefinition<TestWorkflow, TestState, TestDeps, TestStateName> {
   return {
     fold: (state, event) => {
-      if (event.type === 'session-started' && typeof event['transcriptPath'] === 'string') {
-        return { ...state, transcriptPath: event['transcriptPath'] }
+      const parsedEvent = EngineEventSchema.safeParse(event)
+      if (parsedEvent.success && parsedEvent.data.type === 'session-started' && parsedEvent.data.transcriptPath !== undefined) {
+        return { ...state, transcriptPath: parsedEvent.data.transcriptPath }
       }
       return state
     },
@@ -145,6 +150,10 @@ function createToolContext(sessionID: string): ToolContext {
 
 function hasZodV4SchemaDef(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  if (!('_zod' in value)) {
     return false
   }
 

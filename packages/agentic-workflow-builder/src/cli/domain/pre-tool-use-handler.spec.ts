@@ -50,7 +50,7 @@ function makeStubFactory(): WorkflowDefinition<StubWorkflowType, StubState, Stub
   return {
     fold: () => ({ currentStateMachineState: 'DEVELOPING' }),
     buildWorkflow: () => new StubWorkflow(),
-    stateSchema: z.string() as z.ZodType<string>,
+    stateSchema: z.literal('DEVELOPING'),
     initialState: () => ({ currentStateMachineState: 'DEVELOPING' }),
     getRegistry: () => STUB_REGISTRY,
     buildTransitionContext: (state, from, to) => ({

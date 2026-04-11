@@ -3,5 +3,9 @@ set -e
 
 pnpm lint
 pnpm typecheck
+pnpm --filter @ntcoding/agentic-workflow-builder typecheck
+pnpm --filter @ntcoding/workflow-control-center typecheck
 pnpm test
+pnpm --filter @ntcoding/agentic-workflow-builder exec vitest run
+pnpm --filter @ntcoding/workflow-control-center exec vitest run
 pnpm knip

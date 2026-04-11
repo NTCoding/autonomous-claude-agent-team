@@ -24,6 +24,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm --filter @ntcoding/agentic-workflow-builder typecheck
+      - run: pnpm --filter @ntcoding/workflow-control-center typecheck
       - run: pnpm lint
 
   test:
@@ -40,6 +42,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+      - run: pnpm --filter @ntcoding/agentic-workflow-builder exec vitest run
+      - run: pnpm --filter @ntcoding/workflow-control-center exec vitest run
 
   dependency-boundaries:
     name: Dependency Boundaries

@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Hook-driven state machine for orchestrating a three-agent Claude feature team",
-    "version": "4.1.1"
+    "version": "4.1.2"
   },
   "plugins": [
     {
@@ -13,5 +13,5 @@
       "source": "./"
     }
   ],
-  "version": "4.1.1"
+  "version": "4.1.2"
 }
