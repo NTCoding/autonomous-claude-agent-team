@@ -1,4 +1,4 @@
-import type { WorkflowEventStore } from '../../engine/index.js'
+import type { WorkflowEventStore } from '../../engine/index'
 
 export type PlatformContext = {
   readonly getPluginRoot: () => string

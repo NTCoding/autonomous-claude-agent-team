@@ -1,24 +1,24 @@
-import type { BaseWorkflowState } from '../../engine/index.js'
-import { WorkflowEngine } from '../../engine/index.js'
+import type { BaseWorkflowState } from '../../engine/index'
+import { WorkflowEngine } from '../../engine/index'
 import type {
   RehydratableWorkflow,
   WorkflowDefinition,
   WorkflowEngineDeps,
   EngineResult,
-} from '../../engine/index.js'
-import type { BashForbiddenConfig } from '../../dsl/index.js'
-import type { ArgParser } from './arg-helpers.js'
-import type { RouteMap } from './command-definition.js'
-import type { PreToolUseInput, SubagentStartInput, TeammateIdleInput } from './hook-schemas.js'
-import { EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from './exit-codes.js'
-import { HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema, TeammateIdleInputSchema } from './hook-schemas.js'
-import { formatDenyDecision, formatContextInjection } from './hook-output.js'
-import type { PreToolUseHandlerFn, CustomPreToolUseGate } from './pre-tool-use-handler.js'
-import { createPreToolUseHandler } from './pre-tool-use-handler.js'
+} from '../../engine/index'
+import type { BashForbiddenConfig } from '../../dsl/index'
+import type { ArgParser } from './arg-helpers'
+import type { RouteMap } from './command-definition'
+import type { PreToolUseInput, SubagentStartInput, TeammateIdleInput } from './hook-schemas'
+import { EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from './exit-codes'
+import { HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema, TeammateIdleInputSchema } from './hook-schemas'
+import { formatDenyDecision, formatContextInjection } from './hook-output'
+import type { PreToolUseHandlerFn, CustomPreToolUseGate } from './pre-tool-use-handler'
+import { createPreToolUseHandler } from './pre-tool-use-handler'
 
 export type RunnerResult = { readonly output: string; readonly exitCode: number }
 
-export type { PreToolUseHandlerFn } from './pre-tool-use-handler.js'
+export type { PreToolUseHandlerFn } from './pre-tool-use-handler'
 
 export type RunnerOptions = {
   readonly readStdin?: () => string

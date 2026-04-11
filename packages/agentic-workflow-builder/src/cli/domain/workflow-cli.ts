@@ -1,9 +1,9 @@
 import { join } from 'node:path'
-import type { BaseWorkflowState, WorkflowEventStore, WorkflowEngineDeps, TranscriptReader } from '../../engine/index.js'
-import type { RehydratableWorkflow } from '../../engine/index.js'
-import type { WorkflowRunnerConfig, RunnerResult } from './workflow-runner.js'
-import { createWorkflowRunner } from './workflow-runner.js'
-import type { PlatformContext } from './platform-context.js'
+import type { BaseWorkflowState, WorkflowEventStore, WorkflowEngineDeps, TranscriptReader } from '../../engine/index'
+import type { RehydratableWorkflow } from '../../engine/index'
+import type { WorkflowRunnerConfig, RunnerResult } from './workflow-runner'
+import { createWorkflowRunner } from './workflow-runner'
+import type { PlatformContext } from './platform-context'
 
 export type ProcessDeps = {
   readonly getEnv: (name: string) => string | undefined

@@ -1,4 +1,4 @@
-import type { PreconditionResult } from './result.js'
+import type { PreconditionResult } from './result'
 
 export type GitInfo = {
   readonly currentBranch: string

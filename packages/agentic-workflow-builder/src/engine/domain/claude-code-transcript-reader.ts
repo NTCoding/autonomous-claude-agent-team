@@ -1,6 +1,6 @@
 import { openSync, readSync, statSync, closeSync } from 'node:fs'
 import { z } from 'zod'
-import type { TranscriptMessage, TranscriptReader } from './transcript-reader.js'
+import type { TranscriptMessage, TranscriptReader } from './transcript-reader'
 
 const READ_TAIL_BYTES = 50_000
 

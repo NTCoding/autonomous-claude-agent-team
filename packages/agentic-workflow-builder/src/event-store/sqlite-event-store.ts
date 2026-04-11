@@ -1,10 +1,10 @@
 import { z } from 'zod'
-import { WorkflowStateError } from '../engine/domain/workflow-state.js'
+import { WorkflowStateError } from '../engine/domain/workflow-state'
 import {
   enableWalMode,
   openSqliteDatabase,
   type SqliteDatabase,
-} from './sqlite-runtime.js'
+} from './sqlite-runtime'
 
 const PassthroughEventSchema = z.object({ type: z.string(), at: z.string() }).passthrough()
 type BaseEvent = z.infer<typeof PassthroughEventSchema>

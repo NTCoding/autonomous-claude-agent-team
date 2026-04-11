@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import type { TranscriptMessage, TranscriptReader } from '../../engine/index.js'
-import { openSqliteDatabase, type SqliteDatabase } from '../../event-store/sqlite-runtime.js'
+import type { TranscriptMessage, TranscriptReader } from '../../engine/index'
+import { openSqliteDatabase, type SqliteDatabase } from '../../event-store/sqlite-runtime'
 
 const TextPart = z.object({ type: z.literal('text'), text: z.string() })
 

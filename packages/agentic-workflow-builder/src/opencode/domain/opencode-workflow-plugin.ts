@@ -7,12 +7,12 @@ import type {
   RehydratableWorkflow,
   WorkflowDefinition,
   WorkflowEngineDeps,
-} from '../../engine/index.js'
-import { WorkflowEngine } from '../../engine/index.js'
-import type { PlatformContext, PreToolUseHandlerConfig, RouteMap } from '../../cli/index.js'
-import { createPreToolUseHandler, createWorkflowRunner } from '../../cli/index.js'
-import { createStore } from '../../event-store/index.js'
-import { OpenCodeTranscriptReader } from './opencode-transcript-reader.js'
+} from '../../engine/index'
+import { WorkflowEngine } from '../../engine/index'
+import type { PlatformContext, PreToolUseHandlerConfig, RouteMap } from '../../cli/index'
+import { createPreToolUseHandler, createWorkflowRunner } from '../../cli/index'
+import { createStore } from '../../event-store/index'
+import { OpenCodeTranscriptReader } from './opencode-transcript-reader'
 
 const TRANSLATION_NOTE = [
   '> **OpenCode**: When instructions say `/dev-workflow-v2:workflow <op> [args]`, call',

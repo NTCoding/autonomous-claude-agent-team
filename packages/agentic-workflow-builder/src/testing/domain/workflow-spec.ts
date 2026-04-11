@@ -1,4 +1,4 @@
-import type { SpecConfig, GivenPhase, WorkflowSpecification } from './types.js'
+import type { SpecConfig, GivenPhase, WorkflowSpecification } from './types'
 
 export class WorkflowSpecError extends Error {
   constructor(message: string) {

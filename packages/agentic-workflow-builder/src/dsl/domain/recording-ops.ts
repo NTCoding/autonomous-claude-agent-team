@@ -1,6 +1,6 @@
-import type { PreconditionResult } from './result.js'
-import { pass, fail } from './result.js'
-import type { WorkflowRegistry } from './types.js'
+import type { PreconditionResult } from './result'
+import { pass, fail } from './result'
+import type { WorkflowRegistry } from './types'
 
 export function checkOperationGate<
   TStateName extends string,

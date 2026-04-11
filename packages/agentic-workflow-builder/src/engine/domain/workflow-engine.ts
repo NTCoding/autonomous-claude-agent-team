@@ -1,8 +1,8 @@
-import type { PreconditionResult, WorkflowRegistry, TransitionContext, BashForbiddenConfig } from '../../dsl/index.js'
-import { checkBashCommand } from '../../dsl/index.js'
-import type { BaseWorkflowState } from './workflow-state.js'
-import { WorkflowStateError } from './workflow-state.js'
-import type { BaseEvent } from './base-event.js'
+import type { PreconditionResult, WorkflowRegistry, TransitionContext, BashForbiddenConfig } from '../../dsl/index'
+import { checkBashCommand } from '../../dsl/index'
+import type { BaseWorkflowState } from './workflow-state'
+import { WorkflowStateError } from './workflow-state'
+import type { BaseEvent } from './base-event'
 import type { ZodType } from 'zod'
 import {
   formatTransitionSuccess,
@@ -11,9 +11,9 @@ import {
   formatOperationGateError,
   formatOperationSuccess,
   formatInitSuccess,
-} from './output-guidance.js'
-import type { TranscriptReader } from './transcript-reader.js'
-import { checkIdentity } from './identity-verification.js'
+} from './output-guidance'
+import type { TranscriptReader } from './transcript-reader'
+import { checkIdentity } from './identity-verification'
 
 export type EngineResult =
   | { readonly type: 'success'; readonly output: string }

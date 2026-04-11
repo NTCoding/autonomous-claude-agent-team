@@ -1,4 +1,4 @@
-import type { TranscriptMessage } from './transcript-reader.js'
+import type { TranscriptMessage } from './transcript-reader'
 
 export type IdentityCheckResult =
   | { readonly status: 'verified' }

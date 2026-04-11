@@ -1,10 +1,10 @@
-export type { BaseWorkflowState } from './domain/workflow-state.js'
-export { WorkflowStateError } from './domain/workflow-state.js'
+export type { BaseWorkflowState } from './domain/workflow-state'
+export { WorkflowStateError } from './domain/workflow-state'
 
-export type { BaseEvent } from './domain/base-event.js'
-export { BaseEventSchema } from './domain/base-event.js'
+export type { BaseEvent } from './domain/base-event'
+export { BaseEventSchema } from './domain/base-event'
 
-export { EngineEventSchema } from './domain/engine-events.js'
+export { EngineEventSchema } from './domain/engine-events'
 export type {
   EngineEvent,
   SessionStartedEvent,
@@ -18,26 +18,26 @@ export type {
   IdleCheckedEvent,
   IdentityVerifiedEvent,
   ContextRequestedEvent,
-} from './domain/engine-events.js'
+} from './domain/engine-events'
 
-export { DomainMetadataEventSchema } from './domain/domain-metadata-events.js'
+export { DomainMetadataEventSchema } from './domain/domain-metadata-events'
 export type {
   DomainMetadataEvent,
   IssueRecordedEvent,
   BranchRecordedEvent,
   PrRecordedEvent,
-} from './domain/domain-metadata-events.js'
+} from './domain/domain-metadata-events'
 
-export { WorkflowEngine } from './domain/workflow-engine.js'
+export { WorkflowEngine } from './domain/workflow-engine'
 export type {
   EngineResult,
   RehydratableWorkflow,
   WorkflowDefinition,
   WorkflowEventStore,
   WorkflowEngineDeps,
-} from './domain/workflow-engine.js'
+} from './domain/workflow-engine'
 
-export type { TranscriptMessage, TranscriptReader } from './domain/transcript-reader.js'
-export type { IdentityCheckResult } from './domain/identity-verification.js'
-export { checkIdentity } from './domain/identity-verification.js'
-export { ClaudeCodeTranscriptReader } from './domain/claude-code-transcript-reader.js'
+export type { TranscriptMessage, TranscriptReader } from './domain/transcript-reader'
+export type { IdentityCheckResult } from './domain/identity-verification'
+export { checkIdentity } from './domain/identity-verification'
+export { ClaudeCodeTranscriptReader } from './domain/claude-code-transcript-reader'

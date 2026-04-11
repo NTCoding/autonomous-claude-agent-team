@@ -1,4 +1,4 @@
-import type { PreconditionResult } from '../../dsl/index.js'
+import type { PreconditionResult } from '../../dsl/index'
 
 export type HookCheck<TWorkflow> = {
   readonly extract: (toolInput: Record<string, unknown>) => Record<string, string>

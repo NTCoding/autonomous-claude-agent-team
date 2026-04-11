@@ -1,5 +1,5 @@
-import type { WorkflowEngine, EngineResult, BaseWorkflowState, RehydratableWorkflow } from '../../engine/index.js'
-import type { BashForbiddenConfig } from '../../dsl/index.js'
+import type { WorkflowEngine, EngineResult, BaseWorkflowState, RehydratableWorkflow } from '../../engine/index'
+import type { BashForbiddenConfig } from '../../dsl/index'
 
 export type PreToolUseHandlerFn<
   TWorkflow extends RehydratableWorkflow<TState>,

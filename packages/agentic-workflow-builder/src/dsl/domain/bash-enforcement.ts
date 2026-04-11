@@ -1,6 +1,6 @@
-import type { PreconditionResult } from './result.js'
-import { pass, fail } from './result.js'
-import type { BashForbiddenConfig } from './types.js'
+import type { PreconditionResult } from './result'
+import { pass, fail } from './result'
+import type { BashForbiddenConfig } from './types'
 
 function buildCommandPattern(command: string): RegExp {
   const parts = command.trim().split(/\s+/)

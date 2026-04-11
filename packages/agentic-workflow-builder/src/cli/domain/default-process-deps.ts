@@ -1,7 +1,7 @@
 /* v8 ignore start */
 import { readFileSync, appendFileSync } from 'node:fs'
-import { createStore } from '../../event-store/index.js'
-import type { ProcessDeps } from './workflow-cli.js'
+import { createStore } from '../../event-store/index'
+import type { ProcessDeps } from './workflow-cli'
 
 export function createDefaultProcessDeps(): ProcessDeps {
   return {

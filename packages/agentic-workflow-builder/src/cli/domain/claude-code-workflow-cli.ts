@@ -1,8 +1,8 @@
-import type { BaseWorkflowState } from '../../engine/index.js'
-import { ClaudeCodeTranscriptReader } from '../../engine/index.js'
-import type { RehydratableWorkflow } from '../../engine/index.js'
-import type { WorkflowCliConfig } from './workflow-cli.js'
-import { createWorkflowCli } from './workflow-cli.js'
+import type { BaseWorkflowState } from '../../engine/index'
+import { ClaudeCodeTranscriptReader } from '../../engine/index'
+import type { RehydratableWorkflow } from '../../engine/index'
+import type { WorkflowCliConfig } from './workflow-cli'
+import { createWorkflowCli } from './workflow-cli'
 
 export type ClaudeCodeWorkflowCliConfig<
   TWorkflow extends RehydratableWorkflow<TState>,

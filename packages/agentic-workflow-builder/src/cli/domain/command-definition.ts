@@ -1,5 +1,5 @@
-import type { PreconditionResult } from '../../dsl/index.js'
-import type { ArgParser } from './arg-helpers.js'
+import type { PreconditionResult } from '../../dsl/index'
+import type { ArgParser } from './arg-helpers'
 
 type RouteHandler<TWorkflow> = (workflow: TWorkflow, ...parsedArgs: readonly unknown[]) => PreconditionResult
 
