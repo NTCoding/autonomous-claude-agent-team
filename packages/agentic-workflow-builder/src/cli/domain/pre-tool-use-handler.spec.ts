@@ -298,4 +298,20 @@ describe('createPreToolUseHandler', () => {
     const transactionCall = calls.find((c): c is EngineCall & { method: 'transaction' } => c.method === 'transaction')
     expect(transactionCall?.op).toStrictEqual('hook:my-gate')
   })
+
+  it('invokes the gate.check function via real transaction and returns blocked for string reason', () => {
+    const workflowDeps: StubDeps = {}
+    const real = new WorkflowEngine(makeStubFactory(), makeStubEngineDeps(), workflowDeps)
+    const gate: CustomPreToolUseGate<StubWorkflowType, StubState, StubStateName> = {
+      name: 'string-gate',
+      check: () => 'not allowed',
+    }
+    const handler = createPreToolUseHandler<StubWorkflowType, StubState, StubDeps, StubStateName, string>({
+      bashForbidden: NOOP_BASH_FORBIDDEN,
+      isWriteAllowed: ALWAYS_ALLOW_WRITE,
+      customGates: [gate],
+    })
+    const result = handler(real, 'sess1', 'Read', {})
+    expect(result.type).toStrictEqual('blocked')
+  })
 })
