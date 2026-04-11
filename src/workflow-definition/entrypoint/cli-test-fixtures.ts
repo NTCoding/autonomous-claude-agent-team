@@ -21,6 +21,7 @@ export function makeHookStdin(overrides: Record<string, unknown> = {}): string {
 
 export function spawnReadyEvents(): readonly WorkflowEvent[] {
   return [
+    { type: 'session-started', at: AT, transcriptPath: '/test/transcript.jsonl' },
     { type: 'issue-recorded', at: AT, issueNumber: 42 },
     { type: 'agent-registered', at: AT, agentType: 'developer-1', agentId: 'agt-1' },
     { type: 'agent-registered', at: AT, agentType: 'reviewer-1', agentId: 'agt-2' },
@@ -79,7 +80,7 @@ type EngineDepsOverrides = { store?: Partial<WorkflowEventStore> } & Partial<Omi
 
 function makeStore(overrides?: Partial<WorkflowEventStore>): WorkflowEventStore {
   return {
-    readEvents: () => [],
+    readEvents: () => [{ type: 'session-started', at: AT, transcriptPath: '/test/transcript.jsonl' }],
     appendEvents: () => undefined,
     sessionExists: () => true,
     ...overrides,

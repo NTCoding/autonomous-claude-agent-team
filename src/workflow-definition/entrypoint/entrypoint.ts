@@ -1,6 +1,6 @@
 import type { EngineResult, WorkflowEngineDeps } from '@ntcoding/agentic-workflow-builder/engine'
 import { WorkflowEngine } from '@ntcoding/agentic-workflow-builder/engine'
-import { createWorkflowRunner, defineRoutes, defineHooks, arg, EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from '@ntcoding/agentic-workflow-builder/cli'
+import { createWorkflowRunner, defineRoutes, arg, EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from '@ntcoding/agentic-workflow-builder/cli'
 import type { RunnerResult } from '@ntcoding/agentic-workflow-builder/cli'
 import { BASH_FORBIDDEN, checkWriteAllowed, FeatureTeamWorkflowDefinition, StateNameSchema } from '../index.js'
 import type { Workflow, WorkflowDeps } from '../index.js'
@@ -36,25 +36,18 @@ const ROUTES = defineRoutes<Workflow, WorkflowState>({
   'get-session-summary':           { type: 'transaction', args: [arg.string('agent-name').optional()], handler: (w, name) => w.getSessionSummary(typeof name === 'string' ? name : '') },
 })
 
-const HOOKS = defineHooks<Workflow>({
-  subagentStart: {
-    register: (w, agentType, agentId) => w.registerAgent(agentType, agentId),
-  },
-  teammateIdle: {
-    check: (w, agentName) => w.checkIdleAllowed(agentName),
-  },
-})
-
 const platformRunner = createWorkflowRunner<Workflow, WorkflowState, WorkflowDeps, StateName, WorkflowOperation>({
   workflowDefinition: FeatureTeamWorkflowDefinition,
   routes: ROUTES,
-  hooks: HOOKS,
   bashForbidden: BASH_FORBIDDEN,
   isWriteAllowed: checkWriteAllowed,
   customGates: [
     {
       name: 'plugin-source-read',
-      check: (w, toolName, filePath, command) => w.checkPluginSourceRead(toolName, filePath, command),
+      check: (w, { toolName, filePath, command }) => {
+        const result = w.checkPluginSourceRead(toolName, filePath, command)
+        return result.pass ? true : result.reason
+      },
     },
   ],
 })
@@ -70,7 +63,7 @@ export function runWorkflow(args: readonly string[], deps: WorkflowEntrypointDep
 
 function handleInit(deps: WorkflowEntrypointDeps): RunnerResult {
   const engine = new WorkflowEngine(FeatureTeamWorkflowDefinition, deps.engineDeps, deps.workflowDeps)
-  return mapResult(engine.startSession(deps.getSessionId(), undefined, deps.getRepositoryName()))
+  return mapResult(engine.startSession(deps.getSessionId(), '', deps.getRepositoryName()))
 }
 
 function mapResult(result: EngineResult): RunnerResult {

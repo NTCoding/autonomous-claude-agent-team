@@ -58,8 +58,6 @@ export function checkOperationGate(op: WorkflowOperation, state: WorkflowState):
   return fail(`${op} is not allowed in state ${state.currentStateMachineState}.`)
 }
 
-export function checkWriteAllowed(toolName: string, filePath: string, state: WorkflowState): PreconditionResult {
-  if (!FILE_WRITING_TOOLS.has(toolName)) return pass()
-  if (isStateFile(filePath)) return pass()
-  return fail(`Write operation '${toolName}' is forbidden in state: ${state.currentStateMachineState}`)
+export function checkWriteAllowed(_filePath: string, _state: WorkflowState): boolean {
+  return false
 }

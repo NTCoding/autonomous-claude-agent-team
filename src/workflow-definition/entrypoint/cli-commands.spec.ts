@@ -30,7 +30,7 @@ describe('runWorkflow - routing overview', () => {
           agent_id: 'agt-1',
           agent_type: 'developer-1',
         }),
-        engineDeps: { store: { sessionExists: () => true, readEvents: () => [] } },
+        engineDeps: { store: { sessionExists: () => true, readEvents: () => [{ type: 'session-started', at: '2026-01-01T00:00:00Z', transcriptPath: '/test/transcript.jsonl' }] } },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)

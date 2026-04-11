@@ -68,21 +68,21 @@ describe('runWorkflow - write-journal command', () => {
   })
 
   it('returns EXIT_ALLOW and appends journal-entry event when session exists', () => {
-    const appended: Array<{ sessionId: string; firstEventType: string }> = []
+    const appendedTypes: string[] = []
     const result = runWorkflow(
       ['write-journal', 'developer-1', 'Finished auth module'],
       makeDeps({
         engineDeps: {
           store: {
             sessionExists: () => true,
-            readEvents: () => [],
-            appendEvents: (sessionId, events) => appended.push({ sessionId, firstEventType: events[0]?.type ?? '' }),
+            readEvents: () => [{ type: 'session-started', at: AT, transcriptPath: '/test/transcript.jsonl' }],
+            appendEvents: (_sessionId, events) => appendedTypes.push(...events.map(e => e.type)),
           },
         },
       }),
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
-    expect(appended[0]?.firstEventType).toStrictEqual('journal-entry')
+    expect(appendedTypes).toContain('journal-entry')
   })
 })
 
@@ -108,19 +108,19 @@ describe('runWorkflow - get-session-summary command', () => {
   })
 
   it('appends context-requested event when session exists', () => {
-    const appended: Array<{ firstEventType: string }> = []
+    const appendedTypes: string[] = []
     runWorkflow(
       ['get-session-summary', 'developer-1'],
       makeDeps({
         engineDeps: {
           store: {
             sessionExists: () => true,
-            readEvents: () => [],
-            appendEvents: (_sessionId, events) => appended.push({ firstEventType: events[0]?.type ?? '' }),
+            readEvents: () => [{ type: 'session-started', at: AT, transcriptPath: '/test/transcript.jsonl' }],
+            appendEvents: (_sessionId, events) => appendedTypes.push(...events.map(e => e.type)),
           },
         },
       }),
     )
-    expect(appended[0]?.firstEventType).toStrictEqual('context-requested')
+    expect(appendedTypes).toContain('context-requested')
   })
 })

@@ -3,6 +3,7 @@ import { checkBashCommand } from '../../dsl/index.js'
 import type { BaseWorkflowState } from './workflow-state.js'
 import { WorkflowStateError } from './workflow-state.js'
 import type { BaseEvent } from './base-event.js'
+import type { ZodType } from 'zod'
 import {
   formatTransitionSuccess,
   formatTransitionError,
@@ -12,25 +13,21 @@ import {
   formatInitSuccess,
 } from './output-guidance.js'
 import type { TranscriptReader } from './transcript-reader.js'
-import type { PrefixConfig } from './identity-verification.js'
 import { checkIdentity } from './identity-verification.js'
-import { ClaudeCodeTranscriptReader } from './claude-code-transcript-reader.js'
 
 export type EngineResult =
   | { readonly type: 'success'; readonly output: string }
   | { readonly type: 'blocked'; readonly output: string }
   | { readonly type: 'error'; readonly output: string }
 
-export type IdentityCheck =
-  | { readonly kind: 'skip' }
-  | { readonly kind: 'verify'; readonly transcriptPath: string }
-
 export interface RehydratableWorkflow<TState extends BaseWorkflowState> {
   getState(): TState
-  getAgentInstructions(pluginRoot: string): string
   appendEvent(event: BaseEvent): void
   getPendingEvents(): readonly BaseEvent[]
-  startSession(transcriptPath: string | undefined, repository: string | undefined): void
+  startSession(transcriptPath: string, repository: string | undefined): void
+  getTranscriptPath(): string
+  registerAgent(agentType: string, agentId: string): PreconditionResult
+  handleTeammateIdle(agentName: string): PreconditionResult
 }
 
 export interface WorkflowDefinition<
@@ -40,17 +37,15 @@ export interface WorkflowDefinition<
   TStateName extends string = string,
   TOperation extends string = string,
 > {
-  rehydrate(events: readonly BaseEvent[], deps: TDeps): TWorkflow
-  createFresh(deps: TDeps): TWorkflow
-  procedurePath(state: TStateName, pluginRoot: string): string
+  fold(state: TState, event: BaseEvent): TState
+  buildWorkflow(state: TState, deps: TDeps): TWorkflow
+  stateSchema: ZodType<TStateName>
   initialState(): TState
   getRegistry(): WorkflowRegistry<TState, TStateName, TOperation>
   buildTransitionContext(state: TState, from: TStateName, to: TStateName, deps: TDeps): TransitionContext<TState, TStateName>
   getOperationBody?(op: string, state: TState): string
   getTransitionTitle?(to: TStateName, state: TState): string
   buildTransitionEvent?(from: TStateName, to: TStateName, stateBefore: TState, stateAfter: TState, now: string): BaseEvent
-  parseStateName(value: string): TStateName
-  getPrefixConfig?(): PrefixConfig
 }
 
 export interface WorkflowEventStore {
@@ -66,7 +61,7 @@ export type WorkflowEngineDeps = {
   readonly readFile: (path: string) => string
   readonly appendToFile: (filePath: string, content: string) => void
   readonly now: () => string
-  readonly transcriptReader?: TranscriptReader
+  readonly transcriptReader: TranscriptReader
 }
 
 export class WorkflowEngine<
@@ -90,39 +85,42 @@ export class WorkflowEngine<
     this.workflowDeps = workflowDeps
   }
 
-  startSession(sessionId: string, transcriptPath?: string, repository?: string): EngineResult {
+  startSession(sessionId: string, transcriptPath: string, repository?: string): EngineResult {
     if (this.engineDeps.store.sessionExists(sessionId)) {
       return { type: 'success', output: '' }
     }
-    const workflow = this.factory.createFresh(this.workflowDeps)
+    const initialState = this.factory.initialState()
+    const workflow = this.factory.buildWorkflow(initialState, this.workflowDeps)
     workflow.startSession(transcriptPath, repository)
     this.engineDeps.store.appendEvents(sessionId, workflow.getPendingEvents())
-    const initial = this.factory.initialState()
-    const procedurePath = this.factory.procedurePath(initial.currentStateMachineState, this.engineDeps.getPluginRoot())
-    const procedureContent = this.engineDeps.readFile(procedurePath)
-    return { type: 'success', output: formatInitSuccess(procedureContent) }
+    const procedureContent = this.engineDeps.readFile(this.buildProcedurePath(initialState.currentStateMachineState))
+    const registry = this.factory.getRegistry()
+    const expectedPrefix = this.getExpectedPrefix(initialState.currentStateMachineState, registry)
+    return { type: 'success', output: formatInitSuccess(procedureContent, expectedPrefix) }
   }
 
   transaction(
     sessionId: string,
     op: string,
     fn: (w: TWorkflow) => PreconditionResult,
-    identityCheck: IdentityCheck,
   ): EngineResult {
     this.requireSession(sessionId)
     const workflow = this.rehydrateFromEvents(sessionId)
-    const identityResult = this.verifyIdentity(sessionId, workflow, identityCheck)
+    const registry = this.factory.getRegistry()
+    const identityResult = this.verifyIdentity(sessionId, workflow)
     if (identityResult !== undefined) {
       this.persistEvents(sessionId, workflow)
-      return { type: 'blocked', output: formatOperationGateError(op, identityResult) }
+      const currentPrefix = this.getExpectedPrefix(workflow.getState().currentStateMachineState, registry)
+      return { type: 'blocked', output: formatOperationGateError(op, identityResult, currentPrefix) }
     }
     const result = fn(workflow)
     this.persistEvents(sessionId, workflow)
+    const currentPrefix = this.getExpectedPrefix(workflow.getState().currentStateMachineState, registry)
     if (!result.pass) {
-      return { type: 'blocked', output: formatOperationGateError(op, result.reason) }
+      return { type: 'blocked', output: formatOperationGateError(op, result.reason, currentPrefix) }
     }
     const body = this.factory.getOperationBody?.(op, workflow.getState()) ?? op
-    return { type: 'success', output: formatOperationSuccess(op, body) }
+    return { type: 'success', output: formatOperationSuccess(op, body, currentPrefix) }
   }
 
   transition(sessionId: string, target: TStateName): EngineResult {
@@ -131,13 +129,21 @@ export class WorkflowEngine<
     const state = workflow.getState()
     const currentStateName = state.currentStateMachineState
     const registry = this.factory.getRegistry()
-    const currentDef = registry[currentStateName]
 
+    const identityResult = this.verifyIdentity(sessionId, workflow)
+    if (identityResult !== undefined) {
+      this.persistEvents(sessionId, workflow)
+      const currentPrefix = this.getExpectedPrefix(currentStateName, registry)
+      return { type: 'blocked', output: formatOperationGateError('transition', identityResult, currentPrefix) }
+    }
+
+    const currentDef = registry[currentStateName]
     if (!currentDef.canTransitionTo.includes(target)) {
       const legalTargets = currentDef.canTransitionTo
       const reason = `Illegal transition ${currentStateName} -> ${target}. Legal targets from ${currentStateName}: [${legalTargets.join(', ') || 'none'}].`
       const currentProcedure = this.readProcedure(workflow)
-      return { type: 'blocked', output: formatIllegalTransitionError(reason, currentProcedure) }
+      const currentPrefix = this.getExpectedPrefix(currentStateName, registry)
+      return { type: 'blocked', output: formatIllegalTransitionError(reason, currentProcedure, currentPrefix) }
     }
 
     if (target !== 'BLOCKED' && currentDef.transitionGuard) {
@@ -145,7 +151,8 @@ export class WorkflowEngine<
       const guardResult = currentDef.transitionGuard(ctx)
       if (!guardResult.pass) {
         const currentProcedure = this.readProcedure(workflow)
-        return { type: 'blocked', output: formatTransitionError(target, guardResult.reason, currentProcedure) }
+        const currentPrefix = this.getExpectedPrefix(currentStateName, registry)
+        return { type: 'blocked', output: formatTransitionError(target, guardResult.reason, currentProcedure, currentPrefix) }
       }
     }
 
@@ -166,7 +173,8 @@ export class WorkflowEngine<
     const newState = workflow.getState()
     const title = this.factory.getTransitionTitle?.(newState.currentStateMachineState, newState) ?? newState.currentStateMachineState
     const procedure = this.readProcedure(workflow)
-    return { type: 'success', output: formatTransitionSuccess(title, procedure) }
+    const newPrefix = this.getExpectedPrefix(newState.currentStateMachineState, registry)
+    return { type: 'success', output: formatTransitionSuccess(title, procedure, newPrefix) }
   }
 
   checkBash(
@@ -174,14 +182,17 @@ export class WorkflowEngine<
     toolName: string,
     command: string,
     bashForbidden: BashForbiddenConfig,
-    identityCheck: IdentityCheck,
   ): EngineResult {
     this.requireSession(sessionId)
     const workflow = this.rehydrateFromEvents(sessionId)
-    const identityResult = this.verifyIdentity(sessionId, workflow, identityCheck)
+    const registry = this.factory.getRegistry()
+    const currentStateName = workflow.getState().currentStateMachineState
+    const currentPrefix = this.getExpectedPrefix(currentStateName, registry)
+
+    const identityResult = this.verifyIdentity(sessionId, workflow)
     if (identityResult !== undefined) {
       this.persistEvents(sessionId, workflow)
-      return { type: 'blocked', output: formatOperationGateError('bash-check', identityResult) }
+      return { type: 'blocked', output: formatOperationGateError('bash-check', identityResult, currentPrefix) }
     }
 
     if (toolName !== 'Bash') {
@@ -191,17 +202,15 @@ export class WorkflowEngine<
       return { type: 'success', output: '' }
     }
 
-    const registry = this.factory.getRegistry()
-    const currentState = workflow.getState().currentStateMachineState
-    const exemptions = registry[currentState].allowForbidden?.bash ?? []
+    const exemptions = registry[currentStateName].allowForbidden?.bash ?? []
     const result = checkBashCommand(command, bashForbidden, exemptions)
 
     if (!result.pass) {
-      const reason = `Bash command blocked in ${currentState}. ${result.reason}`
+      const reason = `Bash command blocked in ${currentStateName}. ${result.reason}`
       const deniedEvent = { type: 'bash-checked', at: this.engineDeps.now(), tool: toolName, command, allowed: false, reason }
       workflow.appendEvent(deniedEvent)
       this.persistEvents(sessionId, workflow)
-      return { type: 'blocked', output: formatOperationGateError('bash-check', reason) }
+      return { type: 'blocked', output: formatOperationGateError('bash-check', reason, currentPrefix) }
     }
 
     const passedEvent = { type: 'bash-checked', at: this.engineDeps.now(), tool: toolName, command, allowed: true }
@@ -214,21 +223,37 @@ export class WorkflowEngine<
     sessionId: string,
     toolName: string,
     filePath: string,
-    isWriteAllowed: (toolName: string, filePath: string, state: TState) => PreconditionResult,
-    identityCheck: IdentityCheck,
+    isWriteAllowed: (filePath: string, state: TState) => boolean,
   ): EngineResult {
     this.requireSession(sessionId)
     const workflow = this.rehydrateFromEvents(sessionId)
-    const identityResult = this.verifyIdentity(sessionId, workflow, identityCheck)
+    const registry = this.factory.getRegistry()
+    const currentStateName = workflow.getState().currentStateMachineState
+    const currentPrefix = this.getExpectedPrefix(currentStateName, registry)
+
+    const identityResult = this.verifyIdentity(sessionId, workflow)
     if (identityResult !== undefined) {
       this.persistEvents(sessionId, workflow)
-      return { type: 'blocked', output: formatOperationGateError('write-check', identityResult) }
+      return { type: 'blocked', output: formatOperationGateError('write-check', identityResult, currentPrefix) }
     }
 
-    const registry = this.factory.getRegistry()
-    const currentState = workflow.getState().currentStateMachineState
-    const isForbidden = registry[currentState].forbidden?.write ?? false
+    const writeTools = new Set(['Write', 'Edit', 'NotebookEdit'])
+    if (!writeTools.has(toolName)) {
+      const allowedEvent = { type: 'write-checked', at: this.engineDeps.now(), tool: toolName, filePath, allowed: true }
+      workflow.appendEvent(allowedEvent)
+      this.persistEvents(sessionId, workflow)
+      return { type: 'success', output: '' }
+    }
 
+    const storePath = `${this.engineDeps.getPluginRoot()}/workflow.db`
+    if (filePath === storePath) {
+      const allowedEvent = { type: 'write-checked', at: this.engineDeps.now(), tool: toolName, filePath, allowed: true }
+      workflow.appendEvent(allowedEvent)
+      this.persistEvents(sessionId, workflow)
+      return { type: 'success', output: '' }
+    }
+
+    const isForbidden = registry[currentStateName].forbidden?.write ?? false
     if (!isForbidden) {
       const allowedEvent = { type: 'write-checked', at: this.engineDeps.now(), tool: toolName, filePath, allowed: true }
       workflow.appendEvent(allowedEvent)
@@ -236,12 +261,13 @@ export class WorkflowEngine<
       return { type: 'success', output: '' }
     }
 
-    const result = isWriteAllowed(toolName, filePath, workflow.getState())
-    if (!result.pass) {
-      const deniedEvent = { type: 'write-checked', at: this.engineDeps.now(), tool: toolName, filePath, allowed: false, reason: result.reason }
+    const allowed = isWriteAllowed(filePath, workflow.getState())
+    if (!allowed) {
+      const reason = `Write to '${filePath}' is forbidden in state ${currentStateName}`
+      const deniedEvent = { type: 'write-checked', at: this.engineDeps.now(), tool: toolName, filePath, allowed: false, reason }
       workflow.appendEvent(deniedEvent)
       this.persistEvents(sessionId, workflow)
-      return { type: 'blocked', output: formatOperationGateError('write-check', result.reason) }
+      return { type: 'blocked', output: formatOperationGateError('write-check', reason, currentPrefix) }
     }
 
     const passedEvent = { type: 'write-checked', at: this.engineDeps.now(), tool: toolName, filePath, allowed: true }
@@ -267,7 +293,11 @@ export class WorkflowEngine<
 
   private rehydrateFromEvents(sessionId: string): TWorkflow {
     const events = this.engineDeps.store.readEvents(sessionId)
-    return this.factory.rehydrate(events, this.workflowDeps)
+    const state = events.reduce<TState>(
+      (acc, event) => this.factory.fold(acc, event),
+      this.factory.initialState(),
+    )
+    return this.factory.buildWorkflow(state, this.workflowDeps)
   }
 
   private persistEvents(sessionId: string, workflow: TWorkflow): void {
@@ -277,38 +307,45 @@ export class WorkflowEngine<
     }
   }
 
-  private verifyIdentity(sessionId: string, workflow: TWorkflow, check: IdentityCheck): string | undefined {
-    if (check.kind === 'skip') {
-      return undefined
-    }
-    const prefixConfig = this.factory.getPrefixConfig?.()
-    if (prefixConfig === undefined) {
-      throw new WorkflowStateError(
-        'Identity verification requested but WorkflowDefinition.getPrefixConfig is not implemented. '
-        + 'Either implement getPrefixConfig on your WorkflowDefinition or pass { kind: "skip" } for non-hook call sites.',
-      )
-    }
-    const reader = this.engineDeps.transcriptReader ?? new ClaudeCodeTranscriptReader()
-    const messages = reader.readMessages(check.transcriptPath)
+  private verifyIdentity(sessionId: string, workflow: TWorkflow): string | undefined {
+    const transcriptPath = workflow.getTranscriptPath()
     const state = workflow.getState().currentStateMachineState
     const registry = this.factory.getRegistry()
     const emoji = registry[state].emoji
-    const result = checkIdentity(messages, prefixConfig.pattern)
+    const expectedPrefix = `${emoji} ${state}`
+    const pattern = this.buildPrefixPattern(registry)
+    const messages = this.engineDeps.transcriptReader.readMessages(transcriptPath)
+    const result = checkIdentity(messages, pattern)
     const identityEvent = {
       type: 'identity-verified',
       at: this.engineDeps.now(),
       status: result.status,
-      transcriptPath: check.transcriptPath,
+      transcriptPath,
     }
     this.engineDeps.store.appendEvents(sessionId, [identityEvent])
     if (result.status === 'lost') {
-      return prefixConfig.buildRecoveryMessage(state, emoji, this.engineDeps.getPluginRoot())
+      return `You forgot. Next message MUST begin with: ${expectedPrefix}`
     }
     return undefined
   }
 
+  private buildPrefixPattern(registry: WorkflowRegistry<TState, TStateName, TOperation>): RegExp {
+    const prefixes = (Object.keys(registry) as TStateName[]).map(
+      (stateName) => `${registry[stateName].emoji} ${stateName}`,
+    )
+    return new RegExp(`^(${prefixes.join('|')})`)
+  }
+
+  private getExpectedPrefix(stateName: TStateName, registry: WorkflowRegistry<TState, TStateName, TOperation>): string {
+    return `${registry[stateName].emoji} ${stateName}`
+  }
+
   private readProcedure(workflow: TWorkflow): string {
-    const path = workflow.getAgentInstructions(this.engineDeps.getPluginRoot())
+    const path = this.buildProcedurePath(workflow.getState().currentStateMachineState)
     return this.engineDeps.readFile(path)
+  }
+
+  private buildProcedurePath(stateName: TStateName): string {
+    return `${this.engineDeps.getPluginRoot()}/states/${String(stateName).toLowerCase()}.md`
   }
 }

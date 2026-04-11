@@ -1,5 +1,4 @@
-import { writeFileSync, unlinkSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { z } from 'zod'
 import { WorkflowEngine } from './workflow-engine.js'
 import type {
   RehydratableWorkflow,
@@ -9,11 +8,9 @@ import type {
 } from './workflow-engine.js'
 import type { BaseWorkflowState } from './workflow-state.js'
 import type { BaseEvent } from './base-event.js'
-import type { PreconditionResult, WorkflowRegistry, TransitionContext, BashForbiddenConfig } from '../../dsl/index.js'
+import type { PreconditionResult, WorkflowRegistry, BashForbiddenConfig } from '../../dsl/index.js'
 import { pass, fail } from '../../dsl/index.js'
 import type { TranscriptReader } from './transcript-reader.js'
-import type { TranscriptMessage } from './transcript-reader.js'
-import type { PrefixConfig } from './identity-verification.js'
 
 type TestStateName = 'SPAWN' | 'PLANNING' | 'DEVELOPING' | 'BLOCKED' | 'REVIEWING' | 'RESPAWN'
 type TestState = BaseWorkflowState<TestStateName> & { readonly iteration: number }
@@ -27,18 +24,13 @@ const INITIAL_STATE: TestState = {
 class StubWorkflow implements RehydratableWorkflow<TestState> {
   private state: TestState
   private pending: BaseEvent[] = []
+  private storedTranscriptPath: string | undefined
 
   constructor(state: TestState) {
     this.state = { ...state }
   }
 
-  getState(): TestState {
-    return this.state
-  }
-
-  getAgentInstructions(_pluginRoot: string): string {
-    return '/plugin/states/spawn.md'
-  }
+  getState(): TestState { return this.state }
 
   appendEvent(event: BaseEvent): void {
     this.pending = [...this.pending, event]
@@ -46,24 +38,41 @@ class StubWorkflow implements RehydratableWorkflow<TestState> {
       const e = event as BaseEvent & { to: TestStateName }
       this.state = { ...this.state, currentStateMachineState: e.to }
     }
+    if (event.type === 'session-started') {
+      const e = event as BaseEvent & { transcriptPath?: string }
+      if (e.transcriptPath !== undefined) this.storedTranscriptPath = e.transcriptPath
+    }
   }
 
-  getPendingEvents(): readonly BaseEvent[] {
-    return this.pending
-  }
+  getPendingEvents(): readonly BaseEvent[] { return this.pending }
 
   addPendingEvent(event: BaseEvent): void {
     this.pending = [...this.pending, event]
   }
 
-  startSession(transcriptPath: string | undefined, repository: string | undefined): void {
+  startSession(transcriptPath: string, repository: string | undefined): void {
     const event: BaseEvent = {
       type: 'session-started',
       at: '2026-01-01T00:00:00.000Z',
-      ...(transcriptPath === undefined ? {} : { transcriptPath }),
+      transcriptPath,
       ...(repository === undefined ? {} : { repository }),
     }
     this.pending = [...this.pending, event]
+    this.storedTranscriptPath = transcriptPath
+  }
+
+  getTranscriptPath(): string {
+    if (this.storedTranscriptPath === undefined) throw new Error('Session not started')
+    return this.storedTranscriptPath
+  }
+
+  registerAgent(agentType: string, agentId: string): PreconditionResult {
+    this.pending = [...this.pending, { type: 'agent-registered', at: '2026-01-01T00:00:00.000Z', agentType, agentId }]
+    return pass()
+  }
+
+  handleTeammateIdle(_agentName: string): PreconditionResult {
+    return pass()
   }
 }
 
@@ -110,9 +119,15 @@ const TEST_REGISTRY: WorkflowRegistry<TestState, TestStateName, string> = {
 
 function makeFactory(workflow?: StubWorkflow): WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> {
   return {
-    rehydrate: (_events, _deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
-    createFresh: (_deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
-    procedurePath: (state, pluginRoot) => `${pluginRoot}/states/${state.toLowerCase()}.md`,
+    fold: (state, event) => {
+      if (event.type === 'transitioned') {
+        const e = event as BaseEvent & { to: TestStateName }
+        return { ...state, currentStateMachineState: e.to }
+      }
+      return state
+    },
+    buildWorkflow: (_state, _deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
+    stateSchema: z.enum(['SPAWN', 'PLANNING', 'DEVELOPING', 'BLOCKED', 'REVIEWING', 'RESPAWN']),
     initialState: () => INITIAL_STATE,
     getRegistry: () => TEST_REGISTRY,
     buildTransitionContext: (state, from, to, _deps) => ({
@@ -124,7 +139,6 @@ function makeFactory(workflow?: StubWorkflow): WorkflowDefinition<StubWorkflow, 
     }),
     getOperationBody: (op, state) => `${op} completed for state ${state.currentStateMachineState}`,
     getTransitionTitle: (to, state) => to === 'RESPAWN' ? `RESPAWN (iteration: ${state.iteration})` : to,
-    parseStateName: (v: string) => v as TestStateName,
   }
 }
 
@@ -148,6 +162,7 @@ function makeEngineDeps(overrides?: EngineDepsOverrides): WorkflowEngineDeps {
     readFile: () => '# Procedure\n\n- [ ] Do the thing',
     appendToFile: () => undefined,
     now: () => '2026-01-01T00:00:00.000Z',
+    transcriptReader: { readMessages: () => [] },
     ...rest,
   }
 }
@@ -167,18 +182,14 @@ function makeEngine(
   )
 }
 
-function stubTranscriptReader(messages: readonly TranscriptMessage[]): TranscriptReader {
-  return { readMessages: () => messages }
-}
-
-function makeEngineWithPrefixConfig(
+// Helper to make an engine with a workflow that has a transcript path set
+function makeEngineWithSession(
   transcriptReader: TranscriptReader,
-  prefixConfig: PrefixConfig,
+  workflow: StubWorkflow,
   engineOverrides?: EngineDepsOverrides,
 ): WorkflowEngine<StubWorkflow, TestState, TestDeps, TestStateName, string> {
-  const factory = { ...makeFactory(), getPrefixConfig: () => prefixConfig }
   return new WorkflowEngine(
-    factory,
+    makeFactory(workflow),
     makeEngineDeps({ ...engineOverrides, transcriptReader }),
     makeTestDeps(),
   )
@@ -197,22 +208,12 @@ describe('WorkflowEngine.startSession', () => {
     expect(appended[0]?.events[0]).toMatchObject({ transcriptPath: '/transcript.jsonl' })
   })
 
-  it('creates session-started event without transcriptPath when omitted', () => {
-    const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const engine = makeEngine({
-      store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
-    })
-    const result = engine.startSession('sess1')
-    expect(result.type).toStrictEqual('success')
-    expect(appended[0]?.events[0]).not.toMatchObject({ transcriptPath: expect.anything() })
-  })
-
   it('persists session-started event with session id in SPAWN state', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
     const engine = makeEngine({
       store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
     })
-    engine.startSession('sess1')
+    engine.startSession('sess1', '/t.jsonl')
     expect(appended[0]?.sessionId).toStrictEqual('sess1')
     expect(appended[0]?.events[0]?.type).toStrictEqual('session-started')
   })
@@ -222,7 +223,7 @@ describe('WorkflowEngine.startSession', () => {
     const engine = makeEngine({
       store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
     })
-    engine.startSession('sess1', undefined, 'owner/repo')
+    engine.startSession('sess1', '/t.jsonl', 'owner/repo')
     expect(appended[0]?.events[0]).toMatchObject({ repository: 'owner/repo' })
   })
 
@@ -232,131 +233,128 @@ describe('WorkflowEngine.startSession', () => {
     expect(result.type).toStrictEqual('success')
     expect(result.output).toStrictEqual('')
   })
+
+  it('output contains prefix footer for initial state', () => {
+    const engine = makeEngine({ store: { sessionExists: () => false, appendEvents: () => undefined } })
+    const result = engine.startSession('sess1', '/t.jsonl')
+    expect(result.output).toContain('Next message MUST begin with: 🟣 SPAWN')
+  })
 })
 
 describe('WorkflowEngine.transaction', () => {
   it('executes operation, appends pending events when precondition passes', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
     const workflow = new StubWorkflow(INITIAL_STATE)
-    const engine = makeEngine(
-      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
-      workflow,
-    )
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow, {
+      store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) },
+    })
     const result = engine.transaction('sess1', 'record-issue', (w) => {
       w.addPendingEvent({ type: 'issue-recorded', at: '2026-01-01T00:00:00.000Z' })
       return pass()
-    }, { kind: 'skip' })
+    })
     expect(result.type).toStrictEqual('success')
-    expect(appended[0]?.events[0]?.type).toStrictEqual('issue-recorded')
+    expect(appended.flatMap((a) => a.events).some((e) => e.type === 'issue-recorded')).toBe(true)
   })
 
-  it('does not append events when precondition fails', () => {
+  it('does not append non-identity events when precondition fails', () => {
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
     const appended: BaseEvent[] = []
-    const engine = makeEngine({
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow, {
       store: { appendEvents: (_id, events) => appended.push(...events) },
     })
-    const result = engine.transaction('sess1', 'record-issue', () => fail('not allowed in SPAWN'), { kind: 'skip' })
+    const result = engine.transaction('sess1', 'record-issue', () => fail('not allowed in SPAWN'))
     expect(result.type).toStrictEqual('blocked')
     expect(result.output).toContain('Cannot record-issue')
     expect(result.output).toContain('not allowed in SPAWN')
-    expect(appended).toHaveLength(0)
+    // Operation event is NOT appended — only setup (session-started) and identity-verified
+    expect(appended.some((e) => e.type === 'issue-recorded')).toBe(false)
+    expect(appended.some((e) => e.type === 'identity-verified')).toBe(true)
   })
 
   it('skips appendEvents call when no pending events', () => {
     const appended: BaseEvent[] = []
-    const engine = makeEngine({
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow, {
       store: { appendEvents: (_id, events) => appended.push(...events) },
     })
-    const result = engine.transaction('sess1', 'no-op', () => pass(), { kind: 'skip' })
+    const result = engine.transaction('sess1', 'no-op', () => pass())
     expect(result.type).toStrictEqual('success')
-    expect(appended).toHaveLength(0)
+    // Only setup (session-started) and identity-verified events — no operation events
+    expect(appended.some((e) => e.type !== 'identity-verified' && e.type !== 'session-started')).toBe(false)
   })
 
   it('throws WorkflowStateError when session does not exist', () => {
     const engine = makeEngine({ store: { sessionExists: () => false } })
-    expect(() => engine.transaction('missing', 'record-issue', () => pass(), { kind: 'skip' }))
+    expect(() => engine.transaction('missing', 'record-issue', () => pass()))
       .toThrow("No session found for 'missing'. Run init first.")
   })
 
-  it('skips identity verification when identityCheck kind is skip', () => {
+  it('blocks when identity is lost (last message lacks prefix)', () => {
     const workflow = new StubWorkflow(INITIAL_STATE)
-    const engine = makeEngine({}, workflow)
-    const result = engine.transaction('sess1', 'record-issue', () => pass(), { kind: 'skip' })
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      {
+        readMessages: () => [
+          { id: 'msg-1', textContent: '🟣 SPAWN: doing stuff' },
+          { id: 'msg-2', textContent: 'No prefix here' },
+        ],
+      },
+      workflow,
+    )
+    const result = engine.transaction('sess1', 'record-issue', () => pass())
+    expect(result.type).toStrictEqual('blocked')
+    expect(result.output).toContain('You forgot')
+    expect(result.output).toContain('Next message MUST begin with:')
+  })
+
+  it('allows when identity is verified (last message has prefix)', () => {
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      {
+        readMessages: () => [
+          { id: 'msg-1', textContent: '🟣 SPAWN: doing stuff' },
+        ],
+      },
+      workflow,
+    )
+    const result = engine.transaction('sess1', 'record-issue', () => pass())
     expect(result.type).toStrictEqual('success')
   })
 
-  it('throws WorkflowStateError when verify requested but factory has no prefix config', () => {
+  it('allows when agent has never spoken (new session)', () => {
     const workflow = new StubWorkflow(INITIAL_STATE)
-    const engine = makeEngine({}, workflow)
-    expect(() => engine.transaction('sess1', 'record-issue', () => pass(), { kind: 'verify', transcriptPath: '/transcript.jsonl' }))
-      .toThrow('Identity verification requested but WorkflowDefinition.getPrefixConfig is not implemented')
-  })
-
-  it('blocks when identity is lost and factory has prefix config', () => {
-    const messages: TranscriptMessage[] = [
-      { id: 'msg-1', textContent: 'LEAD: SPAWN' },
-      { id: 'msg-2', textContent: 'No prefix here' },
-    ]
-    const engine = makeEngineWithPrefixConfig(
-      stubTranscriptReader(messages),
-      { pattern: /^LEAD:/m, buildRecoveryMessage: (state, emoji, root) => `recover ${state} ${emoji} ${root}` },
-    )
-    const result = engine.transaction('sess1', 'record-issue', () => pass(), { kind: 'verify', transcriptPath: '/transcript.jsonl' })
-    expect(result.type).toStrictEqual('blocked')
-    expect(result.output).toContain('recover SPAWN')
-  })
-
-
-  it('allows operation when identity is verified', () => {
-    const messages: TranscriptMessage[] = [
-      { id: 'msg-1', textContent: 'LEAD: SPAWN' },
-    ]
-    const engine = makeEngineWithPrefixConfig(
-      stubTranscriptReader(messages),
-      { pattern: /^LEAD:/m, buildRecoveryMessage: () => 'recover' },
-    )
-    const result = engine.transaction('sess1', 'record-issue', () => pass(), { kind: 'verify', transcriptPath: '/transcript.jsonl' })
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
+    const result = engine.transaction('sess1', 'record-issue', () => pass())
     expect(result.type).toStrictEqual('success')
   })
 
   it('emits identity-verified event to store', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const messages: TranscriptMessage[] = [
-      { id: 'msg-1', textContent: 'LEAD: SPAWN' },
-    ]
-    const engine = makeEngineWithPrefixConfig(
-      stubTranscriptReader(messages),
-      { pattern: /^LEAD:/m, buildRecoveryMessage: () => 'recover' },
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      { readMessages: () => [{ id: 'msg-1', textContent: '🟣 SPAWN: doing stuff' }] },
+      workflow,
       { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
     )
-    engine.transaction('sess1', 'record-issue', () => pass(), { kind: 'verify', transcriptPath: '/transcript.jsonl' })
+    engine.transaction('sess1', 'record-issue', () => pass())
     const identityEvent = appended.find((a) => a.events.some((e) => e.type === 'identity-verified'))
     expect(identityEvent).toBeDefined()
-  })
-
-  it('uses ClaudeCodeTranscriptReader as default when no transcriptReader provided', () => {
-    const testDir = join(import.meta.dirname, '../../../.test-transcripts')
-    const testFile = join(testDir, 'engine-default-reader.jsonl')
-    mkdirSync(testDir, { recursive: true })
-    writeFileSync(testFile, '', 'utf-8')
-    try {
-      const factory = {
-        ...makeFactory(),
-        getPrefixConfig: (): PrefixConfig => ({ pattern: /^LEAD:/m, buildRecoveryMessage: () => 'recover' }),
-      }
-      const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
-      const result = engine.transaction('sess1', 'record-issue', () => pass(), { kind: 'verify', transcriptPath: testFile })
-      expect(result.type).toStrictEqual('success')
-    } finally {
-      try { unlinkSync(testFile) } catch (_cause) { }
-    }
   })
 
   it('uses default operation body when getOperationBody is not provided', () => {
     const { getOperationBody: _, ...rest } = makeFactory()
     const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = rest
-    const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
-    const result = engine.transaction('sess1', 'record-issue', () => pass(), { kind: 'skip' })
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const factoryWithWorkflow = { ...factory, buildWorkflow: () => workflow }
+    const engine = new WorkflowEngine(factoryWithWorkflow, makeEngineDeps(), makeTestDeps())
+    const result = engine.transaction('sess1', 'record-issue', () => pass())
     expect(result.type).toStrictEqual('success')
     expect(result.output).toContain('record-issue')
   })
@@ -365,15 +363,23 @@ describe('WorkflowEngine.transaction', () => {
 describe('WorkflowEngine.transition', () => {
   it('appends pending events on success', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const engine = makeEngine({ store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } })
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      { readMessages: () => [] },
+      workflow,
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
+    )
     const result = engine.transition('sess1', 'PLANNING')
     expect(result.type).toStrictEqual('success')
     expect(result.output).toContain('PLANNING')
-    expect(appended[0]?.events[0]?.type).toStrictEqual('transitioned')
+    expect(appended.flatMap((a) => a.events).some((e) => e.type === 'transitioned')).toBe(true)
   })
 
   it('returns blocked with illegal transition error when target not in canTransitionTo', () => {
-    const engine = makeEngine()
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
     const result = engine.transition('sess1', 'REVIEWING')
     expect(result.type).toStrictEqual('blocked')
     expect(result.output).toContain('Illegal transition')
@@ -390,8 +396,10 @@ describe('WorkflowEngine.transition', () => {
         transitionGuard: () => fail('Guard failed: missing issue'),
       },
     }
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
     const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
-      ...makeFactory(),
+      ...makeFactory(workflow),
       getRegistry: () => guardRegistry,
     }
     const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
@@ -410,8 +418,10 @@ describe('WorkflowEngine.transition', () => {
         transitionGuard: () => fail('Should not run'),
       },
     }
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
     const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
-      ...makeFactory(),
+      ...makeFactory(workflow),
       getRegistry: () => guardRegistry,
     }
     const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
@@ -431,8 +441,10 @@ describe('WorkflowEngine.transition', () => {
         },
       },
     }
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
     const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
-      ...makeFactory(),
+      ...makeFactory(workflow),
       getRegistry: () => entryRegistry,
     }
     const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
@@ -451,8 +463,10 @@ describe('WorkflowEngine.transition', () => {
         afterEntry: () => { afterEntryCalled = true },
       },
     }
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
     const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
-      ...makeFactory(),
+      ...makeFactory(workflow),
       getRegistry: () => afterEntryRegistry,
     }
     const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
@@ -463,8 +477,10 @@ describe('WorkflowEngine.transition', () => {
 
   it('uses custom buildTransitionEvent when provided', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
     const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
-      ...makeFactory(),
+      ...makeFactory(workflow),
       buildTransitionEvent: (from, to, _before, _after, now) => ({
         type: 'transitioned',
         at: now,
@@ -480,23 +496,36 @@ describe('WorkflowEngine.transition', () => {
     )
     const result = engine.transition('sess1', 'PLANNING')
     expect(result.type).toStrictEqual('success')
-    const transitioned = appended[0]?.events[0] as BaseEvent & { iteration: number }
-    expect(transitioned.iteration).toStrictEqual(42)
+    const allEvents = appended.flatMap((a) => a.events)
+    const transitioned = allEvents.find((e) => e.type === 'transitioned') as BaseEvent & { iteration: number } | undefined
+    expect(transitioned?.iteration).toStrictEqual(42)
   })
 
   it('uses default transition event when buildTransitionEvent is not provided', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const engine = makeEngine({ store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } })
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      { readMessages: () => [] },
+      workflow,
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
+    )
     const result = engine.transition('sess1', 'PLANNING')
     expect(result.type).toStrictEqual('success')
-    const transitioned = appended[0]?.events[0] as BaseEvent & { from: TestStateName; to: TestStateName }
-    expect(transitioned.from).toStrictEqual('SPAWN')
-    expect(transitioned.to).toStrictEqual('PLANNING')
+    const allEvents = appended.flatMap((a) => a.events)
+    const transitioned = allEvents.find((e) => e.type === 'transitioned') as BaseEvent & { from: TestStateName; to: TestStateName } | undefined
+    expect(transitioned?.from).toStrictEqual('SPAWN')
+    expect(transitioned?.to).toStrictEqual('PLANNING')
   })
 
   it('uses default transition title when getTransitionTitle is not provided', () => {
     const { getTransitionTitle: _, ...rest } = makeFactory()
-    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = rest
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
+      ...rest,
+      buildWorkflow: () => workflow,
+    }
     const engine = new WorkflowEngine(factory, makeEngineDeps(), makeTestDeps())
     const result = engine.transition('sess1', 'PLANNING')
     expect(result.type).toStrictEqual('success')
@@ -511,165 +540,248 @@ describe('WorkflowEngine.transition', () => {
 
   it('returns blocked with empty legal targets when state has no transitions', () => {
     const workflow = new StubWorkflow({ currentStateMachineState: 'RESPAWN', iteration: 0 })
-    const engine = makeEngine({}, workflow)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
     const result = engine.transition('sess1', 'PLANNING')
     expect(result.type).toStrictEqual('blocked')
     expect(result.output).toContain('Illegal transition')
     expect(result.output).toContain('none')
   })
 
+  it('blocks transition when identity is lost', () => {
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      {
+        readMessages: () => [
+          { id: 'msg-1', textContent: '🟣 SPAWN: stuff' },
+          { id: 'msg-2', textContent: 'No prefix' },
+        ],
+      },
+      workflow,
+    )
+    const result = engine.transition('sess1', 'PLANNING')
+    expect(result.type).toStrictEqual('blocked')
+    expect(result.output).toContain('You forgot')
+  })
+
+  it('output contains prefix footer after transition', () => {
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
+    const result = engine.transition('sess1', 'PLANNING')
+    expect(result.output).toContain('Next message MUST begin with: 🔨 PLANNING')
+  })
 })
 
 describe('WorkflowEngine.checkBash', () => {
   const bashForbidden: BashForbiddenConfig = {
-    patterns: [/git push/],
+    commands: ['git push'],
     flags: ['--force'],
   }
 
   it('allows non-Bash tools', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const engine = makeEngine({ store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } })
-    const result = engine.checkBash('sess1', 'Read', 'anything', bashForbidden, { kind: 'skip' })
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      { readMessages: () => [] },
+      workflow,
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
+    )
+    const result = engine.checkBash('sess1', 'Read', 'anything', bashForbidden)
     expect(result.type).toStrictEqual('success')
-    const event = appended[0]?.events[0] as BaseEvent & { tool: string; allowed: boolean }
-    expect(event.type).toStrictEqual('bash-checked')
-    expect(event.tool).toStrictEqual('Read')
-    expect(event.allowed).toStrictEqual(true)
+    const allEvents = appended.flatMap((a) => a.events)
+    const event = allEvents.find((e) => e.type === 'bash-checked') as BaseEvent & { tool: string; allowed: boolean } | undefined
+    expect(event?.tool).toStrictEqual('Read')
+    expect(event?.allowed).toStrictEqual(true)
   })
 
   it('allows Bash commands that are not forbidden', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const engine = makeEngine({ store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } })
-    const result = engine.checkBash('sess1', 'Bash', 'pnpm test', bashForbidden, { kind: 'skip' })
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      { readMessages: () => [] },
+      workflow,
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
+    )
+    const result = engine.checkBash('sess1', 'Bash', 'pnpm test', bashForbidden)
     expect(result.type).toStrictEqual('success')
-    const event = appended[0]?.events[0] as BaseEvent & { allowed: boolean }
-    expect(event.allowed).toStrictEqual(true)
+    const allEvents = appended.flatMap((a) => a.events)
+    const event = allEvents.find((e) => e.type === 'bash-checked') as BaseEvent & { allowed: boolean } | undefined
+    expect(event?.allowed).toStrictEqual(true)
   })
 
-  it('blocks Bash commands matching forbidden patterns', () => {
+  it('blocks Bash commands matching forbidden commands', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const engine = makeEngine({ store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } })
-    const result = engine.checkBash('sess1', 'Bash', 'git push origin main', bashForbidden, { kind: 'skip' })
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      { readMessages: () => [] },
+      workflow,
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
+    )
+    const result = engine.checkBash('sess1', 'Bash', 'git push origin main', bashForbidden)
     expect(result.type).toStrictEqual('blocked')
     expect(result.output).toContain('Bash command blocked')
-    const event = appended[0]?.events[0] as BaseEvent & { allowed: boolean; reason: string }
-    expect(event.allowed).toStrictEqual(false)
+    const allEvents = appended.flatMap((a) => a.events)
+    const event = allEvents.find((e) => e.type === 'bash-checked') as BaseEvent & { allowed: boolean; reason: string } | undefined
+    expect(event?.allowed).toStrictEqual(false)
   })
 
   it('blocks Bash commands with forbidden flags', () => {
-    const engine = makeEngine()
-    const result = engine.checkBash('sess1', 'Bash', 'git commit --force', bashForbidden, { kind: 'skip' })
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
+    const result = engine.checkBash('sess1', 'Bash', 'git commit --force', bashForbidden)
     expect(result.type).toStrictEqual('blocked')
     expect(result.output).toContain('Forbidden flag')
   })
 
   it('uses state exemptions from registry', () => {
-    const engine = makeEngine()
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
     const pnpmForbidden: BashForbiddenConfig = {
-      patterns: [/pnpm/],
+      commands: ['pnpm'],
     }
-    const result = engine.checkBash('sess1', 'Bash', 'pnpm test', pnpmForbidden, { kind: 'skip' })
+    const result = engine.checkBash('sess1', 'Bash', 'pnpm test', pnpmForbidden)
     expect(result.type).toStrictEqual('success')
   })
 
   it('uses empty exemptions when state has no allowForbidden', () => {
     const workflow = new StubWorkflow({ currentStateMachineState: 'PLANNING', iteration: 0 })
-    const engine = makeEngine({}, workflow)
-    const result = engine.checkBash('sess1', 'Bash', 'git push origin main', bashForbidden, { kind: 'skip' })
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
+    const result = engine.checkBash('sess1', 'Bash', 'git push origin main', bashForbidden)
     expect(result.type).toStrictEqual('blocked')
   })
 
   it('throws WorkflowStateError when session does not exist', () => {
     const engine = makeEngine({ store: { sessionExists: () => false } })
-    expect(() => engine.checkBash('missing', 'Bash', 'ls', bashForbidden, { kind: 'skip' }))
+    expect(() => engine.checkBash('missing', 'Bash', 'ls', bashForbidden))
       .toThrow("No session found for 'missing'. Run init first.")
   })
 
   it('blocks when identity is lost', () => {
-    const messages: TranscriptMessage[] = [
-      { id: 'msg-1', textContent: 'LEAD: SPAWN' },
-      { id: 'msg-2', textContent: 'No prefix here' },
-    ]
-    const engine = makeEngineWithPrefixConfig(
-      stubTranscriptReader(messages),
-      { pattern: /^LEAD:/m, buildRecoveryMessage: () => 'identity lost' },
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      {
+        readMessages: () => [
+          { id: 'msg-1', textContent: '🟣 SPAWN: doing stuff' },
+          { id: 'msg-2', textContent: 'No prefix here' },
+        ],
+      },
+      workflow,
     )
-    const result = engine.checkBash('sess1', 'Bash', 'ls', bashForbidden, { kind: 'verify', transcriptPath: '/transcript.jsonl' })
+    const result = engine.checkBash('sess1', 'Bash', 'ls', bashForbidden)
     expect(result.type).toStrictEqual('blocked')
-    expect(result.output).toContain('identity lost')
-  })
-
-  it('throws WorkflowStateError when verify requested but factory has no prefix config', () => {
-    const engine = makeEngine()
-    expect(() => engine.checkBash('sess1', 'Bash', 'ls', bashForbidden, { kind: 'verify', transcriptPath: '/transcript.jsonl' }))
-      .toThrow('Identity verification requested but WorkflowDefinition.getPrefixConfig is not implemented')
+    expect(result.output).toContain('You forgot')
   })
 })
 
 describe('WorkflowEngine.checkWrite', () => {
-  const alwaysAllow = (): PreconditionResult => pass()
-  const alwaysDeny = (_t: string, _f: string, _s: TestState): PreconditionResult => fail('Write forbidden')
+  const alwaysAllow = (): boolean => true
+  const alwaysDeny = (): boolean => false
+
+  it('allows writes for non-write tools', () => {
+    const workflow = new StubWorkflow({ currentStateMachineState: 'PLANNING', iteration: 0 })
+    workflow.startSession('/t.jsonl', undefined)
+    const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
+    const engine = makeEngineWithSession(
+      { readMessages: () => [] },
+      workflow,
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
+    )
+    const result = engine.checkWrite('sess1', 'Read', '/some/file.ts', alwaysDeny)
+    expect(result.type).toStrictEqual('success')
+    const allEvents = appended.flatMap((a) => a.events)
+    const event = allEvents.find((e) => e.type === 'write-checked') as BaseEvent & { allowed: boolean } | undefined
+    expect(event?.type).toStrictEqual('write-checked')
+    expect(event?.allowed).toStrictEqual(true)
+  })
 
   it('allows writes when state has no write forbidden', () => {
     const workflow = new StubWorkflow({ currentStateMachineState: 'PLANNING', iteration: 0 })
+    workflow.startSession('/t.jsonl', undefined)
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const engine = makeEngine(
-      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
+    const engine = makeEngineWithSession(
+      { readMessages: () => [] },
       workflow,
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
     )
-    const result = engine.checkWrite('sess1', 'Edit', '/some/file.ts', alwaysDeny, { kind: 'skip' })
+    const result = engine.checkWrite('sess1', 'Edit', '/some/file.ts', alwaysDeny)
     expect(result.type).toStrictEqual('success')
-    const event = appended[0]?.events[0] as BaseEvent & { allowed: boolean }
-    expect(event.type).toStrictEqual('write-checked')
-    expect(event.allowed).toStrictEqual(true)
+    const allEvents = appended.flatMap((a) => a.events)
+    const event = allEvents.find((e) => e.type === 'write-checked') as BaseEvent & { allowed: boolean } | undefined
+    expect(event?.type).toStrictEqual('write-checked')
+    expect(event?.allowed).toStrictEqual(true)
   })
 
   it('checks predicate when state has write forbidden', () => {
-    const engine = makeEngine()
-    const result = engine.checkWrite('sess1', 'Edit', '/some/file.ts', alwaysDeny, { kind: 'skip' })
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
+    const result = engine.checkWrite('sess1', 'Edit', '/some/file.ts', alwaysDeny)
     expect(result.type).toStrictEqual('blocked')
-    expect(result.output).toContain('Write forbidden')
+    expect(result.output).toContain("Write to '/some/file.ts' is forbidden")
   })
 
   it('allows write when predicate passes in forbidden state', () => {
-    const engine = makeEngine()
-    const result = engine.checkWrite('sess1', 'Edit', '/state/file.ts', alwaysAllow, { kind: 'skip' })
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
+    const result = engine.checkWrite('sess1', 'Edit', '/state/file.ts', alwaysAllow)
+    expect(result.type).toStrictEqual('success')
+  })
+
+  it('allows write to store path even in forbidden state', () => {
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession({ readMessages: () => [] }, workflow)
+    const result = engine.checkWrite('sess1', 'Write', '/plugin/workflow.db', alwaysDeny)
     expect(result.type).toStrictEqual('success')
   })
 
   it('throws WorkflowStateError when session does not exist', () => {
     const engine = makeEngine({ store: { sessionExists: () => false } })
-    expect(() => engine.checkWrite('missing', 'Edit', '/file.ts', alwaysAllow, { kind: 'skip' }))
+    expect(() => engine.checkWrite('missing', 'Edit', '/file.ts', alwaysAllow))
       .toThrow("No session found for 'missing'. Run init first.")
   })
 
   it('blocks when identity is lost', () => {
-    const messages: TranscriptMessage[] = [
-      { id: 'msg-1', textContent: 'LEAD: SPAWN' },
-      { id: 'msg-2', textContent: 'No prefix here' },
-    ]
-    const engine = makeEngineWithPrefixConfig(
-      stubTranscriptReader(messages),
-      { pattern: /^LEAD:/m, buildRecoveryMessage: () => 'identity lost' },
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      {
+        readMessages: () => [
+          { id: 'msg-1', textContent: '🟣 SPAWN: doing stuff' },
+          { id: 'msg-2', textContent: 'No prefix here' },
+        ],
+      },
+      workflow,
     )
-    const result = engine.checkWrite('sess1', 'Edit', '/file.ts', alwaysAllow, { kind: 'verify', transcriptPath: '/transcript.jsonl' })
+    const result = engine.checkWrite('sess1', 'Edit', '/file.ts', alwaysAllow)
     expect(result.type).toStrictEqual('blocked')
-    expect(result.output).toContain('identity lost')
-  })
-
-  it('throws WorkflowStateError when verify requested but factory has no prefix config', () => {
-    const engine = makeEngine()
-    expect(() => engine.checkWrite('sess1', 'Edit', '/file.ts', alwaysAllow, { kind: 'verify', transcriptPath: '/transcript.jsonl' }))
-      .toThrow('Identity verification requested but WorkflowDefinition.getPrefixConfig is not implemented')
+    expect(result.output).toContain('You forgot')
   })
 
   it('appends denied write-checked event with reason', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
-    const engine = makeEngine({ store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } })
-    engine.checkWrite('sess1', 'Edit', '/file.ts', alwaysDeny, { kind: 'skip' })
-    const event = appended[0]?.events[0] as BaseEvent & { allowed: boolean; reason: string }
-    expect(event.allowed).toStrictEqual(false)
-    expect(event.reason).toStrictEqual('Write forbidden')
+    const workflow = new StubWorkflow(INITIAL_STATE)
+    workflow.startSession('/t.jsonl', undefined)
+    const engine = makeEngineWithSession(
+      { readMessages: () => [] },
+      workflow,
+      { store: { appendEvents: (id, events) => appended.push({ sessionId: id, events }) } },
+    )
+    engine.checkWrite('sess1', 'Edit', '/file.ts', alwaysDeny)
+    const allEvents = appended.flatMap((a) => a.events)
+    const event = allEvents.find((e) => e.type === 'write-checked') as BaseEvent & { allowed: boolean; reason: string } | undefined
+    expect(event?.allowed).toStrictEqual(false)
+    expect(event?.reason).toContain('/file.ts')
   })
 })
 
@@ -694,5 +806,30 @@ describe('WorkflowEngine.hasSession', () => {
   it('returns false when session does not exist', () => {
     const engine = makeEngine({ store: { sessionExists: () => false } })
     expect(engine.hasSession('sess1')).toStrictEqual(false)
+  })
+})
+
+describe('WorkflowEngine rehydration', () => {
+  it('uses fold to rehydrate state from events', () => {
+    const events: BaseEvent[] = [
+      { type: 'transitioned', at: '2026-01-01T00:00:00.000Z', from: 'SPAWN', to: 'PLANNING' },
+    ]
+    let capturedState: TestState | undefined
+    const factory: WorkflowDefinition<StubWorkflow, TestState, TestDeps, TestStateName, string> = {
+      ...makeFactory(),
+      buildWorkflow: (state, _deps) => {
+        capturedState = state
+        const w = new StubWorkflow(state)
+        w.startSession('/t.jsonl', undefined)
+        return w
+      },
+    }
+    const engine = new WorkflowEngine(
+      factory,
+      makeEngineDeps({ store: { readEvents: () => events } }),
+      makeTestDeps(),
+    )
+    engine.transaction('sess1', 'no-op', () => pass())
+    expect(capturedState?.currentStateMachineState).toStrictEqual('PLANNING')
   })
 })

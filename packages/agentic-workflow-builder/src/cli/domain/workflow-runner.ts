@@ -6,10 +6,9 @@ import type {
   WorkflowEngineDeps,
   EngineResult,
 } from '../../engine/index.js'
-import type { BashForbiddenConfig, PreconditionResult } from '../../dsl/index.js'
+import type { BashForbiddenConfig } from '../../dsl/index.js'
 import type { ArgParser } from './arg-helpers.js'
 import type { RouteMap } from './command-definition.js'
-import type { HookDefinition } from './hook-definition.js'
 import type { PreToolUseInput, SubagentStartInput, TeammateIdleInput } from './hook-schemas.js'
 import { EXIT_ALLOW, EXIT_ERROR, EXIT_BLOCK } from './exit-codes.js'
 import { HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema, TeammateIdleInputSchema } from './hook-schemas.js'
@@ -35,9 +34,8 @@ export type WorkflowRunnerConfig<
 > = {
   readonly workflowDefinition: WorkflowDefinition<TWorkflow, TState, TDeps, TStateName, TOperation>
   readonly routes: RouteMap<TWorkflow, TState>
-  readonly hooks?: HookDefinition<TWorkflow>
   readonly bashForbidden?: BashForbiddenConfig
-  readonly isWriteAllowed?: (toolName: string, filePath: string, state: TState) => PreconditionResult
+  readonly isWriteAllowed?: (filePath: string, state: TState) => boolean
   readonly customGates?: readonly CustomPreToolUseGate<TWorkflow, TState, TStateName>[]
   readonly preToolUseHandler?: PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation>
 }
@@ -208,12 +206,12 @@ function handleRoute<
   switch (routeDef.type) {
     case 'session-start': {
       const sessionId = resolveSessionId()
-      const result = engine.startSession(sessionId)
+      const result = engine.startSession(sessionId, '')
       return engineResultToRunnerResult(result)
     }
     case 'transition': {
       const sessionId = resolveSessionId()
-      const target = config.workflowDefinition.parseStateName(resolveTarget())
+      const target = config.workflowDefinition.stateSchema.parse(resolveTarget())
       const result = engine.transition(sessionId, target)
       return engineResultToRunnerResult(result)
     }
@@ -224,7 +222,6 @@ function handleRoute<
         sessionId,
         routeName,
         (w: TWorkflow) => routeDef.handler(w, ...restArgs),
-        { kind: 'skip' },
       )
       return engineResultToRunnerResult(result)
     }
@@ -262,11 +259,11 @@ function handleHook<
 
   switch (common.hook_event_name) {
     case 'PreToolUse':
-      return handlePreToolUseHook(engine, config, resolvedHandler, stdin)
+      return handlePreToolUseHook(engine, resolvedHandler, stdin)
     case 'SubagentStart':
-      return handleSubagentStartHook(engine, config, stdin)
+      return handleSubagentStartHook(engine, stdin)
     case 'TeammateIdle':
-      return handleTeammateIdleHook(engine, config, stdin)
+      return handleTeammateIdleHook(engine, stdin)
     default:
       return { output: '', exitCode: EXIT_ALLOW }
   }
@@ -280,7 +277,6 @@ function handlePreToolUseHook<
   TOperation extends string,
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
-  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   resolvedHandler: PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation> | undefined,
   stdin: string,
 ): RunnerResult {
@@ -288,7 +284,7 @@ function handlePreToolUseHook<
   if (!toolParse.success) {
     return { output: `Invalid pre-tool-use input: ${toolParse.error.message}`, exitCode: EXIT_ERROR }
   }
-  return handlePreToolUse(engine, config, resolvedHandler, toolParse.data)
+  return handlePreToolUse(engine, resolvedHandler, toolParse.data)
 }
 
 function handlePreToolUse<
@@ -299,35 +295,17 @@ function handlePreToolUse<
   TOperation extends string,
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
-  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   resolvedHandler: PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation> | undefined,
   input: PreToolUseInput,
 ): RunnerResult {
-  if (resolvedHandler !== undefined) {
-    const result = resolvedHandler(engine, input.session_id, input.tool_name, input.tool_input, input.transcript_path)
-    if (result.type === 'blocked') {
-      return { output: formatDenyDecision(result.output), exitCode: EXIT_BLOCK }
-    }
-    return engineResultToRunnerResult(result)
-  }
-
-  if (config.hooks?.preToolUse === undefined) {
+  if (resolvedHandler === undefined) {
     return { output: '', exitCode: EXIT_ALLOW }
   }
 
-  const hookCheck = config.hooks.preToolUse[input.tool_name]
-  if (hookCheck === undefined) {
-    return { output: '', exitCode: EXIT_ALLOW }
+  const result = resolvedHandler(engine, input.session_id, input.tool_name, input.tool_input)
+  if (result.type === 'blocked') {
+    return { output: formatDenyDecision(result.output), exitCode: EXIT_BLOCK }
   }
-
-  const extracted = hookCheck.extract(input.tool_input)
-  const result = engine.transaction(
-    input.session_id,
-    `hook:${input.tool_name}`,
-    (w: TWorkflow) => hookCheck.check(w, extracted, input.tool_name),
-    { kind: 'verify', transcriptPath: input.transcript_path },
-  )
-
   return engineResultToRunnerResult(result)
 }
 
@@ -339,25 +317,18 @@ function handleSubagentStartHook<
   TOperation extends string,
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
-  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   stdin: string,
 ): RunnerResult {
-  const handler = config.hooks?.subagentStart
-  if (handler === undefined) {
-    return { output: '', exitCode: EXIT_ALLOW }
-  }
-
   const parsed = SubagentStartInputSchema.safeParse(JSON.parse(stdin))
   if (!parsed.success) {
     return { output: `Invalid subagent-start input: ${parsed.error.message}`, exitCode: EXIT_ERROR }
   }
-  const input = parsed.data
+  const input: SubagentStartInput = parsed.data
 
   const result = engine.transaction(
     input.session_id,
     'register-agent',
-    (w: TWorkflow) => handler.register(w, input.agent_type, input.agent_id),
-    { kind: 'skip' },
+    (w: TWorkflow) => w.registerAgent(input.agent_type, input.agent_id),
   )
 
   /* v8 ignore next */
@@ -373,26 +344,19 @@ function handleTeammateIdleHook<
   TOperation extends string,
 >(
   engine: WorkflowEngine<TWorkflow, TState, TDeps, TStateName, TOperation>,
-  config: WorkflowRunnerConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
   stdin: string,
 ): RunnerResult {
-  const handler = config.hooks?.teammateIdle
-  if (handler === undefined) {
-    return { output: '', exitCode: EXIT_ALLOW }
-  }
-
   const parsed = TeammateIdleInputSchema.safeParse(JSON.parse(stdin))
   if (!parsed.success) {
     return { output: `Invalid teammate-idle input: ${parsed.error.message}`, exitCode: EXIT_ERROR }
   }
-  const input = parsed.data
+  const input: TeammateIdleInput = parsed.data
   const agentName = input.teammate_name ?? ''
 
   const result = engine.transaction(
     input.session_id,
     'check-idle',
-    (w: TWorkflow) => handler.check(w, agentName),
-    { kind: 'skip' },
+    (w: TWorkflow) => w.handleTeammateIdle(agentName),
   )
 
   return engineResultToRunnerResult(result)

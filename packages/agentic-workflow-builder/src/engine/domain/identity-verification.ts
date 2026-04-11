@@ -1,10 +1,5 @@
 import type { TranscriptMessage } from './transcript-reader.js'
 
-export type PrefixConfig = {
-  readonly pattern: RegExp
-  readonly buildRecoveryMessage: (state: string, emoji: string, pluginRoot: string) => string
-}
-
 export type IdentityCheckResult =
   | { readonly status: 'verified' }
   | { readonly status: 'never-spoken' }

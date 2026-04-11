@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
 import { createWorkflowCli } from './workflow-cli.js'
 import type { WorkflowCliConfig, ProcessDeps } from './workflow-cli.js'
 import type {
@@ -27,6 +28,9 @@ function createMockWorkflow(): TestWorkflow {
     appendEvent: () => undefined,
     getPendingEvents: () => [] as readonly BaseEvent[],
     startSession: () => undefined,
+    getTranscriptPath: () => '/tmp/transcript.json',
+    registerAgent: () => pass(),
+    handleTeammateIdle: () => pass(),
     doSomething: () => pass(),
   }
 }
@@ -41,9 +45,9 @@ function createMockEventStore(hasSession = false): WorkflowEventStore {
 
 function createMockWorkflowDefinition(): WorkflowDefinition<TestWorkflow, TestState, TestDeps> {
   return {
-    rehydrate: () => createMockWorkflow(),
-    createFresh: () => createMockWorkflow(),
-    procedurePath: () => '/tmp/procedure.md',
+    fold: (state) => state,
+    buildWorkflow: () => createMockWorkflow(),
+    stateSchema: z.string() as z.ZodType<string>,
     initialState: () => ({ currentStateMachineState: 'planning' }),
     getRegistry: () => ({
       planning: {
@@ -66,7 +70,6 @@ function createMockWorkflowDefinition(): WorkflowDefinition<TestWorkflow, TestSt
       from,
       to,
     }),
-    parseStateName: (v) => v,
   }
 }
 
@@ -122,6 +125,7 @@ function createBaseConfig(
       },
     },
     buildWorkflowDeps: () => ({} as TestDeps),
+    transcriptReader: { readMessages: () => [] },
     processDeps,
     ...overrides,
   }

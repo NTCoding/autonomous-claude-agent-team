@@ -31,7 +31,6 @@ export type {
 export { WorkflowEngine } from './domain/workflow-engine.js'
 export type {
   EngineResult,
-  IdentityCheck,
   RehydratableWorkflow,
   WorkflowDefinition,
   WorkflowEventStore,
@@ -39,6 +38,6 @@ export type {
 } from './domain/workflow-engine.js'
 
 export type { TranscriptMessage, TranscriptReader } from './domain/transcript-reader.js'
-export type { PrefixConfig, IdentityCheckResult } from './domain/identity-verification.js'
+export type { IdentityCheckResult } from './domain/identity-verification.js'
 export { checkIdentity } from './domain/identity-verification.js'
 export { ClaudeCodeTranscriptReader } from './domain/claude-code-transcript-reader.js'

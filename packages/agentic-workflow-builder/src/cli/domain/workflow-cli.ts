@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import type { BaseWorkflowState, WorkflowEventStore, WorkflowEngineDeps } from '../../engine/index.js'
+import type { BaseWorkflowState, WorkflowEventStore, WorkflowEngineDeps, TranscriptReader } from '../../engine/index.js'
 import type { RehydratableWorkflow } from '../../engine/index.js'
 import type { WorkflowRunnerConfig, RunnerResult } from './workflow-runner.js'
 import { createWorkflowRunner } from './workflow-runner.js'
@@ -24,6 +24,7 @@ export type WorkflowCliConfig<
   readonly buildWorkflowDeps: (platform: PlatformContext) => TDeps
   readonly customRouter?: (command: string, args: readonly string[], platform: PlatformContext) => RunnerResult | undefined
   readonly processDeps: ProcessDeps
+  readonly transcriptReader: TranscriptReader
 }
 
 function buildReadEnvVar(getEnv: (name: string) => string | undefined) {
@@ -66,6 +67,7 @@ export function createWorkflowCli<
     readFile: processDeps.readFile,
     appendToFile: processDeps.appendToFile,
     now,
+    transcriptReader: config.transcriptReader,
   }
 
   const workflowDeps = config.buildWorkflowDeps(platformCtx)

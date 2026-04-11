@@ -24,33 +24,37 @@ function makeWorkflowDeps(): WorkflowDeps {
 }
 
 describe('FeatureTeamWorkflowDefinition', () => {
-  it('creates a fresh Workflow with SPAWN state', () => {
-    const workflow = FeatureTeamWorkflowDefinition.createFresh(makeWorkflowDeps())
-    expect(workflow.getState().currentStateMachineState).toStrictEqual('SPAWN')
-  })
-
-  it('rehydrates a Workflow from events and deps', () => {
-    const events: readonly BaseEvent[] = []
-    const workflow = FeatureTeamWorkflowDefinition.rehydrate(events, makeWorkflowDeps())
-    expect(workflow.getState().currentStateMachineState).toStrictEqual('SPAWN')
-  })
-
-  it('throws WorkflowStateError on unknown event types', () => {
-    const events: readonly BaseEvent[] = [
-      { type: 'unknown-event', at: '2026-01-01T00:00:00.000Z' },
-    ]
-    expect(() => FeatureTeamWorkflowDefinition.rehydrate(events, makeWorkflowDeps())).toThrow('Unknown event type in store')
-  })
-
-  it('returns procedure path for a given state', () => {
-    const path = FeatureTeamWorkflowDefinition.procedurePath('SPAWN', '/plugin')
-    expect(path).toContain('spawn')
-    expect(path).toContain('/plugin/')
-  })
-
-  it('returns initial state with SPAWN', () => {
+  it('initialState returns SPAWN state', () => {
     const initial = FeatureTeamWorkflowDefinition.initialState()
     expect(initial.currentStateMachineState).toStrictEqual('SPAWN')
+  })
+
+  it('buildWorkflow creates Workflow from state and deps', () => {
+    const state = FeatureTeamWorkflowDefinition.initialState()
+    const workflow = FeatureTeamWorkflowDefinition.buildWorkflow(state, makeWorkflowDeps())
+    expect(workflow.getState().currentStateMachineState).toStrictEqual('SPAWN')
+  })
+
+  it('fold applies known events to state', () => {
+    const initial = FeatureTeamWorkflowDefinition.initialState()
+    const event: BaseEvent = { type: 'session-started', at: '2026-01-01T00:00:00.000Z' }
+    const result = FeatureTeamWorkflowDefinition.fold(initial, event)
+    expect(result.currentStateMachineState).toStrictEqual('SPAWN')
+  })
+
+  it('fold throws WorkflowStateError on unknown event types', () => {
+    const initial = FeatureTeamWorkflowDefinition.initialState()
+    const unknownEvent: BaseEvent = { type: 'unknown-event', at: '2026-01-01T00:00:00.000Z' }
+    expect(() => FeatureTeamWorkflowDefinition.fold(initial, unknownEvent)).toThrow('Unknown event type in store')
+  })
+
+  it('stateSchema parses valid state names', () => {
+    const result = FeatureTeamWorkflowDefinition.stateSchema.parse('SPAWN')
+    expect(result).toStrictEqual('SPAWN')
+  })
+
+  it('stateSchema rejects invalid state names', () => {
+    expect(() => FeatureTeamWorkflowDefinition.stateSchema.parse('INVALID')).toThrow()
   })
 
   it('returns workflow registry', () => {
@@ -93,21 +97,5 @@ describe('FeatureTeamWorkflowDefinition', () => {
     const stateAfter = { ...stateBefore }
     const event = FeatureTeamWorkflowDefinition.buildTransitionEvent?.('RESPAWN', 'DEVELOPING', stateBefore, stateAfter, '2026-01-01T00:00:00Z')
     expect(event).toMatchObject({ developingHeadCommit: 'abc123' })
-  })
-
-  it('returns prefix config with LEAD pattern', () => {
-    const config = FeatureTeamWorkflowDefinition.getPrefixConfig?.()
-    expect(config).toBeDefined()
-    expect(config?.pattern.test('LEAD: SPAWN')).toBe(true)
-    expect(config?.pattern.test('no prefix')).toBe(false)
-  })
-
-  it('builds recovery message with state and emoji', () => {
-    const config = FeatureTeamWorkflowDefinition.getPrefixConfig?.()
-    const msg = config?.buildRecoveryMessage('DEVELOPING', '🔨', '/plugin')
-    expect(msg).toContain('lost your feature-team-lead identity')
-    expect(msg).toContain('DEVELOPING')
-    expect(msg).toContain('🔨 LEAD: DEVELOPING')
-    expect(msg).toContain('states/developing.md')
   })
 })

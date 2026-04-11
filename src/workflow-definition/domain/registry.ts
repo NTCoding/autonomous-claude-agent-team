@@ -13,10 +13,7 @@ import { blockedState } from './states/blocked.js'
 import { completeState } from './states/complete.js'
 
 export const BASH_FORBIDDEN: BashForbiddenConfig = {
-  patterns: [
-    /(?:^|\s|&&|;)git\s+(?:commit|push)(?:\s|$|-|;|&)/,
-    /(?:^|\s|&&|;)git\s+checkout(?:\s|$|-|;|&)/,
-  ],
+  commands: ['git commit', 'git push', 'git checkout'],
 }
 
 export const PLUGIN_SOURCE_PATTERN = /\.claude\/plugins\/cache\//

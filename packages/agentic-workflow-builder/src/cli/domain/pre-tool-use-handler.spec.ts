@@ -1,28 +1,28 @@
 import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
 import { createPreToolUseHandler } from './pre-tool-use-handler.js'
 import type { CustomPreToolUseGate } from './pre-tool-use-handler.js'
 import { WorkflowEngine } from '../../engine/index.js'
 import type {
   BaseWorkflowState,
   EngineResult,
-  IdentityCheck,
   RehydratableWorkflow,
   WorkflowDefinition,
   WorkflowEventStore,
   WorkflowEngineDeps,
-  BaseEvent,
 } from '../../engine/index.js'
-import type { BashForbiddenConfig, PreconditionResult, WorkflowRegistry } from '../../dsl/index.js'
-import { pass, fail } from '../../dsl/index.js'
+import type { BaseEvent } from '../../engine/index.js'
+import type { BashForbiddenConfig, WorkflowRegistry } from '../../dsl/index.js'
+import { pass } from '../../dsl/index.js'
 
 type StubStateName = 'DEVELOPING'
 type StubState = BaseWorkflowState<StubStateName>
 type StubDeps = Record<string, never>
 
 type EngineCall =
-  | { readonly method: 'transaction'; readonly op: string; readonly identityCheck: IdentityCheck }
-  | { readonly method: 'checkWrite'; readonly toolName: string; readonly filePath: string; readonly identityCheck: IdentityCheck }
-  | { readonly method: 'checkBash'; readonly toolName: string; readonly command: string; readonly identityCheck: IdentityCheck }
+  | { readonly method: 'transaction'; readonly op: string }
+  | { readonly method: 'checkWrite'; readonly toolName: string; readonly filePath: string }
+  | { readonly method: 'checkBash'; readonly toolName: string; readonly command: string }
 
 type StubWorkflowType = RehydratableWorkflow<StubState>
 
@@ -32,6 +32,9 @@ class StubWorkflow implements StubWorkflowType {
   appendEvent(): void { /* noop */ }
   getPendingEvents(): readonly BaseEvent[] { return [] }
   startSession(): void { /* noop */ }
+  getTranscriptPath(): string { return '/tmp/transcript.json' }
+  registerAgent(): { pass: true } { return { pass: true } }
+  handleTeammateIdle(): { pass: true } { return { pass: true } }
 }
 
 const STUB_REGISTRY: WorkflowRegistry<StubState, StubStateName, string> = {
@@ -45,9 +48,9 @@ const STUB_REGISTRY: WorkflowRegistry<StubState, StubStateName, string> = {
 
 function makeStubFactory(): WorkflowDefinition<StubWorkflowType, StubState, StubDeps, StubStateName, string> {
   return {
-    rehydrate: () => new StubWorkflow(),
-    createFresh: () => new StubWorkflow(),
-    procedurePath: () => '/plugin/states/developing.md',
+    fold: () => ({ currentStateMachineState: 'DEVELOPING' }),
+    buildWorkflow: () => new StubWorkflow(),
+    stateSchema: z.string() as z.ZodType<string>,
     initialState: () => ({ currentStateMachineState: 'DEVELOPING' }),
     getRegistry: () => STUB_REGISTRY,
     buildTransitionContext: (state, from, to) => ({
@@ -57,7 +60,6 @@ function makeStubFactory(): WorkflowDefinition<StubWorkflowType, StubState, Stub
       from,
       to,
     }),
-    parseStateName: (v: string) => v as StubStateName,
   }
 }
 
@@ -77,6 +79,7 @@ function makeStubEngineDeps(): WorkflowEngineDeps {
     readFile: () => '',
     appendToFile: () => undefined,
     now: () => '2026-01-01T00:00:00Z',
+    transcriptReader: { readMessages: () => [] },
   }
 }
 
@@ -92,28 +95,27 @@ function makeSpyEngine(
   const calls: EngineCall[] = []
   const real = new WorkflowEngine(makeStubFactory(), makeStubEngineDeps(), {} as StubDeps)
   const spied = real as unknown as {
-    transaction: (sessionId: string, op: string, fn: unknown, identityCheck: IdentityCheck) => EngineResult
-    checkWrite: (sessionId: string, toolName: string, filePath: string, predicate: unknown, identityCheck: IdentityCheck) => EngineResult
-    checkBash: (sessionId: string, toolName: string, command: string, forbidden: unknown, identityCheck: IdentityCheck) => EngineResult
+    transaction: (sessionId: string, op: string, fn: unknown) => EngineResult
+    checkWrite: (sessionId: string, toolName: string, filePath: string, predicate: unknown) => EngineResult
+    checkBash: (sessionId: string, toolName: string, command: string, forbidden: unknown) => EngineResult
   }
-  spied.transaction = (_sessionId, op, _fn, identityCheck) => {
-    calls.push({ method: 'transaction', op, identityCheck })
+  spied.transaction = (_sessionId, op, _fn) => {
+    calls.push({ method: 'transaction', op })
     return responses.transaction?.(op) ?? { type: 'success', output: '' }
   }
-  spied.checkWrite = (_sessionId, toolName, filePath, _predicate, identityCheck) => {
-    calls.push({ method: 'checkWrite', toolName, filePath, identityCheck })
+  spied.checkWrite = (_sessionId, toolName, filePath, _predicate) => {
+    calls.push({ method: 'checkWrite', toolName, filePath })
     return responses.checkWrite?.(toolName, filePath) ?? { type: 'success', output: '' }
   }
-  spied.checkBash = (_sessionId, toolName, command, _forbidden, identityCheck) => {
-    calls.push({ method: 'checkBash', toolName, command, identityCheck })
+  spied.checkBash = (_sessionId, toolName, command, _forbidden) => {
+    calls.push({ method: 'checkBash', toolName, command })
     return responses.checkBash?.(toolName, command) ?? { type: 'success', output: '' }
   }
   return { engine: real, calls }
 }
 
-const NOOP_BASH_FORBIDDEN: BashForbiddenConfig = { patterns: [], flags: [] }
-const ALWAYS_ALLOW_WRITE = (): PreconditionResult => pass()
-const TRANSCRIPT_PATH = '/tmp/transcript.jsonl'
+const NOOP_BASH_FORBIDDEN: BashForbiddenConfig = { commands: [], flags: [] }
+const ALWAYS_ALLOW_WRITE = (): boolean => true
 
 describe('createPreToolUseHandler', () => {
   it('returns success when all checks pass', () => {
@@ -122,7 +124,7 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    const result = handler(engine, 'sess1', 'Bash', { command: 'ls' }, TRANSCRIPT_PATH)
+    const result = handler(engine, 'sess1', 'Bash', { command: 'ls' })
     expect(result.type).toStrictEqual('success')
     expect(calls.some((c) => c.method === 'checkWrite')).toStrictEqual(true)
     expect(calls.some((c) => c.method === 'checkBash')).toStrictEqual(true)
@@ -134,14 +136,14 @@ describe('createPreToolUseHandler', () => {
     })
     const gate: CustomPreToolUseGate<StubWorkflowType, StubState, StubStateName> = {
       name: 'plugin-source-read',
-      check: () => fail('plugin source blocked'),
+      check: () => 'plugin source blocked',
     }
     const handler = createPreToolUseHandler<StubWorkflowType, StubState, StubDeps, StubStateName, string>({
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
       customGates: [gate],
     })
-    const result = handler(engine, 'sess1', 'Read', { file_path: '/plugin/src/internal.ts' }, TRANSCRIPT_PATH)
+    const result = handler(engine, 'sess1', 'Read', { file_path: '/plugin/src/internal.ts' })
     expect(result.type).toStrictEqual('blocked')
     expect(result.output).toContain('plugin source blocked')
     expect(calls.filter((c) => c.method === 'checkWrite')).toHaveLength(0)
@@ -154,22 +156,22 @@ describe('createPreToolUseHandler', () => {
     })
     const gateA: CustomPreToolUseGate<StubWorkflowType, StubState, StubStateName> = {
       name: 'gate-a',
-      check: () => pass(),
+      check: () => true,
     }
     const gateB: CustomPreToolUseGate<StubWorkflowType, StubState, StubStateName> = {
       name: 'gate-b',
-      check: () => fail('B blocked'),
+      check: () => 'B blocked',
     }
     const gateC: CustomPreToolUseGate<StubWorkflowType, StubState, StubStateName> = {
       name: 'gate-c',
-      check: () => fail('should not run'),
+      check: () => 'should not run',
     }
     const handler = createPreToolUseHandler<StubWorkflowType, StubState, StubDeps, StubStateName, string>({
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
       customGates: [gateA, gateB, gateC],
     })
-    const result = handler(engine, 'sess1', 'Read', {}, TRANSCRIPT_PATH)
+    const result = handler(engine, 'sess1', 'Read', {})
     expect(result.type).toStrictEqual('blocked')
     const transactionOps = calls.filter((c): c is EngineCall & { method: 'transaction' } => c.method === 'transaction').map((c) => c.op)
     expect(transactionOps).toStrictEqual(['hook:gate-a', 'hook:gate-b'])
@@ -181,7 +183,7 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    handler(engine, 'sess1', 'Bash', { command: 'ls' }, TRANSCRIPT_PATH)
+    handler(engine, 'sess1', 'Bash', { command: 'ls' })
     expect(calls.filter((c) => c.method === 'checkWrite')).toHaveLength(1)
     expect(calls.filter((c) => c.method === 'checkBash')).toHaveLength(1)
   })
@@ -194,7 +196,7 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    const result = handler(engine, 'sess1', 'Write', { file_path: '/x.ts' }, TRANSCRIPT_PATH)
+    const result = handler(engine, 'sess1', 'Write', { file_path: '/x.ts' })
     expect(result.type).toStrictEqual('blocked')
     expect(result.output).toContain('write forbidden')
     expect(calls.filter((c) => c.method === 'checkBash')).toHaveLength(0)
@@ -208,7 +210,7 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    const result = handler(engine, 'sess1', 'Bash', { command: 'rm -rf /' }, TRANSCRIPT_PATH)
+    const result = handler(engine, 'sess1', 'Bash', { command: 'rm -rf /' })
     expect(result.type).toStrictEqual('blocked')
     expect(result.output).toContain('bash forbidden')
     expect(calls.filter((c) => c.method === 'checkBash')).toHaveLength(1)
@@ -220,7 +222,7 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    handler(engine, 'sess1', 'Write', { file_path: '/a.ts', path: '/b.ts', pattern: '*.ts' }, TRANSCRIPT_PATH)
+    handler(engine, 'sess1', 'Write', { file_path: '/a.ts', path: '/b.ts', pattern: '*.ts' })
     const writeCall = calls.find((c): c is EngineCall & { method: 'checkWrite' } => c.method === 'checkWrite')
     expect(writeCall?.filePath).toStrictEqual('/a.ts')
   })
@@ -231,7 +233,7 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    handler(engine, 'sess1', 'Glob', { path: '/b.ts', pattern: '*.ts' }, TRANSCRIPT_PATH)
+    handler(engine, 'sess1', 'Glob', { path: '/b.ts', pattern: '*.ts' })
     const writeCall = calls.find((c): c is EngineCall & { method: 'checkWrite' } => c.method === 'checkWrite')
     expect(writeCall?.filePath).toStrictEqual('/b.ts')
   })
@@ -242,7 +244,7 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    handler(engine, 'sess1', 'Grep', { pattern: '*.ts' }, TRANSCRIPT_PATH)
+    handler(engine, 'sess1', 'Grep', { pattern: '*.ts' })
     const writeCall = calls.find((c): c is EngineCall & { method: 'checkWrite' } => c.method === 'checkWrite')
     expect(writeCall?.filePath).toStrictEqual('*.ts')
   })
@@ -253,7 +255,7 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    handler(engine, 'sess1', 'Bash', { command: 'pnpm test' }, TRANSCRIPT_PATH)
+    handler(engine, 'sess1', 'Bash', { command: 'pnpm test' })
     const bashCall = calls.find((c): c is EngineCall & { method: 'checkBash' } => c.method === 'checkBash')
     expect(bashCall?.command).toStrictEqual('pnpm test')
   })
@@ -264,7 +266,7 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    expect(() => handler(engine, 'sess1', 'Write', { file_path: 42 }, TRANSCRIPT_PATH))
+    expect(() => handler(engine, 'sess1', 'Write', { file_path: 42 }))
       .toThrow('Expected string or undefined')
   })
 
@@ -274,43 +276,25 @@ describe('createPreToolUseHandler', () => {
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
     })
-    handler(engine, 'sess1', 'Read', { file_path: null, path: undefined, pattern: undefined, command: null }, TRANSCRIPT_PATH)
+    handler(engine, 'sess1', 'Read', { file_path: null, path: undefined, pattern: undefined, command: null })
     const writeCall = calls.find((c): c is EngineCall & { method: 'checkWrite' } => c.method === 'checkWrite')
     const bashCall = calls.find((c): c is EngineCall & { method: 'checkBash' } => c.method === 'checkBash')
     expect(writeCall?.filePath).toStrictEqual('')
     expect(bashCall?.command).toStrictEqual('')
   })
 
-  it('forwards { kind: verify, transcriptPath } to every engine call', () => {
-    const { engine, calls } = makeSpyEngine()
-    const gate: CustomPreToolUseGate<StubWorkflowType, StubState, StubStateName> = {
-      name: 'noop',
-      check: () => pass(),
-    }
-    const handler = createPreToolUseHandler<StubWorkflowType, StubState, StubDeps, StubStateName, string>({
-      bashForbidden: NOOP_BASH_FORBIDDEN,
-      isWriteAllowed: ALWAYS_ALLOW_WRITE,
-      customGates: [gate],
-    })
-    handler(engine, 'sess1', 'Bash', { command: 'ls' }, TRANSCRIPT_PATH)
-    const expectedIdentity: IdentityCheck = { kind: 'verify', transcriptPath: TRANSCRIPT_PATH }
-    for (const call of calls) {
-      expect(call.identityCheck).toStrictEqual(expectedIdentity)
-    }
-  })
-
   it('uses op name hook:<gate-name> for each custom gate transaction', () => {
     const { engine, calls } = makeSpyEngine()
     const gate: CustomPreToolUseGate<StubWorkflowType, StubState, StubStateName> = {
       name: 'my-gate',
-      check: () => pass(),
+      check: () => true,
     }
     const handler = createPreToolUseHandler<StubWorkflowType, StubState, StubDeps, StubStateName, string>({
       bashForbidden: NOOP_BASH_FORBIDDEN,
       isWriteAllowed: ALWAYS_ALLOW_WRITE,
       customGates: [gate],
     })
-    handler(engine, 'sess1', 'Read', {}, TRANSCRIPT_PATH)
+    handler(engine, 'sess1', 'Read', {})
     const transactionCall = calls.find((c): c is EngineCall & { method: 'transaction' } => c.method === 'transaction')
     expect(transactionCall?.op).toStrictEqual('hook:my-gate')
   })

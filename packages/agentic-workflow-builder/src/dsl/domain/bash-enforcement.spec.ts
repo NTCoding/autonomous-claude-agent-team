@@ -2,28 +2,25 @@ import { checkBashCommand } from './bash-enforcement.js'
 import type { BashForbiddenConfig } from './types.js'
 
 const GIT_FORBIDDEN: BashForbiddenConfig = {
-  patterns: [
-    /(?:^|\s|&&|;)git\s+(?:commit|push)(?:\s|$|-|;|&)/,
-    /(?:^|\s|&&|;)git\s+checkout(?:\s|$|-|;|&)/,
-  ],
+  commands: ['git commit', 'git push', 'git checkout'],
   flags: ['--no-verify', '--force'],
 }
 
-const PATTERNS_ONLY: BashForbiddenConfig = {
-  patterns: [/(?:^|\s|&&|;)gh\s+pr(?:\s|$|-|;|&)/],
+const COMMANDS_ONLY: BashForbiddenConfig = {
+  commands: ['gh pr'],
 }
 
 describe('checkBashCommand', () => {
-  describe('pattern matching', () => {
-    it('passes when command matches no forbidden pattern', () => {
+  describe('command matching', () => {
+    it('passes when command matches no forbidden command', () => {
       expect(checkBashCommand('npm test', GIT_FORBIDDEN, [])).toStrictEqual({ pass: true })
     })
 
-    it('fails when command matches a forbidden pattern with no exemption', () => {
+    it('fails when command matches a forbidden command with no exemption', () => {
       const result = checkBashCommand('git commit -m "test"', GIT_FORBIDDEN, [])
       expect(result.pass).toBe(false)
       if (!result.pass) {
-        expect(result.reason).toBe('Command matches forbidden bash pattern.')
+        expect(result.reason).toBe("Forbidden command 'git commit'.")
       }
     })
 
@@ -57,7 +54,7 @@ describe('checkBashCommand', () => {
     })
   })
 
-  describe('pattern boundary matching', () => {
+  describe('command boundary matching', () => {
     it('matches git commit at start of command', () => {
       expect(checkBashCommand('git commit -m "x"', GIT_FORBIDDEN, []).pass).toBe(false)
     })
@@ -92,7 +89,7 @@ describe('checkBashCommand', () => {
       }
     })
 
-    it('blocks flags even when command has pattern exemption', () => {
+    it('blocks flags even when command has exemption', () => {
       const result = checkBashCommand('git commit --no-verify -m "x"', GIT_FORBIDDEN, ['git commit'])
       expect(result.pass).toBe(false)
       if (!result.pass) {
@@ -110,32 +107,32 @@ describe('checkBashCommand', () => {
   })
 
   describe('config without flags', () => {
-    it('checks patterns only when flags not configured', () => {
-      expect(checkBashCommand('gh pr create', PATTERNS_ONLY, []).pass).toBe(false)
+    it('checks commands only when flags not configured', () => {
+      expect(checkBashCommand('gh pr create', COMMANDS_ONLY, []).pass).toBe(false)
     })
 
     it('passes non-matching commands', () => {
-      expect(checkBashCommand('gh issue list', PATTERNS_ONLY, [])).toStrictEqual({ pass: true })
+      expect(checkBashCommand('gh issue list', COMMANDS_ONLY, [])).toStrictEqual({ pass: true })
     })
 
     it('passes with exemption', () => {
-      expect(checkBashCommand('gh pr checks', PATTERNS_ONLY, ['gh pr checks'])).toStrictEqual({ pass: true })
+      expect(checkBashCommand('gh pr checks', COMMANDS_ONLY, ['gh pr checks'])).toStrictEqual({ pass: true })
     })
 
     it('scoped exemption blocks broader command', () => {
-      const result = checkBashCommand('gh pr create', PATTERNS_ONLY, ['gh pr checks'])
+      const result = checkBashCommand('gh pr create', COMMANDS_ONLY, ['gh pr checks'])
       expect(result.pass).toBe(false)
     })
   })
 
   describe('empty config', () => {
-    it('passes any command with empty patterns', () => {
-      expect(checkBashCommand('git commit -m "x"', { patterns: [] }, [])).toStrictEqual({ pass: true })
+    it('passes any command with empty commands list', () => {
+      expect(checkBashCommand('git commit -m "x"', { commands: [] }, [])).toStrictEqual({ pass: true })
     })
   })
 
-  describe('flag checked before patterns', () => {
-    it('returns flag error even when pattern also matches', () => {
+  describe('flag checked before commands', () => {
+    it('returns flag error even when command also matches', () => {
       const result = checkBashCommand('git commit --no-verify', GIT_FORBIDDEN, [])
       expect(result.pass).toBe(false)
       if (!result.pass) {

@@ -83,8 +83,19 @@ export class Workflow {
     return `${pluginRoot}/${getStateDefinition(this.state.currentStateMachineState).agentInstructions}`
   }
 
-  startSession(transcriptPath: string | undefined, repository: string | undefined): void {
-    this.append({ type: 'session-started', at: this.deps.now(), ...(transcriptPath === undefined ? {} : { transcriptPath }), ...(repository === undefined ? {} : { repository }) })
+  startSession(transcriptPath: string, repository: string | undefined): void {
+    this.append({ type: 'session-started', at: this.deps.now(), ...(transcriptPath ? { transcriptPath } : {}), ...(repository === undefined ? {} : { repository }) })
+  }
+
+  getTranscriptPath(): string {
+    if (this.state.transcriptPath === undefined) {
+      throw new Error('Transcript path not set. Session has not been started.')
+    }
+    return this.state.transcriptPath
+  }
+
+  handleTeammateIdle(agentName: string): PreconditionResult {
+    return this.checkIdleAllowed(agentName)
   }
 
   executeRecording(op: WorkflowOperation, ...args: readonly unknown[]): PreconditionResult {

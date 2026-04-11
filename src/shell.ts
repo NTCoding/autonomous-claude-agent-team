@@ -1,5 +1,6 @@
 import type { RunnerResult } from '@ntcoding/agentic-workflow-builder/cli'
 import { EXIT_ERROR } from '@ntcoding/agentic-workflow-builder/cli'
+import { ClaudeCodeTranscriptReader } from '@ntcoding/agentic-workflow-builder/engine'
 import { runWorkflow } from './workflow-definition/entrypoint/entrypoint.js'
 import type { WorkflowEntrypointDeps } from './workflow-definition/entrypoint/entrypoint.js'
 import { isAnalyticsCommand, routeAnalytics } from './workflow-analysis/entrypoint/entrypoint.js'
@@ -89,6 +90,7 @@ function buildRealDeps(): ShellDeps {
     readFile: (path) => readFileSync(path, 'utf8'),
     appendToFile: (path, content) => appendFileSync(path, content),
     now: () => new Date().toISOString(),
+    transcriptReader: new ClaudeCodeTranscriptReader(),
   }
 
   const workflowDeps: WorkflowDeps = {

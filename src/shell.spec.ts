@@ -23,7 +23,7 @@ function makeShellDeps(overrides?: Partial<ShellDeps>): ShellDeps {
     }),
     engineDeps: {
       store: {
-        readEvents: () => [],
+        readEvents: () => [{ type: 'session-started', at: AT, transcriptPath: '/test/transcript.jsonl' }],
         appendEvents: () => undefined,
         sessionExists: () => true,
       } satisfies WorkflowEventStore,

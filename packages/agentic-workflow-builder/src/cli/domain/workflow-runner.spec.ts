@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
 import { createWorkflowRunner } from './workflow-runner.js'
 import type { WorkflowRunnerConfig } from './workflow-runner.js'
 import { pass, fail } from '../../dsl/index.js'
@@ -35,6 +36,9 @@ function createMockWorkflow(initialState: TestState = { currentStateMachineState
     },
     getPendingEvents: () => pending,
     startSession: () => undefined,
+    getTranscriptPath: () => '/tmp/transcript.json',
+    registerAgent: () => pass(),
+    handleTeammateIdle: () => pass(),
     doSomething: () => pass(),
   }
 }
@@ -61,9 +65,9 @@ function createMockEngineDeps(hasSession = false): WorkflowEngineDeps {
 
 function createMockFactory(): WorkflowDefinition<TestWorkflow, TestState, TestDeps> {
   return {
-    rehydrate: (_events: readonly BaseEvent[]) => createMockWorkflow(),
-    createFresh: () => createMockWorkflow(),
-    procedurePath: () => '/tmp/procedure.md',
+    fold: (_state: TestState, _event: BaseEvent): TestState => ({ currentStateMachineState: 'planning' }),
+    buildWorkflow: (state: TestState, _deps: TestDeps): TestWorkflow => createMockWorkflow(state),
+    stateSchema: z.string() as z.ZodType<string>,
     initialState: () => ({ currentStateMachineState: 'planning' }),
     getRegistry: () => ({
       planning: {
@@ -88,11 +92,6 @@ function createMockFactory(): WorkflowDefinition<TestWorkflow, TestState, TestDe
     }),
     getOperationBody: (op: string) => `Body for ${op}`,
     getTransitionTitle: (to: string) => `Transitioned to ${to}`,
-    parseStateName: (v: string) => v,
-    getPrefixConfig: () => ({
-      pattern: /^\[.+\]/,
-      buildRecoveryMessage: () => 'Recovery message',
-    }),
   }
 }
 
@@ -227,7 +226,7 @@ describe('createWorkflowRunner', () => {
   describe('engine result mapping', () => {
     it('maps blocked engine result to EXIT_BLOCK', () => {
       const factory = createMockFactory()
-      factory.rehydrate = () => ({
+      factory.buildWorkflow = (_state: TestState, _deps: TestDeps): TestWorkflow => ({
         ...createMockWorkflow(),
         doSomething: () => fail('not allowed'),
       })
@@ -275,36 +274,7 @@ describe('createWorkflowRunner', () => {
       expect(appendedFiles).toContain('/tmp/.env')
     })
 
-    it('handles PreToolUse hook with matching tool check', () => {
-      const config = createTestConfig({
-        hooks: {
-          preToolUse: {
-            Bash: {
-              extract: (toolInput) => ({ command: String(toolInput['command'] ?? '') }),
-              check: (_w, extracted) => {
-                if (extracted['command'] === 'rm -rf /') return fail('Dangerous command')
-                return pass()
-              },
-            },
-          },
-        },
-      })
-      const runner = createWorkflowRunner(config)
-      const hookInput = JSON.stringify({
-        session_id: 'hook-session',
-        transcript_path: '/tmp/transcript.json',
-        cwd: '/home/user',
-        hook_event_name: 'PreToolUse',
-        tool_name: 'Bash',
-        tool_input: { command: 'ls' },
-        tool_use_id: 'tool-1',
-      })
-      const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, { readStdin: () => hookInput })
-      expect(result.exitCode).toBe(EXIT_ALLOW)
-    })
-
-    it('returns allow for PreToolUse with no hooks configured', () => {
+    it('returns allow for PreToolUse with no handler configured', () => {
       const config = createTestConfig()
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
@@ -321,43 +291,8 @@ describe('createWorkflowRunner', () => {
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
-    it('returns allow for PreToolUse with no matching tool check', () => {
-      const config = createTestConfig({
-        hooks: {
-          preToolUse: {
-            Write: {
-              extract: () => ({}),
-              check: () => pass(),
-            },
-          },
-        },
-      })
-      const runner = createWorkflowRunner(config)
-      const hookInput = JSON.stringify({
-        session_id: 'hook-session',
-        transcript_path: '/tmp/transcript.json',
-        cwd: '/home/user',
-        hook_event_name: 'PreToolUse',
-        tool_name: 'Bash',
-        tool_input: { command: 'ls' },
-        tool_use_id: 'tool-1',
-      })
-      const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, { readStdin: () => hookInput })
-      expect(result.exitCode).toBe(EXIT_ALLOW)
-    })
-
     it('returns allow for PreToolUse when session does not exist', () => {
-      const config = createTestConfig({
-        hooks: {
-          preToolUse: {
-            Bash: {
-              extract: () => ({}),
-              check: () => fail('should not reach'),
-            },
-          },
-        },
-      })
+      const config = createTestConfig()
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
         session_id: 'no-session',
@@ -408,32 +343,6 @@ describe('createWorkflowRunner', () => {
       const result = runner([], deps, {}, { readStdin: () => hookInput })
       expect(result.exitCode).toBe(EXIT_ERROR)
       expect(result.output).toContain('Invalid pre-tool-use input')
-    })
-
-    it('handles PreToolUse hook that blocks', () => {
-      const config = createTestConfig({
-        hooks: {
-          preToolUse: {
-            Bash: {
-              extract: (toolInput) => ({ command: String(toolInput['command'] ?? '') }),
-              check: () => fail('Blocked by hook'),
-            },
-          },
-        },
-      })
-      const runner = createWorkflowRunner(config)
-      const hookInput = JSON.stringify({
-        session_id: 'hook-session',
-        transcript_path: '/tmp/transcript.json',
-        cwd: '/home/user',
-        hook_event_name: 'PreToolUse',
-        tool_name: 'Bash',
-        tool_input: { command: 'rm -rf /' },
-        tool_use_id: 'tool-1',
-      })
-      const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, { readStdin: () => hookInput })
-      expect(result.exitCode).toBe(EXIT_BLOCK)
     })
 
     it('dispatches to preToolUseHandler when configured', () => {
@@ -511,34 +420,17 @@ describe('createWorkflowRunner', () => {
       expect(handlerCalled).toBe(false)
     })
 
-    it('returns allow for SubagentStart when no handler configured', () => {
-      const config = createTestConfig()
-      const runner = createWorkflowRunner(config)
-      const hookInput = JSON.stringify({
-        session_id: 'hook-session',
-        transcript_path: '/tmp/transcript.json',
-        cwd: '/home/user',
-        hook_event_name: 'SubagentStart',
-        agent_id: 'agt-1',
-        agent_type: 'developer-1',
-      })
-      const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, { readStdin: () => hookInput })
-      expect(result.exitCode).toBe(EXIT_ALLOW)
-    })
-
-    it('handles SubagentStart hook with registered handler and wraps output with formatContextInjection', () => {
+    it('dispatches SubagentStart to workflow.registerAgent directly', () => {
       const registered: Array<{ agentType: string; agentId: string }> = []
-      const config = createTestConfig({
-        hooks: {
-          subagentStart: {
-            register: (_w, agentType, agentId) => {
-              registered.push({ agentType, agentId })
-              return pass()
-            },
-          },
+      const factory = createMockFactory()
+      factory.buildWorkflow = (state: TestState, _deps: TestDeps): TestWorkflow => ({
+        ...createMockWorkflow(state),
+        registerAgent: (agentType, agentId) => {
+          registered.push({ agentType, agentId })
+          return pass()
         },
       })
+      const config = createTestConfig({ workflowDefinition: factory })
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
         session_id: 'hook-session',
@@ -557,13 +449,7 @@ describe('createWorkflowRunner', () => {
     })
 
     it('returns allow for SubagentStart when session does not exist', () => {
-      const config = createTestConfig({
-        hooks: {
-          subagentStart: {
-            register: () => fail('should not reach'),
-          },
-        },
-      })
+      const config = createTestConfig()
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
         session_id: 'no-session',
@@ -578,8 +464,16 @@ describe('createWorkflowRunner', () => {
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
-    it('returns allow for TeammateIdle when no handler configured', () => {
-      const config = createTestConfig()
+    it('dispatches TeammateIdle to workflow.handleTeammateIdle that allows', () => {
+      const factory = createMockFactory()
+      factory.buildWorkflow = (state: TestState, _deps: TestDeps): TestWorkflow => ({
+        ...createMockWorkflow(state),
+        handleTeammateIdle: (agentName) => {
+          if (agentName.includes('lead')) return fail('Lead cannot go idle')
+          return pass()
+        },
+      })
+      const config = createTestConfig({ workflowDefinition: factory })
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
         session_id: 'hook-session',
@@ -593,41 +487,16 @@ describe('createWorkflowRunner', () => {
       expect(result.exitCode).toBe(EXIT_ALLOW)
     })
 
-    it('handles TeammateIdle hook that allows', () => {
-      const config = createTestConfig({
-        hooks: {
-          teammateIdle: {
-            check: (_w, agentName) => {
-              if (agentName.includes('lead')) return fail('Lead cannot go idle')
-              return pass()
-            },
-          },
+    it('dispatches TeammateIdle to workflow.handleTeammateIdle that blocks', () => {
+      const factory = createMockFactory()
+      factory.buildWorkflow = (state: TestState, _deps: TestDeps): TestWorkflow => ({
+        ...createMockWorkflow(state),
+        handleTeammateIdle: (agentName) => {
+          if (agentName.includes('lead')) return fail('Lead cannot go idle')
+          return pass()
         },
       })
-      const runner = createWorkflowRunner(config)
-      const hookInput = JSON.stringify({
-        session_id: 'hook-session',
-        transcript_path: '/tmp/transcript.json',
-        cwd: '/home/user',
-        hook_event_name: 'TeammateIdle',
-        teammate_name: 'developer-1',
-      })
-      const deps = createMockEngineDeps(true)
-      const result = runner([], deps, {}, { readStdin: () => hookInput })
-      expect(result.exitCode).toBe(EXIT_ALLOW)
-    })
-
-    it('handles TeammateIdle hook that blocks', () => {
-      const config = createTestConfig({
-        hooks: {
-          teammateIdle: {
-            check: (_w, agentName) => {
-              if (agentName.includes('lead')) return fail('Lead cannot go idle')
-              return pass()
-            },
-          },
-        },
-      })
+      const config = createTestConfig({ workflowDefinition: factory })
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
         session_id: 'hook-session',
@@ -642,13 +511,7 @@ describe('createWorkflowRunner', () => {
     })
 
     it('returns allow for TeammateIdle when session does not exist', () => {
-      const config = createTestConfig({
-        hooks: {
-          teammateIdle: {
-            check: () => fail('should not reach'),
-          },
-        },
-      })
+      const config = createTestConfig()
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
         session_id: 'no-session',
@@ -662,13 +525,7 @@ describe('createWorkflowRunner', () => {
     })
 
     it('returns error for invalid subagent-start input', () => {
-      const config = createTestConfig({
-        hooks: {
-          subagentStart: {
-            register: () => fail('should not reach'),
-          },
-        },
-      })
+      const config = createTestConfig()
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
         session_id: 'hook-session',
@@ -683,13 +540,7 @@ describe('createWorkflowRunner', () => {
     })
 
     it('returns error for invalid teammate-idle input', () => {
-      const config = createTestConfig({
-        hooks: {
-          teammateIdle: {
-            check: () => fail('should not reach'),
-          },
-        },
-      })
+      const config = createTestConfig()
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
         session_id: 'hook-session',
@@ -706,16 +557,15 @@ describe('createWorkflowRunner', () => {
 
     it('handles TeammateIdle with missing teammate_name', () => {
       const receivedNames: string[] = []
-      const config = createTestConfig({
-        hooks: {
-          teammateIdle: {
-            check: (_w, agentName) => {
-              receivedNames.push(agentName)
-              return pass()
-            },
-          },
+      const factory = createMockFactory()
+      factory.buildWorkflow = (state: TestState, _deps: TestDeps): TestWorkflow => ({
+        ...createMockWorkflow(state),
+        handleTeammateIdle: (agentName) => {
+          receivedNames.push(agentName)
+          return pass()
         },
       })
+      const config = createTestConfig({ workflowDefinition: factory })
       const runner = createWorkflowRunner(config)
       const hookInput = JSON.stringify({
         session_id: 'hook-session',
@@ -731,8 +581,8 @@ describe('createWorkflowRunner', () => {
   })
 
   describe('preToolUse policy resolution', () => {
-    const BASH_FORBIDDEN = { patterns: [/rm -rf \//], flags: [] }
-    const ALLOW_WRITE = (): PreconditionResult => pass()
+    const BASH_FORBIDDEN = { commands: ['rm -rf /'], flags: [] as string[] }
+    const ALLOW_WRITE = (): boolean => true
 
     it('throws when preToolUseHandler and policy fields are both provided', () => {
       expect(() => createWorkflowRunner(createTestConfig({
@@ -743,7 +593,7 @@ describe('createWorkflowRunner', () => {
 
     it('throws when customGates is set without bashForbidden and isWriteAllowed', () => {
       expect(() => createWorkflowRunner(createTestConfig({
-        customGates: [{ name: 'g', check: () => pass() }],
+        customGates: [{ name: 'g', check: () => true }],
       }))).toThrow(/customGates requires bashForbidden and isWriteAllowed/)
     })
 
@@ -787,9 +637,9 @@ describe('createWorkflowRunner', () => {
         customGates: [
           {
             name: 'record',
-            check: (_w, toolName) => {
+            check: (_w, { toolName }) => {
               gateCalls.push(toolName)
-              return pass()
+              return true
             },
           },
         ],

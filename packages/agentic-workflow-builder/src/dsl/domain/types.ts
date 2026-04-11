@@ -17,7 +17,7 @@ export type TransitionContext<TState, TStateName extends string = string> = {
 }
 
 export type BashForbiddenConfig = {
-  readonly patterns: readonly RegExp[]
+  readonly commands: readonly string[]
   readonly flags?: readonly string[]
 }
 

@@ -14,32 +14,12 @@ function bashCheck(command: string, stateName: StateName) {
 }
 
 describe('checkWriteAllowed predicate', () => {
-  it('allows non-write tools', () => {
-    const result = checkWriteAllowed('Read', '/some/file.ts', stateInPhase('RESPAWN'))
-    expect(result).toStrictEqual({ pass: true })
+  it('returns false for any file path (engine pre-filters write tools and exempts state file)', () => {
+    expect(checkWriteAllowed('/some/file.ts', stateInPhase('RESPAWN'))).toBe(false)
   })
 
-  it('allows state file writes', () => {
-    const result = checkWriteAllowed('Write', '/tmp/feature-team-state-abc.json', stateInPhase('RESPAWN'))
-    expect(result).toStrictEqual({ pass: true })
-  })
-
-  it('blocks Write tool with reason containing state name', () => {
-    const result = checkWriteAllowed('Write', '/some/file.ts', stateInPhase('RESPAWN'))
-    expect(result.pass).toBe(false)
-    if (!result.pass) {
-      expect(result.reason).toBe("Write operation 'Write' is forbidden in state: RESPAWN")
-    }
-  })
-
-  it('blocks Edit tool', () => {
-    const result = checkWriteAllowed('Edit', '/some/file.ts', stateInPhase('RESPAWN'))
-    expect(result.pass).toBe(false)
-  })
-
-  it('blocks NotebookEdit tool', () => {
-    const result = checkWriteAllowed('NotebookEdit', '/some/file.ts', stateInPhase('RESPAWN'))
-    expect(result.pass).toBe(false)
+  it('returns false regardless of state', () => {
+    expect(checkWriteAllowed('/some/file.ts', stateInPhase('DEVELOPING'))).toBe(false)
   })
 })
 

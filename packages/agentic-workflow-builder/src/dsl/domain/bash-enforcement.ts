@@ -2,6 +2,13 @@ import type { PreconditionResult } from './result.js'
 import { pass, fail } from './result.js'
 import type { BashForbiddenConfig } from './types.js'
 
+function buildCommandPattern(command: string): RegExp {
+  const parts = command.trim().split(/\s+/)
+  const escapedParts = parts.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const patternBody = escapedParts.join('\\s+')
+  return new RegExp(`(?:^|\\s|&&|;)${patternBody}(?:\\s|$|-|;|&)`)
+}
+
 export function checkBashCommand(
   command: string,
   forbidden: BashForbiddenConfig,
@@ -13,14 +20,15 @@ export function checkBashCommand(
     }
   }
 
-  for (const pattern of forbidden.patterns) {
+  for (const cmd of forbidden.commands) {
+    const pattern = buildCommandPattern(cmd)
     if (!pattern.test(command)) {
       continue
     }
     if (stateExemptions.some((exemption) => command.includes(exemption))) {
       continue
     }
-    return fail('Command matches forbidden bash pattern.')
+    return fail(`Forbidden command '${cmd}'.`)
   }
 
   return pass()

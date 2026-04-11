@@ -1,5 +1,5 @@
 import type { WorkflowEngine, EngineResult, BaseWorkflowState, RehydratableWorkflow } from '../../engine/index.js'
-import type { BashForbiddenConfig, PreconditionResult } from '../../dsl/index.js'
+import type { BashForbiddenConfig } from '../../dsl/index.js'
 
 export type PreToolUseHandlerFn<
   TWorkflow extends RehydratableWorkflow<TState>,
@@ -12,7 +12,6 @@ export type PreToolUseHandlerFn<
   sessionId: string,
   toolName: string,
   toolInput: Record<string, unknown>,
-  transcriptPath: string,
 ) => EngineResult
 
 export type CustomPreToolUseGate<
@@ -21,7 +20,7 @@ export type CustomPreToolUseGate<
   TStateName extends string = string,
 > = {
   readonly name: string
-  readonly check: (workflow: TWorkflow, toolName: string, filePath: string, command: string) => PreconditionResult
+  readonly check: (workflow: TWorkflow, ctx: { readonly toolName: string; readonly filePath: string; readonly command: string }) => true | string
 }
 
 export type PreToolUseHandlerConfig<
@@ -30,7 +29,7 @@ export type PreToolUseHandlerConfig<
   TStateName extends string = string,
 > = {
   readonly bashForbidden: BashForbiddenConfig
-  readonly isWriteAllowed: (toolName: string, filePath: string, state: TState) => PreconditionResult
+  readonly isWriteAllowed: (filePath: string, state: TState) => boolean
   readonly customGates?: readonly CustomPreToolUseGate<TWorkflow, TState, TStateName>[]
 }
 
@@ -43,25 +42,28 @@ export function createPreToolUseHandler<
 >(
   config: PreToolUseHandlerConfig<TWorkflow, TState, TStateName>,
 ): PreToolUseHandlerFn<TWorkflow, TState, TDeps, TStateName, TOperation> {
-  return (engine, sessionId, toolName, toolInput, transcriptPath) => {
+  return (engine, sessionId, toolName, toolInput) => {
     const filePath = extractFilePath(toolInput)
     const command = extractCommand(toolInput)
-    const identityCheck = { kind: 'verify' as const, transcriptPath }
+    const ctx = { toolName, filePath, command }
 
     for (const gate of config.customGates ?? []) {
       const result = engine.transaction(
         sessionId,
         `hook:${gate.name}`,
-        (w) => gate.check(w, toolName, filePath, command),
-        identityCheck,
+        (w) => {
+          const check = gate.check(w, ctx)
+          if (check === true) return { pass: true as const }
+          return { pass: false as const, reason: check }
+        },
       )
       if (result.type === 'blocked') return result
     }
 
-    const writeCheck = engine.checkWrite(sessionId, toolName, filePath, config.isWriteAllowed, identityCheck)
+    const writeCheck = engine.checkWrite(sessionId, toolName, filePath, config.isWriteAllowed)
     if (writeCheck.type === 'blocked') return writeCheck
 
-    return engine.checkBash(sessionId, toolName, command, config.bashForbidden, identityCheck)
+    return engine.checkBash(sessionId, toolName, command, config.bashForbidden)
   }
 }
 
