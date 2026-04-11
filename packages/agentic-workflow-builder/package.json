@@ -1,6 +1,6 @@
 {
   "name": "@ntcoding/agentic-workflow-builder",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "type": "module",
   "description": "Type-safe, testable workflow definitions for AI coding agents",
   "exports": {
