@@ -11,7 +11,7 @@ import type {
   WorkflowDefinition,
 } from '../../engine/index.js'
 import type { BaseEvent } from '../../engine/index.js'
-import type { PlatformContext, CustomPreToolUseGate } from '../../cli/index.js'
+import type { PlatformContext, CustomPreToolUseGate, RouteMap } from '../../cli/index.js'
 import { pass } from '../../dsl/index.js'
 
 type TestStateName = 'planning'
@@ -190,6 +190,173 @@ describe('createOpenCodeWorkflowPlugin — platform context', () => {
     expect(capturedPlatform?.getPluginRoot()).toBe(pluginRoot)
     expect(typeof capturedPlatform?.now()).toBe('string')
     expect(capturedPlatform?.getSessionId()).toBe('ctx-session')
+  })
+})
+
+describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
+  const routes: RouteMap<TestWorkflow, TestState> = {
+    init: { type: 'session-start' },
+  }
+
+  function withRoutes(overrides?: Partial<TestConfigBase>) {
+    return createConfig({ routes, ...overrides })
+  }
+
+  it('hooks.tool.workflow is defined when routes are configured', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
+    expect(hooks.tool?.['workflow']).toBeDefined()
+    expect(hooks.tool?.['workflow'].description).toBeTypeOf('string')
+    expect(hooks.tool?.['workflow'].execute).toBeTypeOf('function')
+  })
+
+  it('hooks.tool is undefined when routes are omitted', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(createConfig())()
+    expect(hooks.tool).toBeUndefined()
+  })
+
+  it('hooks.command is undefined when routes are omitted', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(createConfig())()
+    expect(hooks.command).toBeUndefined()
+  })
+
+  it('workflow init creates session and returns procedure content with translation note', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
+    const output = await hooks.tool!['workflow'].execute(
+      { operation: 'init' },
+      { sessionID: 'routes-init-session' },
+    )
+    expect(output).toContain('OpenCode')
+    expect(output).toContain('Planning procedure')
+  })
+
+  it('workflow tool returns error output for unknown operation', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
+    const output = await hooks.tool!['workflow'].execute(
+      { operation: 'unknown-op' },
+      { sessionID: 'routes-unknown-session' },
+    )
+    expect(output).toContain('unknown-op')
+  })
+
+  it('workflow tool forwards args to the runner', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
+    const output = await hooks.tool!['workflow'].execute(
+      { operation: 'init', args: [] },
+      { sessionID: 'routes-args-session' },
+    )
+    expect(output).toContain('Planning procedure')
+  })
+
+  it('workflow tool treats missing operation as empty string (returns unknown command)', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
+    const output = await hooks.tool!['workflow'].execute({}, { sessionID: 'routes-no-op-session' })
+    expect(output).toContain('')
+  })
+
+  it('workflow tool forwards customGates to the runner', async () => {
+    const gate: CustomPreToolUseGate<TestWorkflow, TestState, TestStateName> = {
+      name: 'allow-all',
+      check: () => true,
+    }
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes({ customGates: [gate] }))()
+    const output = await hooks.tool!['workflow'].execute(
+      { operation: 'init' },
+      { sessionID: 'routes-gates-session' },
+    )
+    expect(output).toContain('Planning procedure')
+  })
+
+  it('tool.execute.before allows all tools without enforcement when no session exists (routes mode)', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
+    await expect(
+      hooks['tool.execute.before']!(
+        { tool: 'Bash', sessionID: 'no-session-yet', callID: 'c1' },
+        { args: { command: 'rm -rf /' } },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
+  it('tool.execute.before enforces after session is created by workflow init (routes mode)', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
+    await hooks.tool!['workflow'].execute({ operation: 'init' }, { sessionID: 'enforced-session' })
+
+    await expect(
+      hooks['tool.execute.before']!(
+        { tool: 'Bash', sessionID: 'enforced-session', callID: 'c2' },
+        { args: { command: 'rm -rf /' } },
+      ),
+    ).rejects.toThrow()
+  })
+})
+
+describe('createOpenCodeWorkflowPlugin — commandDirectories', () => {
+  const routes: RouteMap<TestWorkflow, TestState> = {
+    init: { type: 'session-start' },
+  }
+  let commandDir: string
+
+  beforeEach(() => {
+    commandDir = mkdtempSync(join(tmpdir(), 'opencode-cmds-'))
+  })
+
+  afterEach(() => {
+    rmSync(commandDir, { recursive: true })
+  })
+
+  it('registers commands from provided directories with translation note prepended', async () => {
+    writeFileSync(join(commandDir, 'start-implementation.md'), '## Step 3\n\n/dev-workflow-v2:workflow init')
+    const hooks = await createOpenCodeWorkflowPlugin(
+      createConfig({ routes, commandDirectories: [commandDir] }),
+    )()
+    expect(hooks.command?.['start-implementation']).toBeDefined()
+    expect(hooks.command?.['start-implementation'].content).toContain('OpenCode')
+    expect(hooks.command?.['start-implementation'].content).toContain('/dev-workflow-v2:workflow init')
+  })
+
+  it('ignores non-.md files in command directories', async () => {
+    writeFileSync(join(commandDir, 'readme.txt'), 'ignored')
+    writeFileSync(join(commandDir, 'cmd.md'), '# Command')
+    const hooks = await createOpenCodeWorkflowPlugin(
+      createConfig({ routes, commandDirectories: [commandDir] }),
+    )()
+    expect(hooks.command?.['readme']).toBeUndefined()
+    expect(hooks.command?.['cmd']).toBeDefined()
+  })
+
+  it('merges commands from multiple directories', async () => {
+    const dir2 = mkdtempSync(join(tmpdir(), 'opencode-cmds2-'))
+    try {
+      writeFileSync(join(commandDir, 'cmd-a.md'), '# A')
+      writeFileSync(join(dir2, 'cmd-b.md'), '# B')
+      const hooks = await createOpenCodeWorkflowPlugin(
+        createConfig({ routes, commandDirectories: [commandDir, dir2] }),
+      )()
+      expect(hooks.command?.['cmd-a']).toBeDefined()
+      expect(hooks.command?.['cmd-b']).toBeDefined()
+    } finally {
+      rmSync(dir2, { recursive: true })
+    }
+  })
+
+  it('hooks.command is undefined when commandDirectories is not provided', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(createConfig({ routes }))()
+    expect(hooks.command).toBeUndefined()
+  })
+
+  it('hooks.command is undefined when provided directories contain no .md files', async () => {
+    // commandDir exists but is empty
+    const hooks = await createOpenCodeWorkflowPlugin(
+      createConfig({ routes, commandDirectories: [commandDir] }),
+    )()
+    expect(hooks.command).toBeUndefined()
+  })
+
+  it('skips non-existent directories without error', async () => {
+    writeFileSync(join(commandDir, 'cmd.md'), '# Command')
+    const hooks = await createOpenCodeWorkflowPlugin(
+      createConfig({ routes, commandDirectories: ['/nonexistent-dir-xyz', commandDir] }),
+    )()
+    expect(hooks.command?.['cmd']).toBeDefined()
   })
 })
 
