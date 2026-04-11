@@ -116,8 +116,8 @@ export function createOpenCodeWorkflowPlugin<
 
       if (config.routes !== undefined) {
         // With routes: the workflow tool handles session init via explicit `workflow init` call.
-        // Skip enforcement until a session exists.
-        if (!engine.hasSession(input.sessionID)) {
+        // Skip enforcement until the session-started lifecycle event exists.
+        if (!engine.hasSessionStarted(input.sessionID)) {
           return
         }
       } else {
@@ -161,7 +161,10 @@ export function createOpenCodeWorkflowPlugin<
           [operation, ...argList],
           engineDeps,
           workflowDeps,
-          { getSessionId: () => ctx.sessionID },
+          {
+            getSessionId: () => ctx.sessionID,
+            getSessionTranscriptPath: () => dbPath,
+          },
         )
         return result.output
       },

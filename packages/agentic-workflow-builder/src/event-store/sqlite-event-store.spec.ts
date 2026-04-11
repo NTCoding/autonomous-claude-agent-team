@@ -93,6 +93,77 @@ describe('sessionExists', () => {
     store.appendEvents('session-known', [{ type: 'ev', at: '2026-01-01T00:00:00.000Z' }])
     expect(store.sessionExists('session-known')).toStrictEqual(true)
   })
+
+  it('returns false when sqlite get() returns null (bun-compatible regression)', () => {
+    const store = createStore(dbPath)
+    const nullGetStatement = {
+      all: () => [] as readonly unknown[],
+      get: () => null,
+      run: () => undefined,
+    }
+    Reflect.set(store.db, 'prepare', () => nullGetStatement)
+
+    expect(store.sessionExists('bun-null-sentinel')).toStrictEqual(false)
+  })
+
+  it('returns false when sqlite get() returns undefined', () => {
+    const store = createStore(dbPath)
+    const undefinedGetStatement = {
+      all: () => [] as readonly unknown[],
+      get: () => undefined,
+      run: () => undefined,
+    }
+    Reflect.set(store.db, 'prepare', () => undefinedGetStatement)
+
+    expect(store.sessionExists('undefined-sentinel')).toStrictEqual(false)
+  })
+
+  it('throws when count query returns malformed row data', () => {
+    const store = createStore(dbPath)
+    const malformedRowStatement = {
+      all: () => [] as readonly unknown[],
+      get: () => ({ not_count: 1 }),
+      run: () => undefined,
+    }
+    Reflect.set(store.db, 'prepare', () => malformedRowStatement)
+
+    expect(() => store.sessionExists('malformed-row')).toThrow('Invalid count query row')
+  })
+
+  it('throws when count query returns non-numeric count', () => {
+    const store = createStore(dbPath)
+    const invalidCountStatement = {
+      all: () => [] as readonly unknown[],
+      get: () => ({ count: 'NaN' }),
+      run: () => undefined,
+    }
+    Reflect.set(store.db, 'prepare', () => invalidCountStatement)
+
+    expect(() => store.sessionExists('invalid-count')).toThrow('Invalid count value')
+  })
+})
+
+describe('hasSessionStarted', () => {
+  const dbPath = tmpDb('hasSessionStarted')
+  afterAll(() => { cleanup(dbPath) })
+
+  it('returns false for unknown session ID', () => {
+    const store = createStore(dbPath)
+    expect(store.hasSessionStarted('missing-session')).toStrictEqual(false)
+  })
+
+  it('returns false when events exist but no session-started event', () => {
+    const store = createStore(dbPath)
+    store.appendEvents('session-without-start', [{ type: 'issue-recorded', at: '2026-01-01T00:00:00.000Z' }])
+    expect(store.sessionExists('session-without-start')).toStrictEqual(true)
+    expect(store.hasSessionStarted('session-without-start')).toStrictEqual(false)
+  })
+
+  it('returns true after session-started event is present', () => {
+    const store = createStore(dbPath)
+    store.appendEvents('session-started', [{ type: 'session-started', at: '2026-01-01T00:00:00.000Z' }])
+    expect(store.hasSessionStarted('session-started')).toStrictEqual(true)
+  })
 })
 
 describe('listSessions', () => {

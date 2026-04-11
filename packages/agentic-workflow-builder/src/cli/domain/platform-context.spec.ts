@@ -12,6 +12,7 @@ describe('PlatformContext', () => {
         readEvents: () => [],
         appendEvents: () => undefined,
         sessionExists: () => false,
+        hasSessionStarted: () => false,
       },
     }
     expect(ctx.getPluginRoot()).toBe('/plugin')

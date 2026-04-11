@@ -65,6 +65,7 @@ function createStubEventStore(): WorkflowEventStore {
     readEvents: () => [],
     appendEvents: () => undefined,
     sessionExists: () => false,
+    hasSessionStarted: () => false,
   }
 }
 

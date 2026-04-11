@@ -23,6 +23,7 @@ export type { PreToolUseHandlerFn } from './pre-tool-use-handler'
 export type RunnerOptions = {
   readonly readStdin?: () => string
   readonly getSessionId?: () => string
+  readonly getSessionTranscriptPath?: () => string
 }
 
 export type WorkflowRunnerConfig<
@@ -149,7 +150,14 @@ export function createWorkflowRunner<
     const routeName = args[0]
 
     if (routeName !== undefined) {
-      return handleRoute(engine, config, args, routeName, options?.getSessionId)
+      return handleRoute(
+        engine,
+        config,
+        args,
+        routeName,
+        options?.getSessionId,
+        options?.getSessionTranscriptPath,
+      )
     }
 
     if (options?.readStdin === undefined) {
@@ -172,6 +180,7 @@ function handleRoute<
   args: readonly string[],
   routeName: string,
   getSessionId?: () => string,
+  getSessionTranscriptPath?: () => string,
 ): RunnerResult {
   const routeDef = config.routes[routeName]
   if (routeDef === undefined) {
@@ -206,7 +215,8 @@ function handleRoute<
   switch (routeDef.type) {
     case 'session-start': {
       const sessionId = resolveSessionId()
-      const result = engine.startSession(sessionId, '')
+      const transcriptPath = getSessionTranscriptPath?.() ?? ''
+      const result = engine.startSession(sessionId, transcriptPath)
       return engineResultToRunnerResult(result)
     }
     case 'transition': {

@@ -149,6 +149,7 @@ function makeStore(overrides?: Partial<WorkflowEventStore>): WorkflowEventStore 
     readEvents: () => [],
     appendEvents: () => undefined,
     sessionExists: () => true,
+    hasSessionStarted: () => true,
     ...overrides,
   }
 }
@@ -199,7 +200,11 @@ describe('WorkflowEngine.startSession', () => {
   it('creates initial session-started event when no session exists', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
     const engine = makeEngine({
-      store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
+      store: {
+        sessionExists: () => false,
+        hasSessionStarted: () => false,
+        appendEvents: (sessionId, events) => appended.push({ sessionId, events }),
+      },
     })
     const result = engine.startSession('sess1', '/transcript.jsonl')
     expect(result.type).toStrictEqual('success')
@@ -211,7 +216,11 @@ describe('WorkflowEngine.startSession', () => {
   it('persists session-started event with session id in SPAWN state', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
     const engine = makeEngine({
-      store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
+      store: {
+        sessionExists: () => false,
+        hasSessionStarted: () => false,
+        appendEvents: (sessionId, events) => appended.push({ sessionId, events }),
+      },
     })
     engine.startSession('sess1', '/t.jsonl')
     expect(appended[0]?.sessionId).toStrictEqual('sess1')
@@ -221,21 +230,44 @@ describe('WorkflowEngine.startSession', () => {
   it('forwards repository to session-started event', () => {
     const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
     const engine = makeEngine({
-      store: { sessionExists: () => false, appendEvents: (sessionId, events) => appended.push({ sessionId, events }) },
+      store: {
+        sessionExists: () => false,
+        hasSessionStarted: () => false,
+        appendEvents: (sessionId, events) => appended.push({ sessionId, events }),
+      },
     })
     engine.startSession('sess1', '/t.jsonl', 'owner/repo')
     expect(appended[0]?.events[0]).toMatchObject({ repository: 'owner/repo' })
   })
 
   it('returns empty output when session already exists', () => {
-    const engine = makeEngine({ store: { sessionExists: () => true } })
+    const engine = makeEngine({ store: { sessionExists: () => true, hasSessionStarted: () => true } })
     const result = engine.startSession('sess1', '/t.jsonl')
     expect(result.type).toStrictEqual('success')
     expect(result.output).toStrictEqual('')
   })
 
+  it('starts session when generic events exist but session-started is missing', () => {
+    const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
+    const engine = makeEngine({
+      store: {
+        sessionExists: () => true,
+        hasSessionStarted: () => false,
+        appendEvents: (sessionId, events) => appended.push({ sessionId, events }),
+      },
+    })
+
+    const result = engine.startSession('sess1', '/t.jsonl')
+
+    expect(result.type).toStrictEqual('success')
+    expect(result.output).toContain('Feature team initialized')
+    expect(appended[0]?.events[0]?.type).toStrictEqual('session-started')
+  })
+
   it('output contains prefix footer for initial state', () => {
-    const engine = makeEngine({ store: { sessionExists: () => false, appendEvents: () => undefined } })
+    const engine = makeEngine({
+      store: { sessionExists: () => false, hasSessionStarted: () => false, appendEvents: () => undefined },
+    })
     const result = engine.startSession('sess1', '/t.jsonl')
     expect(result.output).toContain('Next message MUST begin with: 🟣 SPAWN')
   })
@@ -287,7 +319,7 @@ describe('WorkflowEngine.transaction', () => {
   })
 
   it('throws WorkflowStateError when session does not exist', () => {
-    const engine = makeEngine({ store: { sessionExists: () => false } })
+    const engine = makeEngine({ store: { sessionExists: () => false, hasSessionStarted: () => false } })
     expect(() => engine.transaction('missing', 'record-issue', () => pass()))
       .toThrow("No session found for 'missing'. Run init first.")
   })
@@ -533,7 +565,7 @@ describe('WorkflowEngine.transition', () => {
   })
 
   it('throws WorkflowStateError when session does not exist', () => {
-    const engine = makeEngine({ store: { sessionExists: () => false } })
+    const engine = makeEngine({ store: { sessionExists: () => false, hasSessionStarted: () => false } })
     expect(() => engine.transition('missing', 'PLANNING'))
       .toThrow("No session found for 'missing'. Run init first.")
   })
@@ -659,7 +691,7 @@ describe('WorkflowEngine.checkBash', () => {
   })
 
   it('throws WorkflowStateError when session does not exist', () => {
-    const engine = makeEngine({ store: { sessionExists: () => false } })
+    const engine = makeEngine({ store: { sessionExists: () => false, hasSessionStarted: () => false } })
     expect(() => engine.checkBash('missing', 'Bash', 'ls', bashForbidden))
       .toThrow("No session found for 'missing'. Run init first.")
   })
@@ -746,7 +778,7 @@ describe('WorkflowEngine.checkWrite', () => {
   })
 
   it('throws WorkflowStateError when session does not exist', () => {
-    const engine = makeEngine({ store: { sessionExists: () => false } })
+    const engine = makeEngine({ store: { sessionExists: () => false, hasSessionStarted: () => false } })
     expect(() => engine.checkWrite('missing', 'Edit', '/file.ts', alwaysAllow))
       .toThrow("No session found for 'missing'. Run init first.")
   })
@@ -799,13 +831,25 @@ describe('WorkflowEngine.persistSessionId', () => {
 
 describe('WorkflowEngine.hasSession', () => {
   it('returns true when session exists', () => {
-    const engine = makeEngine({ store: { sessionExists: () => true } })
+    const engine = makeEngine({ store: { sessionExists: () => true, hasSessionStarted: () => true } })
     expect(engine.hasSession('sess1')).toStrictEqual(true)
   })
 
   it('returns false when session does not exist', () => {
-    const engine = makeEngine({ store: { sessionExists: () => false } })
+    const engine = makeEngine({ store: { sessionExists: () => false, hasSessionStarted: () => false } })
     expect(engine.hasSession('sess1')).toStrictEqual(false)
+  })
+})
+
+describe('WorkflowEngine.hasSessionStarted', () => {
+  it('returns true when session-started event exists', () => {
+    const engine = makeEngine({ store: { sessionExists: () => true, hasSessionStarted: () => true } })
+    expect(engine.hasSessionStarted('sess1')).toStrictEqual(true)
+  })
+
+  it('returns false when session-started event does not exist', () => {
+    const engine = makeEngine({ store: { sessionExists: () => true, hasSessionStarted: () => false } })
+    expect(engine.hasSessionStarted('sess1')).toStrictEqual(false)
   })
 })
 

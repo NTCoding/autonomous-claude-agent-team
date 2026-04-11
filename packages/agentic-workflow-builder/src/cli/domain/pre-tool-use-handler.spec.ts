@@ -68,6 +68,7 @@ function makeStubStore(): WorkflowEventStore {
     readEvents: () => [],
     appendEvents: () => undefined,
     sessionExists: () => true,
+    hasSessionStarted: () => true,
   }
 }
 

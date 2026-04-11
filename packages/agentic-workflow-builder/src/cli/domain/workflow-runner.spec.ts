@@ -24,6 +24,7 @@ type TestWorkflow = RehydratableWorkflow<TestState> & {
 function createMockWorkflow(initialState: TestState = { currentStateMachineState: 'planning' }): TestWorkflow {
   let state = initialState
   const pending: BaseEvent[] = []
+  let transcriptPath = '/tmp/transcript.json'
   return {
     getState: () => state,
     getAgentInstructions: () => '/tmp/instructions.md',
@@ -35,8 +36,11 @@ function createMockWorkflow(initialState: TestState = { currentStateMachineState
       }
     },
     getPendingEvents: () => pending,
-    startSession: () => undefined,
-    getTranscriptPath: () => '/tmp/transcript.json',
+    startSession: (nextTranscriptPath: string) => {
+      transcriptPath = nextTranscriptPath
+      pending.push({ type: 'session-started', at: '2024-01-01T00:00:00Z', transcriptPath: nextTranscriptPath })
+    },
+    getTranscriptPath: () => transcriptPath,
     registerAgent: () => pass(),
     handleTeammateIdle: () => pass(),
     doSomething: () => pass(),
@@ -48,6 +52,7 @@ function createMockStore(hasSession = false): WorkflowEventStore {
     readEvents: () => [],
     appendEvents: () => undefined,
     sessionExists: () => hasSession,
+    hasSessionStarted: () => hasSession,
   }
 }
 
@@ -220,6 +225,43 @@ describe('createWorkflowRunner', () => {
       const deps = createMockEngineDeps()
       const result = runner(['init'], deps, {}, { getSessionId: () => 'injected-session' })
       expect(result.exitCode).toBe(EXIT_ALLOW)
+    })
+
+    it('uses getSessionTranscriptPath for session-start commands', () => {
+      const appended: BaseEvent[][] = []
+      const config: WorkflowRunnerConfig<TestWorkflow, TestState, TestDeps> = {
+        workflowDefinition: createMockFactory(),
+        routes: {
+          init: {
+            type: 'session-start',
+            args: [],
+          },
+        },
+      }
+      const runner = createWorkflowRunner(config)
+      const deps: WorkflowEngineDeps = {
+        ...createMockEngineDeps(false),
+        store: {
+          ...createMockStore(false),
+          appendEvents: (_sessionId, events) => {
+            appended.push([...events])
+          },
+        },
+      }
+
+      const result = runner(
+        ['init'],
+        deps,
+        {},
+        {
+          getSessionId: () => 'session-with-transcript',
+          getSessionTranscriptPath: () => '/tmp/opencode.db',
+        },
+      )
+
+      expect(result.exitCode).toBe(EXIT_ALLOW)
+      const sessionStarted = appended.flat().find((event) => event.type === 'session-started')
+      expect(sessionStarted?.['transcriptPath']).toBe('/tmp/opencode.db')
     })
   })
 

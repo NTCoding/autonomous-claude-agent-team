@@ -52,6 +52,7 @@ export interface WorkflowEventStore {
   readEvents(sessionId: string): readonly BaseEvent[]
   appendEvents(sessionId: string, events: readonly BaseEvent[]): void
   sessionExists(sessionId: string): boolean
+  hasSessionStarted(sessionId: string): boolean
 }
 
 export type WorkflowEngineDeps = {
@@ -86,7 +87,7 @@ export class WorkflowEngine<
   }
 
   startSession(sessionId: string, transcriptPath: string, repository?: string): EngineResult {
-    if (this.engineDeps.store.sessionExists(sessionId)) {
+    if (this.engineDeps.store.hasSessionStarted(sessionId)) {
       return { type: 'success', output: '' }
     }
     const initialState = this.factory.initialState()
@@ -282,11 +283,15 @@ export class WorkflowEngine<
   }
 
   hasSession(sessionId: string): boolean {
-    return this.engineDeps.store.sessionExists(sessionId)
+    return this.engineDeps.store.hasSessionStarted(sessionId)
+  }
+
+  hasSessionStarted(sessionId: string): boolean {
+    return this.engineDeps.store.hasSessionStarted(sessionId)
   }
 
   private requireSession(sessionId: string): void {
-    if (!this.engineDeps.store.sessionExists(sessionId)) {
+    if (!this.engineDeps.store.hasSessionStarted(sessionId)) {
       throw new WorkflowStateError(`No session found for '${sessionId}'. Run init first.`)
     }
   }

@@ -26,6 +26,7 @@ function makeShellDeps(overrides?: Partial<ShellDeps>): ShellDeps {
         readEvents: () => [{ type: 'session-started', at: AT, transcriptPath: '/test/transcript.jsonl' }],
         appendEvents: () => undefined,
         sessionExists: () => true,
+        hasSessionStarted: () => true,
       } satisfies WorkflowEventStore,
       getPluginRoot: () => '/plugin',
       getEnvFilePath: () => '/test/claude.env',

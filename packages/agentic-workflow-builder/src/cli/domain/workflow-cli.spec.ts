@@ -40,6 +40,7 @@ function createMockEventStore(hasSession = false): WorkflowEventStore {
     readEvents: () => [],
     appendEvents: () => undefined,
     sessionExists: () => hasSession,
+    hasSessionStarted: () => hasSession,
   }
 }
 

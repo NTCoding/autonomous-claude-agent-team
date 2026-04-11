@@ -2,7 +2,7 @@ import { createRequire } from 'node:module'
 
 export type SqliteStatement = {
   readonly all: (...params: readonly unknown[]) => readonly unknown[]
-  readonly get: (...params: readonly unknown[]) => unknown
+  readonly get: (...params: readonly unknown[]) => unknown | undefined
   readonly run: (...params: readonly unknown[]) => unknown
 }
 
@@ -25,7 +25,8 @@ const require = createRequire(import.meta.url)
 const sqliteFactory: SqliteFactory = loadSqliteFactory()
 
 export function openSqliteDatabase(path: string, options: OpenOptions = {}): SqliteDatabase {
-  return sqliteFactory.open(path, options)
+  const db = sqliteFactory.open(path, options)
+  return wrapSqliteDatabase(db)
 }
 
 export function enableWalMode(database: SqliteDatabase): void {
@@ -67,4 +68,26 @@ function loadNodeSqliteFactory(): SqliteFactory {
       return new nodeSqliteModule.DatabaseSync(path, { readOnly: options.readonly === true })
     },
   }
+}
+
+function wrapSqliteDatabase(db: SqliteDatabase): SqliteDatabase {
+  return {
+    prepare: (sql: string) => wrapSqliteStatement(db.prepare(sql)),
+    exec: (sql: string) => db.exec(sql),
+    close: () => db.close(),
+  }
+}
+
+function wrapSqliteStatement(statement: SqliteStatement): SqliteStatement {
+  return {
+    all: (...params: readonly unknown[]) => statement.all(...params),
+    get: (...params: readonly unknown[]) => normalizeGetResult(statement.get(...params)),
+    run: (...params: readonly unknown[]) => statement.run(...params),
+  }
+}
+
+function normalizeGetResult(row: unknown): unknown | undefined {
+  /* v8 ignore next */
+  if (row === null) return undefined
+  return row
 }

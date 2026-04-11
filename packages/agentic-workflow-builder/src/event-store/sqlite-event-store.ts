@@ -23,12 +23,15 @@ export type SqliteEventStore = {
   readonly readEvents: (sessionId: string) => readonly BaseEvent[]
   readonly appendEvents: (sessionId: string, events: readonly BaseEvent[]) => void
   readonly sessionExists: (sessionId: string) => boolean
+  readonly hasSessionStarted: (sessionId: string) => boolean
   readonly listSessions: () => readonly string[]
   readonly db: SqliteDatabase
 }
 
 const RowWithPayloadSchema = z.array(z.object({ payload: z.string() }))
 const RowWithSessionIdSchema = z.array(z.object({ session_id: z.string() }))
+const CountFieldSchema = z.union([z.number(), z.bigint(), z.string()])
+const CountRowSchema = z.object({ count: CountFieldSchema })
 
 export function createStore(dbPath: string): SqliteEventStore {
   const db = openSqliteDatabase(dbPath)
@@ -73,10 +76,21 @@ export function createStore(dbPath: string): SqliteEventStore {
     },
 
     sessionExists(sessionId: string): boolean {
-      const row = db
-        .prepare('SELECT 1 FROM events WHERE session_id = ? LIMIT 1')
-        .get(sessionId)
-      return row !== undefined
+      const count = readCount(
+        db,
+        'SELECT COUNT(1) AS count FROM events WHERE session_id = ?',
+        sessionId,
+      )
+      return count > 0
+    },
+
+    hasSessionStarted(sessionId: string): boolean {
+      const count = readCount(
+        db,
+        "SELECT COUNT(1) AS count FROM events WHERE session_id = ? AND type = 'session-started'",
+        sessionId,
+      )
+      return count > 0
     },
 
     listSessions(): readonly string[] {
@@ -87,6 +101,23 @@ export function createStore(dbPath: string): SqliteEventStore {
       return rows.map((r) => r.session_id)
     },
   }
+}
+
+function readCount(db: SqliteDatabase, query: string, sessionId: string): number {
+  const rawRow = db.prepare(query).get(sessionId)
+  if (rawRow === undefined || rawRow === null) return 0
+
+  const parsed = CountRowSchema.safeParse(rawRow)
+  if (!parsed.success) {
+    throw new WorkflowStateError(`Invalid count query row for session ${sessionId}: ${parsed.error.message}`)
+  }
+
+  const value = parsed.data.count
+  const normalized = Number(value)
+  if (!Number.isFinite(normalized) || normalized < 0) {
+    throw new WorkflowStateError(`Invalid count value for session ${sessionId}: ${String(value)}`)
+  }
+  return normalized
 }
 
 export function resolveSessionId(store: SqliteEventStore, input: string): string {

@@ -79,10 +79,13 @@ export function prCreationEvents(): readonly WorkflowEvent[] {
 type EngineDepsOverrides = { store?: Partial<WorkflowEventStore> } & Partial<Omit<WorkflowEngineDeps, 'store'>>
 
 function makeStore(overrides?: Partial<WorkflowEventStore>): WorkflowEventStore {
+  const sessionExists = overrides?.sessionExists ?? (() => true)
+  const hasSessionStarted = overrides?.hasSessionStarted ?? sessionExists
   return {
     readEvents: () => [{ type: 'session-started', at: AT, transcriptPath: '/test/transcript.jsonl' }],
     appendEvents: () => undefined,
-    sessionExists: () => true,
+    sessionExists,
+    hasSessionStarted,
     ...overrides,
   }
 }

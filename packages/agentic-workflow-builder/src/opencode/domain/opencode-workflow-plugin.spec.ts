@@ -7,6 +7,7 @@ import type { Config as OpenCodeConfig, Hooks } from '@opencode-ai/plugin'
 import type { ToolContext } from '@opencode-ai/plugin/tool'
 import { createOpenCodeWorkflowPlugin } from './opencode-workflow-plugin.js'
 import type { OpenCodeWorkflowPluginConfig } from './opencode-workflow-plugin.js'
+import { createStore } from '../../event-store/index.js'
 import type {
   BaseWorkflowState,
   RehydratableWorkflow,
@@ -17,18 +18,31 @@ import type { PlatformContext, CustomPreToolUseGate, RouteMap } from '../../cli/
 import { pass } from '../../dsl/index.js'
 
 type TestStateName = 'planning'
-type TestState = BaseWorkflowState<TestStateName>
+type TestState = BaseWorkflowState<TestStateName> & { readonly transcriptPath?: string }
 type TestDeps = Record<string, never>
 type TestWorkflow = RehydratableWorkflow<TestState>
 
-function createMockWorkflow(): TestWorkflow {
+function createMockWorkflow(initialState: TestState = { currentStateMachineState: 'planning' }): TestWorkflow {
   const pendingEvents: BaseEvent[] = []
+  let transcriptPath = initialState.transcriptPath
   return {
-    getState: () => ({ currentStateMachineState: 'planning' }),
+    getState: () => ({ currentStateMachineState: 'planning', transcriptPath }),
     appendEvent: (event) => { pendingEvents.push(event) },
     getPendingEvents: () => pendingEvents as readonly BaseEvent[],
-    startSession: () => { pendingEvents.push({ type: 'session-started', at: new Date().toISOString() }) },
-    getTranscriptPath: () => '/nonexistent-transcript.db',
+    startSession: (nextTranscriptPath) => {
+      transcriptPath = nextTranscriptPath
+      pendingEvents.push({
+        type: 'session-started',
+        at: new Date().toISOString(),
+        transcriptPath: nextTranscriptPath,
+      })
+    },
+    getTranscriptPath: () => {
+      if (transcriptPath === undefined) {
+        throw new Error('Transcript path not set. Session has not been started.')
+      }
+      return transcriptPath
+    },
     registerAgent: () => pass(),
     handleTeammateIdle: () => pass(),
   }
@@ -36,8 +50,13 @@ function createMockWorkflow(): TestWorkflow {
 
 function createMockWorkflowDefinition(): WorkflowDefinition<TestWorkflow, TestState, TestDeps, TestStateName> {
   return {
-    fold: (state) => state,
-    buildWorkflow: () => createMockWorkflow(),
+    fold: (state, event) => {
+      if (event.type === 'session-started' && typeof event['transcriptPath'] === 'string') {
+        return { ...state, transcriptPath: event['transcriptPath'] }
+      }
+      return state
+    },
+    buildWorkflow: (state) => createMockWorkflow(state),
     stateSchema: z.literal('planning'),
     initialState: () => ({ currentStateMachineState: 'planning' }),
     getRegistry: () => ({
@@ -237,6 +256,10 @@ describe('createOpenCodeWorkflowPlugin — platform context', () => {
 describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
   const routes: RouteMap<TestWorkflow, TestState> = {
     init: { type: 'session-start' },
+    'record-issue': {
+      type: 'transaction',
+      handler: () => pass(),
+    },
   }
 
   function withRoutes(overrides?: Partial<TestConfigBase>) {
@@ -336,6 +359,24 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
     ).resolves.toBeUndefined()
   })
 
+  it('tool.execute.before does not enforce when session has events but no session-started event', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
+    const rawStore = createStore(join(pluginRoot, 'workflow.db'))
+    rawStore.appendEvents('events-only-session', [{
+      type: 'identity-verified',
+      at: '2026-01-01T00:00:00.000Z',
+      status: 'never-spoken',
+      transcriptPath: '/tmp/non-session-path.db',
+    }])
+
+    await expect(
+      hooks['tool.execute.before']!(
+        { tool: 'Bash', sessionID: 'events-only-session', callID: 'c1' },
+        { args: { command: 'rm -rf /' } },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
   it('tool.execute.before enforces after session is created by workflow init (routes mode)', async () => {
     const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
     const workflowTool = getWorkflowTool(hooks)
@@ -350,6 +391,34 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
         { args: { command: 'rm -rf /' } },
       ),
     ).rejects.toThrow()
+  })
+
+  it('workflow init stores OpenCode DB path and reuses it for identity verification', async () => {
+    const databasePath = join(pluginRoot, 'opencode-transcript.db')
+    const hooks = await createOpenCodeWorkflowPlugin(createConfig({ routes }, databasePath))()
+    const workflowTool = getWorkflowTool(hooks)
+
+    await expect(
+      workflowTool.execute(
+        { operation: 'init' },
+        createToolContext('db-path-session'),
+      ),
+    ).resolves.toContain('Planning procedure')
+
+    await expect(
+      workflowTool.execute(
+        { operation: 'record-issue' },
+        createToolContext('db-path-session'),
+      ),
+    ).resolves.toContain('record-issue')
+
+    const store = createStore(join(pluginRoot, 'workflow.db'))
+    const events = store.readEvents('db-path-session')
+    const sessionStarted = events.find((event) => event.type === 'session-started')
+    const identityVerified = [...events].reverse().find((event) => event.type === 'identity-verified')
+
+    expect(sessionStarted?.['transcriptPath']).toBe(databasePath)
+    expect(identityVerified?.['transcriptPath']).toBe(databasePath)
   })
 })
 
