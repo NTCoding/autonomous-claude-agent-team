@@ -67,7 +67,7 @@ export function createOpenCodeWorkflowPlugin<
 >(
   config: OpenCodeWorkflowPluginConfig<TWorkflow, TState, TDeps, TStateName, TOperation>,
 ): OpenCodePlugin {
-  const store = createStore(join(config.pluginRoot, 'workflow.db'))
+  const store = createStore(resolveWorkflowEventsDatabasePath())
   const dbPath = resolveOpenCodeDatabasePath(config.databasePath)
 
   function buildEngineContext(sessionID: string): {
@@ -230,4 +230,10 @@ function registerCommands(config: OpenCodeConfig, commands: OpenCodeCommandMap):
 function resolveOpenCodeDatabasePath(configured?: string): string {
   if (configured !== undefined) return configured
   return process.env['OPENCODE_DB'] ?? join(homedir(), '.local', 'share', 'opencode', 'opencode.db')
+}
+
+function resolveWorkflowEventsDatabasePath(): string {
+  const configured = process.env['WORKFLOW_EVENTS_DB']
+  if (configured !== undefined && configured !== '') return configured
+  return join(homedir(), '.workflow-events.db')
 }

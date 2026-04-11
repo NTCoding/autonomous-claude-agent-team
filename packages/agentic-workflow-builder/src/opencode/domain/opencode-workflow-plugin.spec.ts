@@ -177,11 +177,13 @@ beforeEach(() => {
   pluginRoot = mkdtempSync(join(tmpdir(), 'opencode-plugin-spec-'))
   mkdirSync(join(pluginRoot, 'states'))
   writeFileSync(join(pluginRoot, 'states', 'planning.md'), '- [ ] Planning procedure')
+  process.env['WORKFLOW_EVENTS_DB'] = join(pluginRoot, 'workflow-events.db')
   delete process.env['OPENCODE_DB']
 })
 
 afterEach(() => {
   rmSync(pluginRoot, { recursive: true })
+  delete process.env['WORKFLOW_EVENTS_DB']
   vi.unstubAllEnvs()
 })
 
@@ -369,7 +371,7 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
 
   it('tool.execute.before does not enforce when session has events but no session-started event', async () => {
     const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
-    const rawStore = createStore(join(pluginRoot, 'workflow.db'))
+    const rawStore = createStore(join(pluginRoot, 'workflow-events.db'))
     rawStore.appendEvents('events-only-session', [{
       type: 'identity-verified',
       at: '2026-01-01T00:00:00.000Z',
@@ -420,7 +422,7 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
       ),
     ).resolves.toContain('record-issue')
 
-    const store = createStore(join(pluginRoot, 'workflow.db'))
+    const store = createStore(join(pluginRoot, 'workflow-events.db'))
     const events = store.readEvents('db-path-session')
     const sessionStarted = events.find((event) => event.type === 'session-started')
     const identityVerified = [...events].reverse().find((event) => event.type === 'identity-verified')

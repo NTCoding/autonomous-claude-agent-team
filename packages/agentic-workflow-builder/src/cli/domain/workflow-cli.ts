@@ -50,7 +50,12 @@ export function createWorkflowCli<
   const pluginRoot = readEnvVar('CLAUDE_PLUGIN_ROOT')
   const getSessionId = () => readEnvVar('CLAUDE_SESSION_ID')
 
-  const store = processDeps.buildStore(join(pluginRoot, 'workflow.db'))
+  const configuredWorkflowEventsDbPath = processDeps.getEnv('WORKFLOW_EVENTS_DB')
+  const workflowEventsDbPath = configuredWorkflowEventsDbPath !== undefined && configuredWorkflowEventsDbPath !== ''
+    ? configuredWorkflowEventsDbPath
+    : join(readEnvVar('HOME'), '.workflow-events.db')
+
+  const store = processDeps.buildStore(workflowEventsDbPath)
   const now = () => new Date().toISOString()
 
   const platformCtx: PlatformContext = {

@@ -136,6 +136,13 @@ describe('getEnvFilePath', () => {
 
 describe('getDbPath', () => {
   it('returns path under home directory', () => {
-    expect(getDbPath()).toStrictEqual(`${homedir()}/.claude/workflow-events.db`)
+    delete process.env['WORKFLOW_EVENTS_DB']
+    expect(getDbPath()).toStrictEqual(`${homedir()}/.workflow-events.db`)
+  })
+
+  it('uses WORKFLOW_EVENTS_DB when set', () => {
+    process.env['WORKFLOW_EVENTS_DB'] = '/tmp/shared-workflow-events.db'
+    expect(getDbPath()).toStrictEqual('/tmp/shared-workflow-events.db')
+    delete process.env['WORKFLOW_EVENTS_DB']
   })
 })

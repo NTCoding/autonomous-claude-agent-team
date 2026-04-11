@@ -131,6 +131,35 @@ function createBaseConfig(
 }
 
 describe('createWorkflowCli', () => {
+  describe('workflow event store path', () => {
+    it('uses shared ~/.workflow-events.db by default', () => {
+      const hookInput = JSON.stringify({
+        session_id: 'hook-session',
+        transcript_path: '/tmp/transcript.json',
+        cwd: '/tmp',
+        hook_event_name: 'SessionStart',
+      })
+      let capturedStorePath = ''
+      const ctx = createTestProcessDeps({
+        getEnv: (name) => {
+          if (name === 'CLAUDE_PLUGIN_ROOT') return '/tmp/plugin'
+          if (name === 'HOME') return '/tmp/home'
+          return undefined
+        },
+        getArgv: () => ['node', 'script.js'],
+        readFile: () => hookInput,
+        buildStore: (dbPath) => {
+          capturedStorePath = dbPath
+          return createMockEventStore()
+        },
+      })
+
+      createWorkflowCli(createBaseConfig(ctx.deps))
+
+      expect(capturedStorePath).toBe('/tmp/home/.workflow-events.db')
+    })
+  })
+
   describe('SessionStart hook', () => {
     it('succeeds without CLAUDE_SESSION_ID in env', () => {
       const hookInput = JSON.stringify({

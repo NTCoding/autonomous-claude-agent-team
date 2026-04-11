@@ -17,7 +17,10 @@ export type CliArgs = {
 export function parseArgs(argv: ReadonlyArray<string>): CliArgs {
   const args = [...argv]
   const homeDir = process.env['HOME'] ?? '~'
-  const defaultDb = join(homeDir, '.claude', 'workflow-events.db')
+  const envDb = process.env['WORKFLOW_EVENTS_DB']
+  const defaultDb = envDb !== undefined && envDb !== ''
+    ? envDb
+    : join(homeDir, '.workflow-events.db')
 
   let dbPath = defaultDb
   let port = 3120

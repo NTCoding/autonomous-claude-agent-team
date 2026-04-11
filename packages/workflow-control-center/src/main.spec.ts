@@ -6,7 +6,7 @@ describe('parseArgs', () => {
     const args = parseArgs([])
     expect(args.port).toBe(3120)
     expect(args.open).toBe(false)
-    expect(args.dbPath).toContain('.claude/workflow-events.db')
+    expect(args.dbPath).toContain('.workflow-events.db')
   })
 
   it('parses --db flag', () => {

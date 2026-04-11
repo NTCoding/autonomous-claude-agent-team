@@ -44,7 +44,9 @@ export function getEnvFilePath(): string {
 }
 
 export function getDbPath(): string {
-  return `${homedir()}/.claude/workflow-events.db`
+  const configured = process.env['WORKFLOW_EVENTS_DB']
+  if (configured !== undefined && configured !== '') return configured
+  return `${homedir()}/.workflow-events.db`
 }
 
 /* v8 ignore start */
