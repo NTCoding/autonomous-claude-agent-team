@@ -4,7 +4,6 @@ import type { WorkflowState } from './workflow-types.js'
 import { PLUGIN_SOURCE_PATTERN, getStateDefinition } from './registry.js'
 import type { WorkflowOperation } from './workflow-types.js'
 
-export const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'NotebookEdit'])
 export const READ_TOOLS: ReadonlySet<string> = new Set(['Read', 'Glob', 'Grep'])
 export const BASH_READ_PATTERN = /\b(?:cat|head|tail|less|more|grep|rg|find|ls)\b/
 

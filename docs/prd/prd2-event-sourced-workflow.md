@@ -128,7 +128,7 @@ This is a **dependency rule**, not a reuse promise. The engine is not designed f
 
 SQLite replaces `/tmp/*.json`. Sessions survive reboots. Cross-session queries enable learning.
 
-**Trade-off:** Adds a native dependency (`better-sqlite3`). We accept this because SQLite is battle-tested, zero-config, and the only viable embedded option for Node.js.
+**Trade-off:** Adds a runtime SQLite adapter layer (`bun:sqlite` / `node:sqlite`). We accept this because SQLite is battle-tested, zero-config, and provides a synchronous API in both runtimes.
 
 ### DP5: Show, don't tell
 
@@ -403,12 +403,12 @@ Schema creation is idempotent (`IF NOT EXISTS`). No migration tooling — schema
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **SQLite** | Zero-config, battle-tested, `better-sqlite3` is synchronous (no async overhead), rich query language | Native dependency (pre-built binaries) |
+| **SQLite** | Zero-config, battle-tested, built-in synchronous APIs (`bun:sqlite` / `node:sqlite`), rich query language | Runtime-specific driver adapter required |
 | JSON files | Zero dependencies, current approach | No cross-session queries, no indexing, file-per-session sprawl |
 | DuckDB | Analytical queries, columnar storage | Heavier dependency, overkill for <10K events |
 | LevelDB | Fast writes, embedded | No SQL queries, poor for analytics |
 
-Recommend **SQLite** — the query capability is essential for analytics, and `better-sqlite3` is the standard in the Node.js ecosystem.
+Recommend **SQLite** — query capability is essential for analytics, and built-in Bun/Node SQLite APIs avoid native addon dependencies.
 
 **Read path:**
 ```
@@ -775,14 +775,14 @@ All existing behavior preserved. The only change is under the hood: state is sto
   - Verification: Per-event-type unit tests (25 minimum, with multiple scenarios for `transitioned` covering each onEntry path — BLOCKED, DEVELOPING from RESPAWN, DEVELOPING from REVIEWING); round-trip property test: run aggregate methods → get pending events → fold → assert equals getState(); BLOCKED guard test: fold events to BLOCKED state → assert `state.preBlockedState` populated → guard permits return to pre-blocked state
 
 - **D1.3: SQLite event store**
-  - `infra/sqlite-event-store.ts` (or similar) wrapping `better-sqlite3`
+  - `infra/sqlite-event-store.ts` (or similar) wrapping a runtime SQLite adapter
   - Operations: `createStore(dbPath)`, `appendEvents(sessionId, events[])`, `readEvents(sessionId)`, `hasSession(sessionId)`, `listSessions()`
   - Schema: `events` table with `seq`, `session_id`, `type`, `at`, `payload` columns; WAL mode; idempotent `CREATE TABLE IF NOT EXISTS`
   - Storage location: `~/.claude/workflow-events.db`
   - Payload serialized as JSON string; deserialized and Zod-validated on read
   - Key scenarios: append single event; append batch in transaction; read events in seq order; empty session returns empty array; multiple sessions isolated by session_id
   - Edge cases: DB file doesn't exist (created on first access); corrupt JSON payload (fail fast with WorkflowError); concurrent access via WAL mode
-  - Acceptance: Events round-trip correctly (write → read → identical); `better-sqlite3` synchronous API used throughout
+  - Acceptance: Events round-trip correctly (write → read → identical); synchronous SQLite API used throughout
   - Verification: Integration tests against real SQLite (temp file, cleaned up after test)
 
 - **D1.4: Storage layer swap**

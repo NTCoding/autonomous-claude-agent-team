@@ -535,7 +535,7 @@ src/*.ts  ->  esbuild  ->  dist/workflow.js  (single bundled file)
 
 - **esbuild** bundles all internal modules + Zod into one file (zero runtime dependencies)
 - **Node builtins** (fs, child_process, path) marked external via `--platform=node`
-- **Target:** Node 20, ESM format
+- **Target:** Node 22, ESM format
 - **`postinstall`** runs `pnpm build` automatically — clone + `pnpm install` = ready
 - **Realistic startup:** 50-100ms per Node invocation with bundled file. 4 PreToolUse hooks = 200-400ms total, well within 5s timeout.
 
@@ -916,7 +916,7 @@ After this milestone, the project has a working TypeScript build, enforced quali
 - **D1.1: Build pipeline**
   - `package.json` with scripts: `build`, `lint`, `typecheck`, `test`
   - `tsconfig.json` with strict settings from living-architecture (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, etc.)
-  - esbuild config bundling `src/` to `dist/workflow.js` (ESM, Node 20, externalize node builtins)
+  - esbuild config bundling `src/` to `dist/workflow.js` (ESM, Node 22, externalize node builtins)
   - `.prettierrc` from living-architecture
   - `postinstall` script runs `pnpm build`
   - Key scenarios: Fresh clone + `pnpm install` produces `dist/workflow.js`. `pnpm typecheck` exits 0 on strict settings.

@@ -89,7 +89,7 @@ export class Workflow {
 
   getTranscriptPath(): string {
     if (this.state.transcriptPath === undefined) {
-      throw new Error('Transcript path not set. Session has not been started.')
+      throw new WorkflowStateError('Transcript path not set. Session has not been started.')
     }
     return this.state.transcriptPath
   }
@@ -287,4 +287,3 @@ export class Workflow {
   }
 
 }
-

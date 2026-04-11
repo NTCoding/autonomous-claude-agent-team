@@ -7,10 +7,10 @@ import {
   seedSessionEvents,
   insertEvent,
 } from '../query/session-queries-test-fixtures.js'
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../query/sqlite-runtime.js'
 
 describe('createEventWatcher', () => {
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
     vi.useFakeTimers()

@@ -2,11 +2,11 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import Database from 'better-sqlite3'
 import { createHttpServer } from './server/http-server.js'
 import { createEventWatcher } from './watcher/event-watcher.js'
 import type { SessionQueryDeps } from './query/session-queries.js'
 import { getSessionCount } from './query/session-queries.js'
+import { enableWalMode, openSqliteDatabase } from './query/sqlite-runtime.js'
 
 export type CliArgs = {
   readonly dbPath: string
@@ -48,8 +48,8 @@ export async function startServer(cliArgs: CliArgs): Promise<{ readonly stop: ()
     throw new Error(message)
   }
 
-  const db = new Database(cliArgs.dbPath, { readonly: true })
-  db.pragma('journal_mode = WAL')
+  const db = openSqliteDatabase(cliArgs.dbPath, { readonly: true })
+  enableWalMode(db)
 
   const queryDeps: SessionQueryDeps = { db }
 

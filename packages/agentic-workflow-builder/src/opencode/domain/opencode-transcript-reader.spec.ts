@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { unlinkSync, existsSync } from 'node:fs'
 import { OpenCodeTranscriptReader } from './opencode-transcript-reader.js'
+import { openSqliteDatabase, type SqliteDatabase } from '../../event-store/sqlite-runtime.js'
 
 const TEST_DB = join(tmpdir(), 'opencode-transcript-reader-spec.db')
 
-function createTestDb(): Database.Database {
-  const db = new Database(TEST_DB)
+function createTestDb(): SqliteDatabase {
+  const db = openSqliteDatabase(TEST_DB)
   db.exec(`
     CREATE TABLE IF NOT EXISTS message (
       id TEXT PRIMARY KEY,
@@ -21,7 +21,7 @@ function createTestDb(): Database.Database {
 }
 
 function insertMessage(
-  db: Database.Database,
+  db: SqliteDatabase,
   id: string,
   sessionId: string,
   role: string,

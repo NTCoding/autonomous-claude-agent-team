@@ -54,7 +54,7 @@ describe('FeatureTeamWorkflowDefinition', () => {
   })
 
   it('stateSchema rejects invalid state names', () => {
-    expect(() => FeatureTeamWorkflowDefinition.stateSchema.parse('INVALID')).toThrow()
+    expect(() => FeatureTeamWorkflowDefinition.stateSchema.parse('INVALID')).toThrow('Invalid enum value')
   })
 
   it('returns workflow registry', () => {

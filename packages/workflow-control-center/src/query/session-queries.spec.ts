@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
 import {
   getDistinctSessionIds,
   getSessionEvents,
@@ -16,9 +15,10 @@ import {
   seedMultipleSessions,
   insertEvent,
 } from './session-queries-test-fixtures.js'
+import type { SqliteDatabase } from './sqlite-runtime.js'
 
 describe('session-queries', () => {
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
     db = createTestDb()

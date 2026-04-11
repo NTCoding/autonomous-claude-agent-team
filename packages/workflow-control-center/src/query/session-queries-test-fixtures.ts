@@ -1,8 +1,8 @@
-import Database from 'better-sqlite3'
 import type { SessionQueryDeps } from './session-queries.js'
+import { openSqliteDatabase, type SqliteDatabase } from './sqlite-runtime.js'
 
-export function createTestDb(): Database.Database {
-  const db = new Database(':memory:')
+export function createTestDb(): SqliteDatabase {
+  const db = openSqliteDatabase(':memory:')
   db.exec(`
     CREATE TABLE events (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -15,12 +15,12 @@ export function createTestDb(): Database.Database {
   return db
 }
 
-export function createTestQueryDeps(db?: Database.Database): SessionQueryDeps {
+export function createTestQueryDeps(db?: SqliteDatabase): SessionQueryDeps {
   return { db: db ?? createTestDb() }
 }
 
 export function insertEvent(
-  db: Database.Database,
+  db: SqliteDatabase,
   sessionId: string,
   type: string,
   at: string,
@@ -31,7 +31,7 @@ export function insertEvent(
   ).run(sessionId, type, at, JSON.stringify({ type, at, ...payload }))
 }
 
-export function seedSessionEvents(db: Database.Database, sessionId: string): void {
+export function seedSessionEvents(db: SqliteDatabase, sessionId: string): void {
   insertEvent(db, sessionId, 'session-started', '2026-01-01T00:00:00Z', {
     repository: 'test/repo',
   })
@@ -63,7 +63,7 @@ export function seedSessionEvents(db: Database.Database, sessionId: string): voi
   })
 }
 
-export function seedMultipleSessions(db: Database.Database): void {
+export function seedMultipleSessions(db: SqliteDatabase): void {
   seedSessionEvents(db, 'session-a')
   seedSessionEvents(db, 'session-b')
 

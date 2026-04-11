@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
 import {
   handleListSessions,
   handleGetSession,
@@ -13,6 +12,7 @@ import {
   seedSessionEvents,
   seedMultipleSessions,
 } from '../../query/session-queries-test-fixtures.js'
+import type { SqliteDatabase } from '../../query/sqlite-runtime.js'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 function mockReq(): IncomingMessage {
@@ -40,7 +40,7 @@ function makeRoute(params: Record<string, string> = {}, query: Record<string, st
 }
 
 describe('session-handlers', () => {
-  let db: Database.Database
+  let db: SqliteDatabase
   let deps: SessionHandlerDeps
 
   beforeEach(() => {

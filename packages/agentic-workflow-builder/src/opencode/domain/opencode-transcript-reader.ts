@@ -1,6 +1,6 @@
-import Database from 'better-sqlite3'
 import { z } from 'zod'
 import type { TranscriptMessage, TranscriptReader } from '../../engine/index.js'
+import { openSqliteDatabase, type SqliteDatabase } from '../../event-store/sqlite-runtime.js'
 
 const TextPart = z.object({ type: z.literal('text'), text: z.string() })
 
@@ -18,7 +18,7 @@ export class OpenCodeTranscriptReader implements TranscriptReader {
 
   readMessages(dbPath: string): readonly TranscriptMessage[] {
     try {
-      const db = new Database(dbPath, { readonly: true })
+      const db = openSqliteDatabase(dbPath, { readonly: true })
       try {
         return this.queryMessages(db)
       } finally {
@@ -29,7 +29,7 @@ export class OpenCodeTranscriptReader implements TranscriptReader {
     }
   }
 
-  private queryMessages(db: Database.Database): readonly TranscriptMessage[] {
+  private queryMessages(db: SqliteDatabase): readonly TranscriptMessage[] {
     return db
       .prepare(
         `SELECT id, data FROM message

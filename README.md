@@ -143,7 +143,7 @@ The state procedure is injected in three moments only: successful transition (ne
 
 **Prerequisites:**
 
-- Node.js 20+ with `npx` available on PATH (hooks execute via `npx tsx`)
+- Node.js 22+ with `npx` available on PATH (hooks execute via `npx tsx`)
 - [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) must be enabled (experimental — requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` in settings)
 
 **Option A — Install directly from GitHub (recommended)**

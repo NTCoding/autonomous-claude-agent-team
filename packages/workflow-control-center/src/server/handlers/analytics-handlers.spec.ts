@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
 import {
   handleAnalyticsOverview,
   handleAnalyticsTrends,
@@ -12,6 +11,7 @@ import {
   seedMultipleSessions,
   seedSessionEvents,
 } from '../../query/session-queries-test-fixtures.js'
+import type { SqliteDatabase } from '../../query/sqlite-runtime.js'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 function mockReq(): IncomingMessage {
@@ -38,7 +38,7 @@ function makeRoute(params: Record<string, string> = {}, query: Record<string, st
 }
 
 describe('analytics-handlers', () => {
-  let db: Database.Database
+  let db: SqliteDatabase
   let deps: AnalyticsHandlerDeps
 
   beforeEach(() => {

@@ -10,7 +10,7 @@ Generate a complete Claude Code workflow plugin from a conversational requiremen
 
 ## Prerequisites
 
-- Node.js 20+ with `npx` on PATH
+- Node.js 22+ with `npx` on PATH
 - `pnpm` installed globally
 - The generated project depends on `@ntcoding/agentic-workflow-builder` (installed from GitHub)
 

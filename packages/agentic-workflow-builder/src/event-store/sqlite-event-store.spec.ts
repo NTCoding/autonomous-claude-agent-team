@@ -50,6 +50,18 @@ describe('appendEvents + readEvents', () => {
     store.appendEvents('session-empty', [])
     expect(store.readEvents('session-empty')).toStrictEqual([])
   })
+
+  it('rolls back transaction when event serialization fails', () => {
+    const store = createStore(dbPath)
+    const eventBase = { type: 'bad', at: '2026-01-01T00:03:00.000Z' }
+    const circularEvent = Object.assign(eventBase, { self: eventBase })
+
+    expect(() => {
+      store.appendEvents('session-rollback', [circularEvent])
+    }).toThrow('circular')
+
+    expect(store.readEvents('session-rollback')).toStrictEqual([])
+  })
 })
 
 describe('multi-session isolation', () => {

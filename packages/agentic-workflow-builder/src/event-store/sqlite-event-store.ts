@@ -1,6 +1,10 @@
-import Database from 'better-sqlite3'
 import { z } from 'zod'
 import { WorkflowStateError } from '../engine/domain/workflow-state.js'
+import {
+  enableWalMode,
+  openSqliteDatabase,
+  type SqliteDatabase,
+} from './sqlite-runtime.js'
 
 const PassthroughEventSchema = z.object({ type: z.string(), at: z.string() }).passthrough()
 type BaseEvent = z.infer<typeof PassthroughEventSchema>
@@ -20,15 +24,15 @@ export type SqliteEventStore = {
   readonly appendEvents: (sessionId: string, events: readonly BaseEvent[]) => void
   readonly sessionExists: (sessionId: string) => boolean
   readonly listSessions: () => readonly string[]
-  readonly db: Database.Database
+  readonly db: SqliteDatabase
 }
 
 const RowWithPayloadSchema = z.array(z.object({ payload: z.string() }))
 const RowWithSessionIdSchema = z.array(z.object({ session_id: z.string() }))
 
 export function createStore(dbPath: string): SqliteEventStore {
-  const db = new Database(dbPath)
-  db.pragma('journal_mode = WAL')
+  const db = openSqliteDatabase(dbPath)
+  enableWalMode(db)
   db.exec(CREATE_TABLE_SQL)
 
   return {
@@ -56,12 +60,16 @@ export function createStore(dbPath: string): SqliteEventStore {
       const insert = db.prepare(
         'INSERT INTO events (session_id, type, at, payload) VALUES (?, ?, ?, ?)'
       )
-      const transaction = db.transaction((evts: readonly BaseEvent[]) => {
-        for (const event of evts) {
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        for (const event of events) {
           insert.run(sessionId, event.type, event.at, JSON.stringify(event))
         }
-      })
-      transaction(events)
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
     },
 
     sessionExists(sessionId: string): boolean {

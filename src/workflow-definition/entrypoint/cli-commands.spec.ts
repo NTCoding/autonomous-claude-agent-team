@@ -70,6 +70,23 @@ describe('runWorkflow - routing overview', () => {
     )
     expect(result.exitCode).toStrictEqual(EXIT_ALLOW)
   })
+
+  it('returns EXIT_BLOCK when plugin source read gate fails', () => {
+    const result = runWorkflow(
+      [],
+      makeDeps({
+        readStdin: () => makeHookStdin({
+          hook_event_name: 'PreToolUse',
+          tool_name: 'Read',
+          tool_input: { file_path: '/home/.claude/plugins/cache/foo/src/bar.ts' },
+        }),
+        engineDeps: {
+          store: { sessionExists: () => true, readEvents: () => planningEvents() },
+        },
+      }),
+    )
+    expect(result.exitCode).toStrictEqual(EXIT_BLOCK)
+  })
 })
 
 describe('runWorkflow - CLI command routing', () => {

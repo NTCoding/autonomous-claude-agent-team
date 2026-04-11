@@ -1,9 +1,9 @@
-import type Database from 'better-sqlite3'
 import { EventRowSchema } from './query-types.js'
 import type { ParsedEvent, EventRow } from './query-types.js'
+import type { SqliteDatabase } from './sqlite-runtime.js'
 
 export type SessionQueryDeps = {
-  readonly db: Database.Database
+  readonly db: SqliteDatabase
 }
 
 function parseEventRow(row: unknown): ParsedEvent {

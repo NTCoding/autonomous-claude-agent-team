@@ -6,7 +6,7 @@ import {
   seedSessionEvents,
   seedMultipleSessions,
 } from '../query/session-queries-test-fixtures.js'
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../query/sqlite-runtime.js'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -23,7 +23,7 @@ function httpGet(port: number, path: string): Promise<{ statusCode: number; body
 }
 
 describe('createHttpServer', () => {
-  let db: Database.Database
+  let db: SqliteDatabase
   let server: HttpServerInstance
   let distDir: string
   const port = 0
