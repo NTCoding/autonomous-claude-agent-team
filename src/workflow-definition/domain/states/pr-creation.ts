@@ -1,6 +1,10 @@
 import type { ConcreteStateDefinition } from '../workflow-types.js'
 import { pass, fail } from '@ntcoding/agentic-workflow-builder/dsl'
 
+function readPrChecksPass(ctx: object): boolean {
+  return Reflect.get(ctx, 'prChecksPass') === true
+}
+
 export const prCreationState: ConcreteStateDefinition = {
   emoji: '🚀',
   agentInstructions: 'states/pr-creation.md',
@@ -10,7 +14,7 @@ export const prCreationState: ConcreteStateDefinition = {
   transitionGuard: (ctx) => {
     if (!ctx.state.prNumber)
       return fail('prNumber not set. Run record-pr or create-pr first.')
-    if (!ctx.prChecksPass)
+    if (!readPrChecksPass(ctx))
       return fail(`PR checks failing for PR #${ctx.state.prNumber}.`)
     return pass()
   },

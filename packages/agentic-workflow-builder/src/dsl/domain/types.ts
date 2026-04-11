@@ -11,7 +11,6 @@ export type GitInfo = {
 export type TransitionContext<TState, TStateName extends string = string> = {
   readonly state: TState
   readonly gitInfo: GitInfo
-  readonly prChecksPass: boolean
   readonly from: TStateName
   readonly to: TStateName
 }

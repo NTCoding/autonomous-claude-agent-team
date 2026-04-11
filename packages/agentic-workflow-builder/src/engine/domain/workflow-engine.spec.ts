@@ -133,7 +133,6 @@ function makeFactory(workflow?: StubWorkflow): WorkflowDefinition<StubWorkflow, 
     buildTransitionContext: (state, from, to, _deps) => ({
       state,
       gitInfo: { currentBranch: 'main', workingTreeClean: true, headCommit: 'abc123', changedFilesVsDefault: [], hasCommitsVsDefault: false },
-      prChecksPass: false,
       from,
       to,
     }),

@@ -67,7 +67,8 @@ describe('FeatureTeamWorkflowDefinition', () => {
     const deps = makeWorkflowDeps()
     const state = FeatureTeamWorkflowDefinition.initialState()
     const ctx = FeatureTeamWorkflowDefinition.buildTransitionContext(state, 'SPAWN', 'PLANNING', deps)
-    expect(ctx).toMatchObject({ state, from: 'SPAWN', to: 'PLANNING', prChecksPass: false })
+    expect(ctx).toMatchObject({ state, from: 'SPAWN', to: 'PLANNING' })
+    expect(Reflect.get(ctx, 'prChecksPass')).toStrictEqual(false)
     expect(ctx.gitInfo.currentBranch).toStrictEqual('main')
   })
 
@@ -75,7 +76,7 @@ describe('FeatureTeamWorkflowDefinition', () => {
     const deps = makeWorkflowDeps()
     const state = { ...FeatureTeamWorkflowDefinition.initialState(), prNumber: 42 }
     const ctx = FeatureTeamWorkflowDefinition.buildTransitionContext(state, 'PR_CREATION', 'FEEDBACK', deps)
-    expect(ctx.prChecksPass).toStrictEqual(true)
+    expect(Reflect.get(ctx, 'prChecksPass')).toStrictEqual(true)
   })
 
   it('builds transition event with from/to', () => {

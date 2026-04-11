@@ -627,7 +627,6 @@ export class Workflow implements RehydratableWorkflow<WorkflowState> {
     return {
       state: this.state,
       gitInfo: { currentBranch: '', workingTreeClean: true, headCommit: '', changedFilesVsDefault: [], hasCommitsVsDefault: false },
-      prChecksPass: false,
       from,
       to,
     }
@@ -635,13 +634,12 @@ export class Workflow implements RehydratableWorkflow<WorkflowState> {
 }
 ```
 
-**If the workflow needs git info or PR checks**, add those to `WorkflowDeps` and wire them into `buildTransitionContext`:
+**If the workflow needs git info or other workflow-specific checks**, add those to `WorkflowDeps` and compute them in workflow code (not platform DSL types):
 
 ```typescript
 export type WorkflowDeps = {
   readonly now: () => string
   readonly getGitInfo: () => GitInfo
-  readonly checkPrChecks: (prNumber: number) => boolean
 }
 ```
 

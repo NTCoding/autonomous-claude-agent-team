@@ -53,7 +53,6 @@ function createMockWorkflowDefinition(): WorkflowDefinition<TestWorkflow, TestSt
         changedFilesVsDefault: [],
         hasCommitsVsDefault: false,
       },
-      prChecksPass: false,
       from,
       to,
     }),

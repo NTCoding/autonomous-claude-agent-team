@@ -91,7 +91,6 @@ function createMockFactory(): WorkflowDefinition<TestWorkflow, TestState, TestDe
     buildTransitionContext: (state, from, to, _deps) => ({
       state,
       gitInfo: { currentBranch: 'main', workingTreeClean: true, headCommit: 'abc', changedFilesVsDefault: [], hasCommitsVsDefault: false },
-      prChecksPass: false,
       from,
       to,
     }),

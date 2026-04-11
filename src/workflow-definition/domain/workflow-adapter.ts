@@ -33,7 +33,8 @@ export const FeatureTeamWorkflowDefinition: WorkflowDefinition<Workflow, Workflo
   },
   buildTransitionContext(state: WorkflowState, from: StateName, to: StateName, deps: WorkflowDeps): TransitionContext<WorkflowState, StateName> {
     const prChecksPass = state.prNumber === undefined ? false : deps.checkPrChecks(state.prNumber)
-    return { state, gitInfo: deps.getGitInfo(), prChecksPass, from, to }
+    const contextWithWorkflowData = { state, gitInfo: deps.getGitInfo(), prChecksPass, from, to }
+    return contextWithWorkflowData
   },
   getOperationBody,
   getTransitionTitle,

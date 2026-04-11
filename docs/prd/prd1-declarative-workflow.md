@@ -40,7 +40,6 @@ type ForbiddenBashCommand = 'git commit' | 'git push' | 'git checkout'
 type TransitionContext = {
   readonly state: WorkflowState
   readonly gitInfo: GitInfo
-  readonly prChecksPass: boolean
   readonly from: StateName
   readonly to: StateName
 }
@@ -263,7 +262,7 @@ export const prCreationState: WorkflowStateDefinition = {
   transitionGuard: (ctx) => {
     if (!ctx.state.prNumber)
       return fail('prNumber not set. Run record-pr or create-pr first.')
-    if (!ctx.prChecksPass)
+    if (Reflect.get(ctx, 'prChecksPass') !== true)
       return fail(`PR checks failing for PR #${ctx.state.prNumber}.`)
     return pass()
   },

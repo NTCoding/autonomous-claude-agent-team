@@ -194,7 +194,7 @@ export class MyWorkflow implements RehydratableWorkflow<WorkflowState> {
       return fail(`Cannot transition from ${from} to ${to}.`)
     }
     if (def.transitionGuard) {
-      const guard = def.transitionGuard({ state: this.state, from, to, gitInfo: /* injected */, prChecksPass: false })
+      const guard = def.transitionGuard({ state: this.state, from, to, gitInfo: /* injected */ })
       if (!guard.pass) return guard
     }
     this.append({ type: 'transitioned', at: new Date().toISOString(), from, to: target })
