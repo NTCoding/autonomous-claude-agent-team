@@ -1,7 +1,8 @@
 import { join, basename, extname } from 'node:path'
 import { homedir } from 'node:os'
 import { readFileSync, appendFileSync, readdirSync } from 'node:fs'
-import { z } from 'zod'
+import type { Config as OpenCodeConfig, Hooks, Plugin } from '@opencode-ai/plugin'
+import { tool } from '@opencode-ai/plugin/tool'
 import type {
   BaseWorkflowState,
   RehydratableWorkflow,
@@ -29,37 +30,17 @@ function injectTranslationNote(content: string): string {
   return `${TRANSLATION_NOTE}${content}`
 }
 
-type OpenCodeToolBeforeInput = {
-  readonly tool: string
-  readonly sessionID: string
-  readonly callID: string
-}
+type OpenCodeToolExecuteBefore = NonNullable<Hooks['tool.execute.before']>
+type OpenCodeToolBeforeInput = Parameters<OpenCodeToolExecuteBefore>[0]
+type OpenCodeToolBeforeOutput = Parameters<OpenCodeToolExecuteBefore>[1]
+type OpenCodeCommandMap = NonNullable<OpenCodeConfig['command']>
+type OpenCodePluginInput = Parameters<Plugin>[0]
+type OpenCodePluginOptions = Parameters<Plugin>[1]
 
-type OpenCodeToolBeforeOutput = {
-  args: Record<string, unknown>
-}
-
-type OpenCodeToolDefinition = {
-  readonly description: string
-  readonly args: Record<string, z.ZodType>
-  readonly execute: (args: Record<string, unknown>, ctx: { sessionID: string }) => Promise<string>
-}
-
-type OpenCodeCommandDefinition = {
-  readonly description: string
-  readonly content: string
-}
-
-type OpenCodeHooks = {
-  readonly 'tool.execute.before'?: (
-    input: OpenCodeToolBeforeInput,
-    output: OpenCodeToolBeforeOutput,
-  ) => Promise<void>
-  readonly tool?: Record<string, OpenCodeToolDefinition>
-  readonly command?: Record<string, OpenCodeCommandDefinition>
-}
-
-export type OpenCodePlugin = (input?: unknown, options?: unknown) => Promise<OpenCodeHooks>
+export type OpenCodePlugin = (
+  input?: OpenCodePluginInput,
+  options?: OpenCodePluginOptions,
+) => Promise<Hooks>
 
 export type OpenCodeWorkflowPluginConfig<
   TWorkflow extends RehydratableWorkflow<TState>,
@@ -74,6 +55,7 @@ export type OpenCodeWorkflowPluginConfig<
   readonly databasePath?: string
   readonly routes?: RouteMap<TWorkflow, TState>
   readonly commandDirectories?: readonly string[]
+  readonly commandPrefix?: string
 }
 
 export function createOpenCodeWorkflowPlugin<
@@ -121,7 +103,7 @@ export function createOpenCodeWorkflowPlugin<
     return { engineDeps, workflowDeps: config.buildWorkflowDeps(platformCtx) }
   }
 
-  return async (_input?: unknown, _options?: unknown): Promise<OpenCodeHooks> => {
+  return async (_input?: OpenCodePluginInput, _options?: OpenCodePluginOptions): Promise<Hooks> => {
     const handler = createPreToolUseHandler({
       bashForbidden: config.bashForbidden,
       isWriteAllowed: config.isWriteAllowed,
@@ -156,15 +138,17 @@ export function createOpenCodeWorkflowPlugin<
       return { 'tool.execute.before': toolExecuteBefore }
     }
 
-    const workflowTool: OpenCodeToolDefinition = {
+    const workflowTool = tool({
       description: 'Execute a workflow operation (init, transition, record-*)',
       args: {
-        operation: z.string().describe('operation name, e.g. "init", "transition", "record-issue"'),
-        args: z.array(z.string()).optional().describe('operation arguments'),
+        operation: tool.schema
+          .string()
+          .describe('operation name, e.g. "init", "transition", "record-issue"'),
+        args: tool.schema.array(tool.schema.string()).optional().describe('operation arguments'),
       },
       execute: async (rawArgs, ctx) => {
-        const operation = String(rawArgs['operation'] ?? '')
-        const argList = Array.isArray(rawArgs['args']) ? (rawArgs['args'] as string[]) : []
+        const operation = rawArgs.operation
+        const argList = rawArgs.args ?? []
         const { engineDeps, workflowDeps } = buildEngineContext(ctx.sessionID)
         const runner = createWorkflowRunner({
           workflowDefinition: config.workflowDefinition,
@@ -181,20 +165,29 @@ export function createOpenCodeWorkflowPlugin<
         )
         return result.output
       },
-    }
+    })
 
-    const commands = loadCommands(config.commandDirectories ?? [])
+    const commands = loadCommands(config.commandDirectories ?? [], config.commandPrefix ?? '')
 
     return {
       'tool.execute.before': toolExecuteBefore,
       tool: { workflow: workflowTool },
-      ...(Object.keys(commands).length > 0 ? { command: commands } : {}),
+      ...(Object.keys(commands).length > 0
+        ? {
+            config: async (openCodeConfig) => {
+              registerCommands(openCodeConfig, commands)
+            },
+          }
+        : {}),
     }
   }
 }
 
-function loadCommands(commandDirectories: readonly string[]): Record<string, OpenCodeCommandDefinition> {
-  const commands: Record<string, OpenCodeCommandDefinition> = {}
+function loadCommands(
+  commandDirectories: readonly string[],
+  commandPrefix: string,
+): OpenCodeCommandMap {
+  const commands: OpenCodeCommandMap = {}
   for (const dir of commandDirectories) {
     let files: string[]
     try {
@@ -204,16 +197,31 @@ function loadCommands(commandDirectories: readonly string[]): Record<string, Ope
     }
     for (const file of files) {
       if (!file.endsWith('.md')) continue
-      const name = basename(file, extname(file))
+      const baseName = basename(file, extname(file))
+      const name = `${commandPrefix}${baseName}`
+      if (commands[name] !== undefined) continue
       const filePath = join(dir, file)
       const content = readFileSync(filePath, 'utf8')
       commands[name] = {
         description: `Workflow command: ${name}`,
-        content: injectTranslationNote(content),
+        template: injectTranslationNote(content),
       }
     }
   }
   return commands
+}
+
+function registerCommands(config: OpenCodeConfig, commands: OpenCodeCommandMap): void {
+  if (config.command === undefined) {
+    config.command = {}
+  }
+
+  for (const [name, command] of Object.entries(commands)) {
+    if (config.command[name] !== undefined) {
+      continue
+    }
+    config.command[name] = command
+  }
 }
 
 function resolveOpenCodeDatabasePath(configured?: string): string {

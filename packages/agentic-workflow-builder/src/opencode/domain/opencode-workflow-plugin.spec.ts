@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs'
 import { z } from 'zod'
+import type { Config as OpenCodeConfig, Hooks } from '@opencode-ai/plugin'
+import type { ToolContext } from '@opencode-ai/plugin/tool'
 import { createOpenCodeWorkflowPlugin } from './opencode-workflow-plugin.js'
 import type { OpenCodeWorkflowPluginConfig } from './opencode-workflow-plugin.js'
 import type {
@@ -62,8 +64,9 @@ function createMockWorkflowDefinition(): WorkflowDefinition<TestWorkflow, TestSt
   }
 }
 
-type HookInput = { tool: string; sessionID: string; callID: string }
-type HookOutput = { args: Record<string, unknown> }
+type ToolExecuteBeforeHook = NonNullable<Hooks['tool.execute.before']>
+type HookInput = Parameters<ToolExecuteBeforeHook>[0]
+type HookOutput = Parameters<ToolExecuteBeforeHook>[1]
 
 let pluginRoot: string
 
@@ -103,6 +106,44 @@ async function invokeHook(
   const plugin = createOpenCodeWorkflowPlugin(config)
   const hooks = await plugin()
   await hooks['tool.execute.before']!(hookInput, hookOutput)
+}
+
+function createToolContext(sessionID: string): ToolContext {
+  return {
+    sessionID,
+    messageID: 'msg-1',
+    agent: 'general',
+    directory: pluginRoot,
+    worktree: pluginRoot,
+    abort: new AbortController().signal,
+    metadata: () => {
+      return
+    },
+    ask: async () => {
+      return
+    },
+  }
+}
+
+function hasZodV4SchemaDef(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const zodValue = Reflect.get(value, '_zod')
+  if (typeof zodValue !== 'object' || zodValue === null) {
+    return false
+  }
+
+  return Reflect.has(zodValue, 'def')
+}
+
+function getWorkflowTool(hooks: Hooks): NonNullable<NonNullable<Hooks['tool']>['workflow']> {
+  const workflowTool = hooks.tool?.['workflow']
+  if (workflowTool === undefined) {
+    throw new Error('Expected workflow tool to be defined')
+  }
+  return workflowTool
 }
 
 beforeEach(() => {
@@ -204,9 +245,10 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
 
   it('hooks.tool.workflow is defined when routes are configured', async () => {
     const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
-    expect(hooks.tool?.['workflow']).toBeDefined()
-    expect(hooks.tool?.['workflow'].description).toBeTypeOf('string')
-    expect(hooks.tool?.['workflow'].execute).toBeTypeOf('function')
+    const workflowTool = getWorkflowTool(hooks)
+    expect(workflowTool).toBeDefined()
+    expect(workflowTool.description).toBeTypeOf('string')
+    expect(workflowTool.execute).toBeTypeOf('function')
   })
 
   it('hooks.tool is undefined when routes are omitted', async () => {
@@ -214,16 +256,17 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
     expect(hooks.tool).toBeUndefined()
   })
 
-  it('hooks.command is undefined when routes are omitted', async () => {
+  it('hooks.config is undefined when routes are omitted', async () => {
     const hooks = await createOpenCodeWorkflowPlugin(createConfig())()
-    expect(hooks.command).toBeUndefined()
+    expect(hooks.config).toBeUndefined()
   })
 
   it('workflow init creates session and returns procedure content with translation note', async () => {
     const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
-    const output = await hooks.tool!['workflow'].execute(
+    const workflowTool = getWorkflowTool(hooks)
+    const output = await workflowTool.execute(
       { operation: 'init' },
-      { sessionID: 'routes-init-session' },
+      createToolContext('routes-init-session'),
     )
     expect(output).toContain('OpenCode')
     expect(output).toContain('Planning procedure')
@@ -231,25 +274,31 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
 
   it('workflow tool returns error output for unknown operation', async () => {
     const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
-    const output = await hooks.tool!['workflow'].execute(
+    const workflowTool = getWorkflowTool(hooks)
+    const output = await workflowTool.execute(
       { operation: 'unknown-op' },
-      { sessionID: 'routes-unknown-session' },
+      createToolContext('routes-unknown-session'),
     )
     expect(output).toContain('unknown-op')
   })
 
   it('workflow tool forwards args to the runner', async () => {
     const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
-    const output = await hooks.tool!['workflow'].execute(
+    const workflowTool = getWorkflowTool(hooks)
+    const output = await workflowTool.execute(
       { operation: 'init', args: [] },
-      { sessionID: 'routes-args-session' },
+      createToolContext('routes-args-session'),
     )
     expect(output).toContain('Planning procedure')
   })
 
-  it('workflow tool treats missing operation as empty string (returns unknown command)', async () => {
+  it('workflow tool treats empty operation as unknown command', async () => {
     const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
-    const output = await hooks.tool!['workflow'].execute({}, { sessionID: 'routes-no-op-session' })
+    const workflowTool = getWorkflowTool(hooks)
+    const output = await workflowTool.execute(
+      { operation: '' },
+      createToolContext('routes-no-op-session'),
+    )
     expect(output).toContain('')
   })
 
@@ -259,11 +308,22 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
       check: () => true,
     }
     const hooks = await createOpenCodeWorkflowPlugin(withRoutes({ customGates: [gate] }))()
-    const output = await hooks.tool!['workflow'].execute(
+    const workflowTool = getWorkflowTool(hooks)
+    const output = await workflowTool.execute(
       { operation: 'init' },
-      { sessionID: 'routes-gates-session' },
+      createToolContext('routes-gates-session'),
     )
     expect(output).toContain('Planning procedure')
+  })
+
+  it('workflow tool args use SDK-compatible zod schema objects', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
+    const workflowTool = getWorkflowTool(hooks)
+    const operationSchema = workflowTool.args['operation']
+    const argsSchema = workflowTool.args['args']
+
+    expect(hasZodV4SchemaDef(operationSchema)).toBe(true)
+    expect(hasZodV4SchemaDef(argsSchema)).toBe(true)
   })
 
   it('tool.execute.before allows all tools without enforcement when no session exists (routes mode)', async () => {
@@ -278,7 +338,11 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
 
   it('tool.execute.before enforces after session is created by workflow init (routes mode)', async () => {
     const hooks = await createOpenCodeWorkflowPlugin(withRoutes())()
-    await hooks.tool!['workflow'].execute({ operation: 'init' }, { sessionID: 'enforced-session' })
+    const workflowTool = getWorkflowTool(hooks)
+    await workflowTool.execute(
+      { operation: 'init' },
+      createToolContext('enforced-session'),
+    )
 
     await expect(
       hooks['tool.execute.before']!(
@@ -308,9 +372,14 @@ describe('createOpenCodeWorkflowPlugin — commandDirectories', () => {
     const hooks = await createOpenCodeWorkflowPlugin(
       createConfig({ routes, commandDirectories: [commandDir] }),
     )()
-    expect(hooks.command?.['start-implementation']).toBeDefined()
-    expect(hooks.command?.['start-implementation'].content).toContain('OpenCode')
-    expect(hooks.command?.['start-implementation'].content).toContain('/dev-workflow-v2:workflow init')
+    const openCodeConfig: OpenCodeConfig = {}
+    await hooks.config?.(openCodeConfig)
+
+    const command = openCodeConfig.command?.['start-implementation']
+    expect(command).toBeDefined()
+    expect(command?.template).toContain('OpenCode')
+    expect(command?.template).toContain('/dev-workflow-v2:workflow init')
+    expect(Reflect.has(command ?? {}, 'content')).toBe(false)
   })
 
   it('ignores non-.md files in command directories', async () => {
@@ -319,8 +388,11 @@ describe('createOpenCodeWorkflowPlugin — commandDirectories', () => {
     const hooks = await createOpenCodeWorkflowPlugin(
       createConfig({ routes, commandDirectories: [commandDir] }),
     )()
-    expect(hooks.command?.['readme']).toBeUndefined()
-    expect(hooks.command?.['cmd']).toBeDefined()
+    const openCodeConfig: OpenCodeConfig = {}
+    await hooks.config?.(openCodeConfig)
+
+    expect(openCodeConfig.command?.['readme']).toBeUndefined()
+    expect(openCodeConfig.command?.['cmd']).toBeDefined()
   })
 
   it('merges commands from multiple directories', async () => {
@@ -331,24 +403,45 @@ describe('createOpenCodeWorkflowPlugin — commandDirectories', () => {
       const hooks = await createOpenCodeWorkflowPlugin(
         createConfig({ routes, commandDirectories: [commandDir, dir2] }),
       )()
-      expect(hooks.command?.['cmd-a']).toBeDefined()
-      expect(hooks.command?.['cmd-b']).toBeDefined()
+      const openCodeConfig: OpenCodeConfig = {}
+      await hooks.config?.(openCodeConfig)
+
+      expect(openCodeConfig.command?.['cmd-a']).toBeDefined()
+      expect(openCodeConfig.command?.['cmd-b']).toBeDefined()
     } finally {
       rmSync(dir2, { recursive: true })
     }
   })
 
-  it('hooks.command is undefined when commandDirectories is not provided', async () => {
-    const hooks = await createOpenCodeWorkflowPlugin(createConfig({ routes }))()
-    expect(hooks.command).toBeUndefined()
+  it('keeps the first command when duplicate command names exist across directories', async () => {
+    const dir2 = mkdtempSync(join(tmpdir(), 'opencode-cmds3-'))
+    try {
+      writeFileSync(join(commandDir, 'choose-next-task.md'), '# First')
+      writeFileSync(join(dir2, 'choose-next-task.md'), '# Second')
+      const hooks = await createOpenCodeWorkflowPlugin(
+        createConfig({ routes, commandDirectories: [commandDir, dir2] }),
+      )()
+      const openCodeConfig: OpenCodeConfig = {}
+      await hooks.config?.(openCodeConfig)
+
+      expect(openCodeConfig.command?.['choose-next-task']?.template).toContain('# First')
+      expect(openCodeConfig.command?.['choose-next-task']?.template).not.toContain('# Second')
+    } finally {
+      rmSync(dir2, { recursive: true })
+    }
   })
 
-  it('hooks.command is undefined when provided directories contain no .md files', async () => {
+  it('hooks.config is undefined when commandDirectories is not provided', async () => {
+    const hooks = await createOpenCodeWorkflowPlugin(createConfig({ routes }))()
+    expect(hooks.config).toBeUndefined()
+  })
+
+  it('hooks.config is undefined when provided directories contain no .md files', async () => {
     // commandDir exists but is empty
     const hooks = await createOpenCodeWorkflowPlugin(
       createConfig({ routes, commandDirectories: [commandDir] }),
     )()
-    expect(hooks.command).toBeUndefined()
+    expect(hooks.config).toBeUndefined()
   })
 
   it('skips non-existent directories without error', async () => {
@@ -356,7 +449,49 @@ describe('createOpenCodeWorkflowPlugin — commandDirectories', () => {
     const hooks = await createOpenCodeWorkflowPlugin(
       createConfig({ routes, commandDirectories: ['/nonexistent-dir-xyz', commandDir] }),
     )()
-    expect(hooks.command?.['cmd']).toBeDefined()
+    const openCodeConfig: OpenCodeConfig = {}
+    await hooks.config?.(openCodeConfig)
+
+    expect(openCodeConfig.command?.['cmd']).toBeDefined()
+  })
+
+  it('applies commandPrefix when registering command keys', async () => {
+    writeFileSync(join(commandDir, 'choose-next-task.md'), '# Choose')
+    const hooks = await createOpenCodeWorkflowPlugin(
+      createConfig({
+        routes,
+        commandDirectories: [commandDir],
+        commandPrefix: 'dev-workflow-v2:',
+      }),
+    )()
+    const openCodeConfig: OpenCodeConfig = {}
+    await hooks.config?.(openCodeConfig)
+
+    expect(openCodeConfig.command?.['dev-workflow-v2:choose-next-task']).toBeDefined()
+    expect(openCodeConfig.command?.['choose-next-task']).toBeUndefined()
+  })
+
+  it('does not overwrite existing config command on key collision', async () => {
+    writeFileSync(join(commandDir, 'choose-next-task.md'), '# New Template')
+    const hooks = await createOpenCodeWorkflowPlugin(
+      createConfig({
+        routes,
+        commandDirectories: [commandDir],
+        commandPrefix: 'dev-workflow-v2:',
+      }),
+    )()
+    const openCodeConfig: OpenCodeConfig = {
+      command: {
+        'dev-workflow-v2:choose-next-task': {
+          template: '# Existing Template',
+          description: 'existing command',
+        },
+      },
+    }
+
+    await hooks.config?.(openCodeConfig)
+
+    expect(openCodeConfig.command?.['dev-workflow-v2:choose-next-task']?.template).toBe('# Existing Template')
   })
 })
 

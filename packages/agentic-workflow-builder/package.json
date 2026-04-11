@@ -1,6 +1,6 @@
 {
   "name": "@ntcoding/agentic-workflow-builder",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "type": "module",
   "description": "Type-safe, testable workflow definitions for AI coding agents",
   "exports": {
@@ -16,8 +16,9 @@
     "lint": "echo 'no lint configured'",
     "test": "vitest run --coverage"
   },
-  "dependencies": {},
-  "devDependencies": {},
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.4.3"
+  },
   "peerDependencies": {
     "zod": "^3.23.0"
   }
