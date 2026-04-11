@@ -101,7 +101,7 @@ describe('sessionExists', () => {
       get: () => null,
       run: () => undefined,
     }
-    Reflect.set(store.db, 'prepare', () => nullGetStatement)
+    Object.defineProperty(store.db, 'prepare', { value: () => nullGetStatement })
 
     expect(store.sessionExists('bun-null-sentinel')).toStrictEqual(false)
   })
@@ -113,7 +113,7 @@ describe('sessionExists', () => {
       get: () => undefined,
       run: () => undefined,
     }
-    Reflect.set(store.db, 'prepare', () => undefinedGetStatement)
+    Object.defineProperty(store.db, 'prepare', { value: () => undefinedGetStatement })
 
     expect(store.sessionExists('undefined-sentinel')).toStrictEqual(false)
   })
@@ -125,7 +125,7 @@ describe('sessionExists', () => {
       get: () => ({ not_count: 1 }),
       run: () => undefined,
     }
-    Reflect.set(store.db, 'prepare', () => malformedRowStatement)
+    Object.defineProperty(store.db, 'prepare', { value: () => malformedRowStatement })
 
     expect(() => store.sessionExists('malformed-row')).toThrow('Invalid count query row')
   })
@@ -137,7 +137,7 @@ describe('sessionExists', () => {
       get: () => ({ count: 'NaN' }),
       run: () => undefined,
     }
-    Reflect.set(store.db, 'prepare', () => invalidCountStatement)
+    Object.defineProperty(store.db, 'prepare', { value: () => invalidCountStatement })
 
     expect(() => store.sessionExists('invalid-count')).toThrow('Invalid count value')
   })

@@ -262,7 +262,7 @@ export const prCreationState: WorkflowStateDefinition = {
   transitionGuard: (ctx) => {
     if (!ctx.state.prNumber)
       return fail('prNumber not set. Run record-pr or create-pr first.')
-    if (Reflect.get(ctx, 'prChecksPass') !== true)
+    if (!readPrChecksPass(ctx))
       return fail(`PR checks failing for PR #${ctx.state.prNumber}.`)
     return pass()
   },

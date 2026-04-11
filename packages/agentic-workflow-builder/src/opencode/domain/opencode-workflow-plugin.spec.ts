@@ -148,12 +148,12 @@ function hasZodV4SchemaDef(value: unknown): boolean {
     return false
   }
 
-  const zodValue = Reflect.get(value, '_zod')
+  const zodValue = value['_zod']
   if (typeof zodValue !== 'object' || zodValue === null) {
     return false
   }
 
-  return Reflect.has(zodValue, 'def')
+  return 'def' in zodValue
 }
 
 function getWorkflowTool(hooks: Hooks): NonNullable<NonNullable<Hooks['tool']>['workflow']> {
@@ -447,7 +447,7 @@ describe('createOpenCodeWorkflowPlugin — commandDirectories', () => {
     expect(command).toBeDefined()
     expect(command?.template).toContain('OpenCode')
     expect(command?.template).toContain('/dev-workflow-v2:workflow init')
-    expect(Reflect.has(command ?? {}, 'content')).toBe(false)
+    expect('content' in (command ?? {})).toBe(false)
   })
 
   it('ignores non-.md files in command directories', async () => {

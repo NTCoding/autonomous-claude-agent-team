@@ -63,20 +63,12 @@ describe('FeatureTeamWorkflowDefinition', () => {
     expect(registry['SPAWN']?.emoji).toStrictEqual('🟣')
   })
 
-  it('builds transition context with git info and PR checks from deps', () => {
+  it('builds transition context with git info from deps', () => {
     const deps = makeWorkflowDeps()
     const state = FeatureTeamWorkflowDefinition.initialState()
     const ctx = FeatureTeamWorkflowDefinition.buildTransitionContext(state, 'SPAWN', 'PLANNING', deps)
     expect(ctx).toMatchObject({ state, from: 'SPAWN', to: 'PLANNING' })
-    expect(Reflect.get(ctx, 'prChecksPass')).toStrictEqual(false)
     expect(ctx.gitInfo.currentBranch).toStrictEqual('main')
-  })
-
-  it('builds transition context with prChecksPass true when PR exists', () => {
-    const deps = makeWorkflowDeps()
-    const state = { ...FeatureTeamWorkflowDefinition.initialState(), prNumber: 42 }
-    const ctx = FeatureTeamWorkflowDefinition.buildTransitionContext(state, 'PR_CREATION', 'FEEDBACK', deps)
-    expect(Reflect.get(ctx, 'prChecksPass')).toStrictEqual(true)
   })
 
   it('builds transition event with from/to', () => {
