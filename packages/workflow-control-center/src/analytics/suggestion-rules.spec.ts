@@ -6,6 +6,7 @@ function makeProjection(overrides: Partial<SessionProjection> = {}): SessionProj
   return {
     sessionId: 'test-session',
     currentState: 'DEVELOPING',
+    workflowStates: ['SPAWN', 'PLANNING', 'DEVELOPING'],
     totalEvents: 10,
     firstEventAt: '2026-01-01T00:00:00Z',
     lastEventAt: '2026-01-01T00:10:00Z',

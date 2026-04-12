@@ -9,6 +9,7 @@ import {
 import type { SessionHandlerDeps } from './session-handlers.js'
 import {
   createTestDb,
+  insertEvent,
   seedSessionEvents,
   seedMultipleSessions,
 } from '../../query/session-queries-test-fixtures.js'
@@ -106,6 +107,7 @@ describe('session-handlers', () => {
       expect(res.written.statusCode).toBe(200)
       const body = JSON.parse(res.written.body)
       expect(body.sessionId).toBe('test-1')
+      expect(body.workflowStates).toContain('SPAWN')
       expect(body.insights).toBeDefined()
       expect(body.statePeriods).toBeDefined()
     })
@@ -139,6 +141,21 @@ describe('session-handlers', () => {
       expect(body.events.length).toBeGreaterThan(0)
       expect(body.events[0].category).toBeDefined()
       expect(body.events[0].detail).toBeDefined()
+    })
+
+    it('uses session-started currentState for pre-transition event annotation', () => {
+      insertEvent(db, 'test-1', 'session-started', '2026-01-01T00:00:00Z', { currentState: 'SPAWN' })
+      insertEvent(db, 'test-1', 'write-checked', '2026-01-01T00:01:00Z', {
+        tool: 'Write',
+        filePath: '/tmp/test.ts',
+        allowed: true,
+      })
+      const handler = handleGetSessionEvents(deps)
+      const res = mockRes()
+      handler(mockReq(), res, makeRoute({ id: 'test-1' }))
+      const body = JSON.parse(res.written.body)
+      expect(body.events[0].state).toBe('SPAWN')
+      expect(body.events[1].state).toBe('SPAWN')
     })
 
     it('filters by category', () => {

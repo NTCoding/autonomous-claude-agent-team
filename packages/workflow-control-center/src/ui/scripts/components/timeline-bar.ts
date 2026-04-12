@@ -6,9 +6,25 @@ type TimelineSegment = {
   proportionOfTotal: number
 }
 
-export function renderTimelineBar(segments: Array<TimelineSegment>): string {
+export function renderTimelineBar(segments: Array<TimelineSegment>, states?: Array<string>): string {
+  const stateTotals = segments.reduce<Record<string, number>>((acc, s) => ({
+    ...acc,
+    [s.state]: (acc[s.state] ?? 0) + s.durationMs,
+  }), {})
+
+  const legendStates = states !== undefined && states.length > 0
+    ? states
+    : [...new Set(segments.map((s) => s.state))]
+
+  const legendItems = legendStates.map((state) => {
+    const css = stateCssClass(state)
+    const dur = stateTotals[state] ?? 0
+    return html`<label class="tl-toggle"><input type="checkbox" checked data-tl-state="${css}">`
+      + html`<i class="${css}"></i>${state} <span class="tl-dur">${formatDuration(dur)}</span></label>`
+  }).join('')
+
   if (segments.length === 0) {
-    return html`<div class="timeline-bar"></div>`
+    return html`<div class="timeline-bar"></div><div class="tl-legend">${legendItems}</div>`
   }
 
   const segmentHtml = segments
@@ -17,18 +33,6 @@ export function renderTimelineBar(segments: Array<TimelineSegment>): string {
       return html`<div class="tl-seg ${stateCssClass(s.state)}" style="flex:${flex}" title="${s.state} — ${formatDuration(s.durationMs)}"></div>`
     })
     .join('')
-
-  const stateTotals = segments.reduce<Record<string, number>>((acc, s) => ({
-    ...acc,
-    [s.state]: (acc[s.state] ?? 0) + s.durationMs,
-  }), {})
-
-  const legendItems = [...new Set(segments.map((s) => s.state))].map((state) => {
-    const css = stateCssClass(state)
-    const dur = stateTotals[state] ?? 0
-    return html`<label class="tl-toggle"><input type="checkbox" checked data-tl-state="${css}">`
-      + html`<i class="${css}"></i>${state} <span class="tl-dur">${formatDuration(dur)}</span></label>`
-  }).join('')
 
   return html`<div class="timeline-bar">${segmentHtml}</div><div class="tl-legend">${legendItems}</div>`
 }

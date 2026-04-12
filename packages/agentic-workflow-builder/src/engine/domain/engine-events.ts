@@ -5,6 +5,8 @@ const SessionStartedSchema = z.object({
   at: z.string(),
   transcriptPath: z.string().optional(),
   repository: z.string().optional(),
+  currentState: z.string().optional(),
+  states: z.array(z.string()).optional(),
 })
 
 const TransitionedSchema = z.object({

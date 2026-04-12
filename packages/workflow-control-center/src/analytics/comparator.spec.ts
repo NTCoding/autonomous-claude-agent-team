@@ -6,6 +6,7 @@ function makeDetail(overrides: Partial<SessionDetail> = {}): SessionDetail {
   return {
     sessionId: 'session-1',
     currentState: 'DEVELOPING',
+    workflowStates: ['SPAWN', 'PLANNING', 'DEVELOPING'],
     status: 'active',
     totalEvents: 20,
     firstEventAt: '2026-01-01T00:00:00Z',

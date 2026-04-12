@@ -23,6 +23,7 @@ export type SessionStatus = 'active' | 'stale' | 'completed'
 export type SessionSummary = {
   readonly sessionId: string
   readonly currentState: string
+  readonly workflowStates: ReadonlyArray<string>
   readonly status: SessionStatus
   readonly totalEvents: number
   readonly firstEventAt: string
