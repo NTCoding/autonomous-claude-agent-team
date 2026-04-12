@@ -185,7 +185,7 @@ function renderOverviewTab(session: SessionDetailDto): string {
       { label: 'Hook Denials', value: totalDenials, warn: totalDenials > 0, ...(totalDenials > 0 ? { drillDown: { dimension: 'outcome', value: 'denied' } } : {}) },
       { label: 'Agents', value: session.activeAgents.length, ...(session.activeAgents.length > 0 ? { tooltip: session.activeAgents.join(', ') } : {}) },
     ]) +
-    renderTimelineBar(segments)
+    renderTimelineBar(segments, session.workflowStates)
 }
 
 function attachTabListeners(

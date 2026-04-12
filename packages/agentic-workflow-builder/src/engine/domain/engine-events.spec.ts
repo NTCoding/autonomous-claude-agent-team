@@ -7,10 +7,14 @@ describe('EngineEventSchema', () => {
       type: 'session-started',
       at: '2026-01-01T00:00:00Z',
       repository: 'test/repo',
+      currentState: 'SPAWN',
+      states: ['SPAWN', 'PLANNING'],
     })
     expect(result.type).toBe('session-started')
     if (result.type === 'session-started') {
       expect(result.repository).toBe('test/repo')
+      expect(result.currentState).toBe('SPAWN')
+      expect(result.states).toEqual(['SPAWN', 'PLANNING'])
     }
   })
 

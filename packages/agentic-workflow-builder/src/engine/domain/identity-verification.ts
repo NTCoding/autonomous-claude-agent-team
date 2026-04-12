@@ -10,12 +10,18 @@ export function checkIdentity(
   messages: readonly TranscriptMessage[],
   pattern: RegExp,
 ): IdentityCheckResult {
-  const hasEverSpokenWithPrefix = messages.some(
+  const textMessages = messages.filter((m) => m.textContent !== undefined)
+
+  if (textMessages.length === 0) {
+    return { status: 'never-spoken' }
+  }
+
+  const hasEverSpokenWithPrefix = textMessages.some(
     (m) => m.textContent !== undefined && pattern.test(m.textContent),
   )
 
   if (!hasEverSpokenWithPrefix) {
-    return { status: 'never-spoken' }
+    return { status: 'lost' }
   }
 
   const lastMessage = messages.at(-1)

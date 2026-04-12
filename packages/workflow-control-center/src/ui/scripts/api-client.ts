@@ -14,6 +14,7 @@ export type SessionListResponse = {
 export type SessionSummaryDto = {
   sessionId: string
   currentState: string
+  workflowStates: Array<string>
   status: string
   totalEvents: number
   firstEventAt: string

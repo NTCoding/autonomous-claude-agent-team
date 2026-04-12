@@ -1,6 +1,8 @@
 import type { SessionQueryDeps } from './session-queries.js'
 import { openSqliteDatabase, type SqliteDatabase } from './sqlite-runtime.js'
 
+const WORKFLOW_STATES = ['SPAWN', 'PLANNING', 'RESPAWN', 'DEVELOPING', 'REVIEWING', 'COMMITTING', 'CR_REVIEW', 'PR_CREATION', 'FEEDBACK', 'BLOCKED', 'COMPLETE']
+
 export function createTestDb(): SqliteDatabase {
   const db = openSqliteDatabase(':memory:')
   db.exec(`
@@ -34,6 +36,8 @@ export function insertEvent(
 export function seedSessionEvents(db: SqliteDatabase, sessionId: string): void {
   insertEvent(db, sessionId, 'session-started', '2026-01-01T00:00:00Z', {
     repository: 'test/repo',
+    currentState: 'SPAWN',
+    states: WORKFLOW_STATES,
   })
   insertEvent(db, sessionId, 'transitioned', '2026-01-01T00:01:00Z', {
     from: 'idle',

@@ -3,6 +3,7 @@ import { pass, fail, defineRecordingOps } from '@ntcoding/agentic-workflow-build
 import { WorkflowStateError } from '@ntcoding/agentic-workflow-builder/engine'
 import type { BaseEvent } from '@ntcoding/agentic-workflow-builder/engine'
 import type { WorkflowState, StateName, WorkflowOperation } from './workflow-types.js'
+import { STATE_NAMES } from './workflow-types.js'
 import { getStateDefinition } from './registry.js'
 import { WORKFLOW_REGISTRY } from './registry.js'
 import { WorkflowStateSchema } from './workflow-types.js'
@@ -84,7 +85,14 @@ export class Workflow {
   }
 
   startSession(transcriptPath: string, repository: string | undefined): void {
-    this.append({ type: 'session-started', at: this.deps.now(), ...(transcriptPath ? { transcriptPath } : {}), ...(repository === undefined ? {} : { repository }) })
+    this.append({
+      type: 'session-started',
+      at: this.deps.now(),
+      currentState: this.state.currentStateMachineState,
+      states: [...STATE_NAMES],
+      ...(transcriptPath ? { transcriptPath } : {}),
+      ...(repository === undefined ? {} : { repository }),
+    })
   }
 
   getTranscriptPath(): string {

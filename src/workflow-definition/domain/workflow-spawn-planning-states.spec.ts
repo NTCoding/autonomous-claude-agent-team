@@ -33,7 +33,8 @@ describe('Workflow', () => {
     it('appends session-started event with transcriptPath', () => {
       const { events } = spec.given().when((wf) => wf.startSession('/tmp/transcript.jsonl', undefined))
       expect(events).toHaveLength(1)
-      expect(events[0]).toMatchObject({ type: 'session-started', transcriptPath: '/tmp/transcript.jsonl' })
+      expect(events[0]).toMatchObject({ type: 'session-started', transcriptPath: '/tmp/transcript.jsonl', currentState: 'SPAWN' })
+      expect(events[0]).toHaveProperty('states')
     })
 
     it('appends session-started event without transcriptPath when empty string', () => {
@@ -44,7 +45,7 @@ describe('Workflow', () => {
 
     it('appends session-started event with repository when provided', () => {
       const { events } = spec.given().when((wf) => wf.startSession('', 'owner/repo'))
-      expect(events[0]).toMatchObject({ type: 'session-started', repository: 'owner/repo' })
+      expect(events[0]).toMatchObject({ type: 'session-started', repository: 'owner/repo', currentState: 'SPAWN' })
     })
 
     it('omits repository from event when undefined', () => {

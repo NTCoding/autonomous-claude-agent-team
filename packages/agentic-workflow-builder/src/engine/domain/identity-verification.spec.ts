@@ -8,9 +8,9 @@ const prefixMsg = (id: string): TranscriptMessage => ({ id, textContent: 'LEAD: 
 const silentMsg = (id: string): TranscriptMessage => ({ id, textContent: undefined })
 
 describe('checkIdentity — never-spoken', () => {
-  it('returns never-spoken when no messages match prefix', () => {
+  it('returns lost when assistant has spoken without required prefix', () => {
     const messages = [textMsg('1', 'Hello world')]
-    expect(checkIdentity(messages, PREFIX_PATTERN)).toStrictEqual({ status: 'never-spoken' })
+    expect(checkIdentity(messages, PREFIX_PATTERN)).toStrictEqual({ status: 'lost' })
   })
 
   it('returns never-spoken for empty transcript', () => {
@@ -33,6 +33,13 @@ describe('checkIdentity — verified', () => {
 })
 
 describe('checkIdentity — lost', () => {
+  it('returns lost for real assistant text without required prefix', () => {
+    const messages = [
+      textMsg('msg_d7ea04a13001jmygPk4STr8Gxg', "[TDD: RED] Minimal empty-route validation is being added for `@HttpCall('<route>')`."),
+    ]
+    expect(checkIdentity(messages, PREFIX_PATTERN)).toStrictEqual({ status: 'lost' })
+  })
+
   it('returns lost when last text message does not match prefix', () => {
     const messages = [prefixMsg('1'), textMsg('2', 'No prefix here')]
     expect(checkIdentity(messages, PREFIX_PATTERN)).toStrictEqual({ status: 'lost' })

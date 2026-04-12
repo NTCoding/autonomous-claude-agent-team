@@ -117,6 +117,9 @@ export function handleGetSessionEvents(
     let currentState = 'idle'
     const stateMap = new Map<number, string>()
     for (const e of allEvents) {
+      if (e.type === 'session-started' && typeof e.payload['currentState'] === 'string' && e.payload['currentState'] !== '') {
+        currentState = e.payload['currentState']
+      }
       if (e.type === 'transitioned') {
         currentState = String(e.payload['to'] ?? 'unknown')
       }

@@ -15,6 +15,7 @@ import type { TranscriptReader } from './transcript-reader.js'
 type TestStateName = 'SPAWN' | 'PLANNING' | 'DEVELOPING' | 'BLOCKED' | 'REVIEWING' | 'RESPAWN'
 type TestState = BaseWorkflowState<TestStateName> & { readonly iteration: number }
 type TestDeps = { readonly pluginRoot: string }
+const TEST_STATE_NAMES = ['SPAWN', 'PLANNING', 'DEVELOPING', 'BLOCKED', 'REVIEWING', 'RESPAWN'] as const
 
 const INITIAL_STATE: TestState = {
   currentStateMachineState: 'SPAWN' as const,
@@ -55,6 +56,8 @@ class StubWorkflow implements RehydratableWorkflow<TestState> {
       type: 'session-started',
       at: '2026-01-01T00:00:00.000Z',
       transcriptPath,
+      currentState: this.state.currentStateMachineState,
+      states: [...TEST_STATE_NAMES],
       ...(repository === undefined ? {} : { repository }),
     }
     this.pending = [...this.pending, event]
@@ -128,7 +131,7 @@ function makeFactory(workflow?: StubWorkflow): WorkflowDefinition<StubWorkflow, 
       return state
     },
     buildWorkflow: (_state, _deps) => workflow ?? new StubWorkflow(INITIAL_STATE),
-    stateSchema: z.enum(['SPAWN', 'PLANNING', 'DEVELOPING', 'BLOCKED', 'REVIEWING', 'RESPAWN']),
+    stateSchema: z.enum(TEST_STATE_NAMES),
     initialState: () => INITIAL_STATE,
     getRegistry: () => TEST_REGISTRY,
     buildTransitionContext: (state, from, to, _deps) => ({
@@ -210,7 +213,7 @@ describe('WorkflowEngine.startSession', () => {
     expect(result.type).toStrictEqual('success')
     expect(result.output).toContain('Feature team initialized')
     expect(appended[0]?.events[0]?.type).toStrictEqual('session-started')
-    expect(appended[0]?.events[0]).toMatchObject({ transcriptPath: '/transcript.jsonl' })
+    expect(appended[0]?.events[0]).toMatchObject({ transcriptPath: '/transcript.jsonl', currentState: 'SPAWN', states: TEST_STATE_NAMES })
   })
 
   it('persists session-started event with session id in SPAWN state', () => {

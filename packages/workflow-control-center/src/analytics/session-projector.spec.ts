@@ -6,9 +6,11 @@ import {
 } from './session-projector.js'
 import type { ParsedEvent } from '../query/query-types.js'
 
+const WORKFLOW_STATES = ['SPAWN', 'PLANNING', 'RESPAWN', 'DEVELOPING', 'REVIEWING', 'COMMITTING', 'CR_REVIEW', 'PR_CREATION', 'FEEDBACK', 'BLOCKED', 'COMPLETE']
+
 function makeEvents(sessionId: string): ReadonlyArray<ParsedEvent> {
   return [
-    { seq: 1, sessionId, type: 'session-started', at: '2026-01-01T00:00:00Z', payload: { repository: 'test/repo' } },
+    { seq: 1, sessionId, type: 'session-started', at: '2026-01-01T00:00:00Z', payload: { repository: 'test/repo', currentState: 'SPAWN', states: WORKFLOW_STATES } },
     { seq: 2, sessionId, type: 'transitioned', at: '2026-01-01T00:01:00Z', payload: { from: 'idle', to: 'SPAWN' } },
     { seq: 3, sessionId, type: 'agent-registered', at: '2026-01-01T00:02:00Z', payload: { agentType: 'lead', agentId: 'lead-1' } },
     { seq: 4, sessionId, type: 'transitioned', at: '2026-01-01T00:05:00Z', payload: { from: 'SPAWN', to: 'PLANNING' } },
@@ -143,7 +145,7 @@ describe('projectSession', () => {
       { seq: 1, sessionId: 's1', type: 'transitioned', at: '2026-01-01T00:00:00Z', payload: {} },
     ]
     const projection = projectSession('s1', events)
-    expect(projection.currentState).toBe('idle')
+    expect(projection.currentState).toBe('initial state')
     expect(projection.transitionCount).toBe(0)
     expect(projection.totalEvents).toBe(1)
   })
@@ -202,10 +204,33 @@ describe('projectSession', () => {
     expect(projection.repository).toBe('test/repo')
   })
 
+  it('records current state and workflow states from session-started', () => {
+    const events: ReadonlyArray<ParsedEvent> = [
+      { seq: 1, sessionId: 's1', type: 'session-started', at: '2026-01-01T00:00:00Z', payload: { currentState: 'SPAWN', states: WORKFLOW_STATES } },
+      { seq: 2, sessionId: 's1', type: 'write-checked', at: '2026-01-01T00:01:00Z', payload: { allowed: true, tool: 'Write', filePath: '/tmp/test.ts' } },
+    ]
+    const projection = projectSession('s1', events)
+    expect(projection.currentState).toBe('SPAWN')
+    expect(projection.workflowStates).toEqual(WORKFLOW_STATES)
+  })
+
   it('handles empty events', () => {
     const projection = projectSession('s1', [])
-    expect(projection.currentState).toBe('idle')
+    expect(projection.currentState).toBe('initial state')
     expect(projection.totalEvents).toBe(0)
+  })
+
+  it('adds initial state period when no transitions are recorded', () => {
+    const events: ReadonlyArray<ParsedEvent> = [
+      { seq: 1, sessionId: 's1', type: 'session-started', at: '2026-01-01T00:00:00Z', payload: { repository: 'test/repo', currentState: 'SPAWN', states: WORKFLOW_STATES } },
+      { seq: 2, sessionId: 's1', type: 'write-checked', at: '2026-01-01T00:05:00Z', payload: { allowed: true, tool: 'Read', filePath: '/tmp' } },
+    ]
+
+    const projection = projectSession('s1', events)
+    expect(projection.transitionCount).toBe(0)
+    expect(projection.statePeriods).toHaveLength(1)
+    expect(projection.statePeriods[0]?.state).toBe('SPAWN')
+    expect((projection.statePeriods[0]?.durationMs ?? 0) > 0).toBe(true)
   })
 
   it('extracts issueNumber from issue-recorded event', () => {

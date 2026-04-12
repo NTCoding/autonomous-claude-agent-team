@@ -15,6 +15,7 @@ import { deriveSessionStatus } from '../query/query-types.js'
 export type SessionProjection = {
   readonly sessionId: string
   readonly currentState: string
+  readonly workflowStates: ReadonlyArray<string>
   readonly totalEvents: number
   readonly firstEventAt: string
   readonly lastEventAt: string
@@ -33,6 +34,7 @@ export type SessionProjection = {
 type MutableProjection = {
   sessionId: string
   currentState: string
+  workflowStates: Array<string>
   totalEvents: number
   firstEventAt: string
   lastEventAt: string
@@ -56,7 +58,8 @@ type MutableProjection = {
 function createEmptyProjection(sessionId: string): MutableProjection {
   return {
     sessionId,
-    currentState: 'idle',
+    currentState: 'initial state',
+    workflowStates: [],
     totalEvents: 0,
     firstEventAt: '',
     lastEventAt: '',
@@ -94,6 +97,12 @@ function applyEngineEvent(projection: MutableProjection, event: EngineEvent): vo
     case 'session-started': {
       if (event.repository !== undefined && event.repository.length > 0) {
         projection.repository = event.repository
+      }
+      if (event.currentState !== undefined && event.currentState.length > 0) {
+        projection.currentState = event.currentState
+      }
+      if (event.states !== undefined && event.states.length > 0) {
+        projection.workflowStates = [...event.states]
       }
       break
     }
@@ -200,6 +209,18 @@ export function projectSession(
   for (const event of events) {
     applyEventToProjection(projection, event)
   }
+
+  if (projection.statePeriods.length === 0 && projection.firstEventAt !== '') {
+    const firstMs = new Date(projection.firstEventAt).getTime()
+    const lastMs = new Date(projection.lastEventAt).getTime()
+    projection.statePeriods.push({
+      state: projection.currentState,
+      startedAt: projection.firstEventAt,
+      endedAt: projection.lastEventAt,
+      durationMs: Math.max(lastMs - firstMs, 1),
+    })
+  }
+
   return freezeProjection(projection)
 }
 
@@ -220,6 +241,7 @@ export function projectSessionSummary(
   return {
     sessionId: projection.sessionId,
     currentState: projection.currentState,
+    workflowStates: projection.workflowStates,
     status,
     totalEvents: projection.totalEvents,
     firstEventAt: projection.firstEventAt,
@@ -239,6 +261,7 @@ function freezeProjection(mutable: MutableProjection): SessionProjection {
   return {
     sessionId: mutable.sessionId,
     currentState: mutable.currentState,
+    workflowStates: [...mutable.workflowStates],
     totalEvents: mutable.totalEvents,
     firstEventAt: mutable.firstEventAt,
     lastEventAt: mutable.lastEventAt,
@@ -277,6 +300,7 @@ export function createProjectionCache(): ProjectionCache {
     set(sessionId, projection) {
       const mutable: MutableProjection = {
         ...projection,
+        workflowStates: [...projection.workflowStates],
         activeAgents: [...projection.activeAgents],
         permissionDenials: { ...projection.permissionDenials },
         statePeriods: projection.statePeriods.map((p) => ({ ...p })),
