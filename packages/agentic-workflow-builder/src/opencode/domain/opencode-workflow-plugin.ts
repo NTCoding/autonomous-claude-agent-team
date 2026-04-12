@@ -14,6 +14,9 @@ import type { PlatformContext, PreToolUseHandlerConfig, RouteMap } from '../../c
 import { createPreToolUseHandler, createWorkflowRunner } from '../../cli/index'
 import { createStore } from '../../event-store/index'
 import { OpenCodeTranscriptReader } from './opencode-transcript-reader'
+import { getRepositoryName } from '../../cli/domain/repository-name'
+
+export const IDLE_RECOVERY_MESSAGE = 'You have stopped. You should never stop until the workflow is complete unless your current state permits stopping.'
 
 const TRANSLATION_NOTE = [
   '> **OpenCode**: When instructions say `/dev-workflow-v2:workflow <op> [args]`, call',
@@ -33,9 +36,44 @@ function injectTranslationNote(content: string): string {
 type OpenCodeToolExecuteBefore = NonNullable<Hooks['tool.execute.before']>
 type OpenCodeToolBeforeInput = Parameters<OpenCodeToolExecuteBefore>[0]
 type OpenCodeToolBeforeOutput = Parameters<OpenCodeToolExecuteBefore>[1]
+type OpenCodeEventHook = NonNullable<Hooks['event']>
 type OpenCodeCommandMap = NonNullable<OpenCodeConfig['command']>
 type OpenCodePluginInput = Parameters<Plugin>[0]
 type OpenCodePluginOptions = Parameters<Plugin>[1]
+type SessionPromptClient = {
+  readonly session: {
+    promptAsync: (input: {
+      readonly path: { readonly id: string }
+      readonly body: {
+        readonly parts: Array<{ readonly type: 'text'; readonly text: string }>
+      }
+    }) => unknown
+  }
+}
+
+export type IdleEventHookDeps = {
+  readonly hasSessionStarted: (sessionID: string) => boolean
+  readonly sendIdleRecoveryPrompt: (sessionID: string) => Promise<void>
+}
+
+async function promptIdleRecovery(client: SessionPromptClient, sessionID: string): Promise<void> {
+  await client.session.promptAsync({
+    path: { id: sessionID },
+    body: { parts: [{ type: 'text', text: IDLE_RECOVERY_MESSAGE }] },
+  })
+}
+
+export function createSessionIdleEventHook(deps: IdleEventHookDeps): OpenCodeEventHook {
+  return async ({ event }): Promise<void> => {
+    if (event.type !== 'session.idle') {
+      return
+    }
+    if (!deps.hasSessionStarted(event.properties.sessionID)) {
+      return
+    }
+    await deps.sendIdleRecoveryPrompt(event.properties.sessionID)
+  }
+}
 
 export type OpenCodePlugin = (
   input?: OpenCodePluginInput,
@@ -86,6 +124,7 @@ export function createOpenCodeWorkflowPlugin<
       getPluginRoot: () => config.pluginRoot,
       /* v8 ignore next */
       getEnvFilePath: () => join(homedir(), '.opencode', 'opencode.env'),
+      getRepositoryName: () => getRepositoryName(process.cwd()),
       readFile,
       /* v8 ignore next */
       appendToFile: (path, content) => appendFileSync(path, content),
@@ -108,6 +147,19 @@ export function createOpenCodeWorkflowPlugin<
       bashForbidden: config.bashForbidden,
       isWriteAllowed: config.isWriteAllowed,
       ...(config.customGates !== undefined ? { customGates: config.customGates } : {}),
+    })
+    const eventHook = createSessionIdleEventHook({
+      hasSessionStarted: (sessionID) => {
+        const { engineDeps, workflowDeps } = buildEngineContext(sessionID)
+        const engine = new WorkflowEngine(config.workflowDefinition, engineDeps, workflowDeps)
+        return engine.hasSessionStarted(sessionID)
+      },
+      sendIdleRecoveryPrompt: async (sessionID) => {
+        if (_input === undefined) {
+          return
+        }
+        await promptIdleRecovery(_input.client, sessionID)
+      },
     })
 
     const toolExecuteBefore = async (input: OpenCodeToolBeforeInput, output: OpenCodeToolBeforeOutput): Promise<void> => {
@@ -135,7 +187,7 @@ export function createOpenCodeWorkflowPlugin<
     }
 
     if (config.routes === undefined) {
-      return { 'tool.execute.before': toolExecuteBefore }
+      return { event: eventHook, 'tool.execute.before': toolExecuteBefore }
     }
 
     const workflowTool = tool({
@@ -164,6 +216,7 @@ export function createOpenCodeWorkflowPlugin<
           {
             getSessionId: () => ctx.sessionID,
             getSessionTranscriptPath: () => dbPath,
+            getSessionRepository: () => getRepositoryName(ctx.worktree),
           },
         )
         return result.output
@@ -173,6 +226,7 @@ export function createOpenCodeWorkflowPlugin<
     const commands = loadCommands(config.commandDirectories ?? [], config.commandPrefix ?? '')
 
     return {
+      event: eventHook,
       'tool.execute.before': toolExecuteBefore,
       tool: { workflow: workflowTool },
       ...(Object.keys(commands).length > 0

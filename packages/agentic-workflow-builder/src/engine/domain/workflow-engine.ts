@@ -59,6 +59,7 @@ export type WorkflowEngineDeps = {
   readonly store: WorkflowEventStore
   readonly getPluginRoot: () => string
   readonly getEnvFilePath: () => string
+  readonly getRepositoryName?: () => string | undefined
   readonly readFile: (path: string) => string
   readonly appendToFile: (filePath: string, content: string) => void
   readonly now: () => string
@@ -92,8 +93,20 @@ export class WorkflowEngine<
     }
     const initialState = this.factory.initialState()
     const workflow = this.factory.buildWorkflow(initialState, this.workflowDeps)
-    workflow.startSession(transcriptPath, repository)
-    this.engineDeps.store.appendEvents(sessionId, workflow.getPendingEvents())
+    const resolvedRepository = repository ?? this.engineDeps.getRepositoryName?.()
+    if (resolvedRepository === undefined || resolvedRepository === '') {
+      return { type: 'error', output: 'Could not determine repository name for session-started event.' }
+    }
+    workflow.startSession(transcriptPath, resolvedRepository)
+    const stateNames = Object.keys(this.factory.getRegistry())
+    const pendingEvents = this.enrichSessionStartedEvents(
+      workflow.getPendingEvents(),
+      transcriptPath,
+      resolvedRepository,
+      initialState.currentStateMachineState,
+      stateNames,
+    )
+    this.engineDeps.store.appendEvents(sessionId, pendingEvents)
     const procedureContent = this.engineDeps.readFile(this.buildProcedurePath(initialState.currentStateMachineState))
     const registry = this.factory.getRegistry()
     const expectedPrefix = this.getExpectedPrefix(initialState.currentStateMachineState, registry)
@@ -352,5 +365,39 @@ export class WorkflowEngine<
 
   private buildProcedurePath(stateName: TStateName): string {
     return `${this.engineDeps.getPluginRoot()}/states/${String(stateName).toLowerCase()}.md`
+  }
+
+  private enrichSessionStartedEvents(
+    events: readonly BaseEvent[],
+    transcriptPath: string,
+    repository: string,
+    currentState: TStateName,
+    states: readonly string[],
+  ): readonly BaseEvent[] {
+    let foundSessionStarted = false
+    const enriched = events.map((event) => {
+      if (event.type !== 'session-started') {
+        return event
+      }
+      foundSessionStarted = true
+      return {
+        ...event,
+        transcriptPath,
+        repository,
+        currentState,
+        states: [...states],
+      }
+    })
+    if (foundSessionStarted) {
+      return enriched
+    }
+    return [{
+      type: 'session-started',
+      at: this.engineDeps.now(),
+      transcriptPath,
+      repository,
+      currentState,
+      states: [...states],
+    }, ...enriched]
   }
 }

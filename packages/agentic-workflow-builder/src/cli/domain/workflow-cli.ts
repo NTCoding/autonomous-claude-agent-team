@@ -4,6 +4,7 @@ import type { RehydratableWorkflow } from '../../engine/index'
 import type { WorkflowRunnerConfig, RunnerResult } from './workflow-runner'
 import { createWorkflowRunner } from './workflow-runner'
 import type { PlatformContext } from './platform-context'
+import { getRepositoryName } from './repository-name'
 
 export type ProcessDeps = {
   readonly getEnv: (name: string) => string | undefined
@@ -69,6 +70,7 @@ export function createWorkflowCli<
     store,
     getPluginRoot: () => pluginRoot,
     getEnvFilePath: () => join(readEnvVar('HOME'), '.claude', 'claude.env'),
+    getRepositoryName: () => getRepositoryName(process.cwd()),
     readFile: processDeps.readFile,
     appendToFile: processDeps.appendToFile,
     now,
