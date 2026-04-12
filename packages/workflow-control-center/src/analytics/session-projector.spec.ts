@@ -143,7 +143,7 @@ describe('projectSession', () => {
       { seq: 1, sessionId: 's1', type: 'transitioned', at: '2026-01-01T00:00:00Z', payload: {} },
     ]
     const projection = projectSession('s1', events)
-    expect(projection.currentState).toBe('idle')
+    expect(projection.currentState).toBe('initial state')
     expect(projection.transitionCount).toBe(0)
     expect(projection.totalEvents).toBe(1)
   })
@@ -204,8 +204,21 @@ describe('projectSession', () => {
 
   it('handles empty events', () => {
     const projection = projectSession('s1', [])
-    expect(projection.currentState).toBe('idle')
+    expect(projection.currentState).toBe('initial state')
     expect(projection.totalEvents).toBe(0)
+  })
+
+  it('adds initial state period when no transitions are recorded', () => {
+    const events: ReadonlyArray<ParsedEvent> = [
+      { seq: 1, sessionId: 's1', type: 'session-started', at: '2026-01-01T00:00:00Z', payload: { repository: 'test/repo' } },
+      { seq: 2, sessionId: 's1', type: 'write-checked', at: '2026-01-01T00:05:00Z', payload: { allowed: true, tool: 'Read', filePath: '/tmp' } },
+    ]
+
+    const projection = projectSession('s1', events)
+    expect(projection.transitionCount).toBe(0)
+    expect(projection.statePeriods).toHaveLength(1)
+    expect(projection.statePeriods[0]?.state).toBe('initial state')
+    expect((projection.statePeriods[0]?.durationMs ?? 0) > 0).toBe(true)
   })
 
   it('extracts issueNumber from issue-recorded event', () => {

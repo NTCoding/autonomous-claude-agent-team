@@ -56,7 +56,7 @@ type MutableProjection = {
 function createEmptyProjection(sessionId: string): MutableProjection {
   return {
     sessionId,
-    currentState: 'idle',
+    currentState: 'initial state',
     totalEvents: 0,
     firstEventAt: '',
     lastEventAt: '',
@@ -200,6 +200,18 @@ export function projectSession(
   for (const event of events) {
     applyEventToProjection(projection, event)
   }
+
+  if (projection.statePeriods.length === 0 && projection.firstEventAt !== '') {
+    const firstMs = new Date(projection.firstEventAt).getTime()
+    const lastMs = new Date(projection.lastEventAt).getTime()
+    projection.statePeriods.push({
+      state: 'initial state',
+      startedAt: projection.firstEventAt,
+      endedAt: projection.lastEventAt,
+      durationMs: Math.max(lastMs - firstMs, 1),
+    })
+  }
+
   return freezeProjection(projection)
 }
 
