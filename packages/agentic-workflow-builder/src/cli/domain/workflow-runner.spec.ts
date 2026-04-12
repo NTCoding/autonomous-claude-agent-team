@@ -62,6 +62,7 @@ function createMockEngineDeps(hasSession = false): WorkflowEngineDeps {
     store: createMockStore(hasSession),
     getPluginRoot: () => '/tmp/plugin',
     getEnvFilePath: () => '/tmp/.env',
+    getRepositoryName: () => 'owner/repo',
     readFile: () => '# Procedure content',
     appendToFile: () => undefined,
     now: () => '2024-01-01T00:00:00Z',
@@ -268,6 +269,9 @@ describe('createWorkflowRunner', () => {
         throw new Error('Expected session-started event')
       }
       expect(parsedSessionStarted.data.transcriptPath).toBe('/tmp/opencode.db')
+      expect(parsedSessionStarted.data.repository).toBe('owner/repo')
+      expect(parsedSessionStarted.data.currentState).toBe('planning')
+      expect(parsedSessionStarted.data.states).toEqual(['planning', 'coding'])
     })
   })
 

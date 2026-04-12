@@ -15,6 +15,7 @@ import { HookCommonInputSchema, PreToolUseInputSchema, SubagentStartInputSchema,
 import { formatDenyDecision, formatContextInjection } from './hook-output'
 import type { PreToolUseHandlerFn, CustomPreToolUseGate } from './pre-tool-use-handler'
 import { createPreToolUseHandler } from './pre-tool-use-handler'
+import { getRepositoryName } from './repository-name'
 
 export type RunnerResult = { readonly output: string; readonly exitCode: number }
 
@@ -24,6 +25,7 @@ export type RunnerOptions = {
   readonly readStdin?: () => string
   readonly getSessionId?: () => string
   readonly getSessionTranscriptPath?: () => string
+  readonly getSessionRepository?: () => string | undefined
 }
 
 export type WorkflowRunnerConfig<
@@ -157,6 +159,7 @@ export function createWorkflowRunner<
         routeName,
         options?.getSessionId,
         options?.getSessionTranscriptPath,
+        options?.getSessionRepository,
       )
     }
 
@@ -181,6 +184,7 @@ function handleRoute<
   routeName: string,
   getSessionId?: () => string,
   getSessionTranscriptPath?: () => string,
+  getSessionRepository?: () => string | undefined,
 ): RunnerResult {
   const routeDef = config.routes[routeName]
   if (routeDef === undefined) {
@@ -216,7 +220,8 @@ function handleRoute<
     case 'session-start': {
       const sessionId = resolveSessionId()
       const transcriptPath = getSessionTranscriptPath?.() ?? ''
-      const result = engine.startSession(sessionId, transcriptPath)
+      const repository = getSessionRepository?.()
+      const result = engine.startSession(sessionId, transcriptPath, repository)
       return engineResultToRunnerResult(result)
     }
     case 'transition': {
@@ -258,7 +263,7 @@ function handleHook<
   const common = commonParse.data
 
   if (common.hook_event_name === 'SessionStart') {
-    const result = engine.startSession(common.session_id, common.transcript_path)
+    const result = engine.startSession(common.session_id, common.transcript_path, getRepositoryName(common.cwd))
     engine.persistSessionId(common.session_id)
     return engineResultToRunnerResult(result)
   }

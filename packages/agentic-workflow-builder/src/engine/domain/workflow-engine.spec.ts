@@ -163,6 +163,7 @@ function makeEngineDeps(overrides?: EngineDepsOverrides): WorkflowEngineDeps {
     store: makeStore(storeOverrides),
     getPluginRoot: () => '/plugin',
     getEnvFilePath: () => '/test/claude.env',
+    getRepositoryName: () => 'owner/repo',
     readFile: () => '# Procedure\n\n- [ ] Do the thing',
     appendToFile: () => undefined,
     now: () => '2026-01-01T00:00:00.000Z',
@@ -213,7 +214,7 @@ describe('WorkflowEngine.startSession', () => {
     expect(result.type).toStrictEqual('success')
     expect(result.output).toContain('Feature team initialized')
     expect(appended[0]?.events[0]?.type).toStrictEqual('session-started')
-    expect(appended[0]?.events[0]).toMatchObject({ transcriptPath: '/transcript.jsonl', currentState: 'SPAWN', states: TEST_STATE_NAMES })
+    expect(appended[0]?.events[0]).toMatchObject({ transcriptPath: '/transcript.jsonl', repository: 'owner/repo', currentState: 'SPAWN', states: TEST_STATE_NAMES })
   })
 
   it('persists session-started event with session id in SPAWN state', () => {
@@ -241,6 +242,24 @@ describe('WorkflowEngine.startSession', () => {
     })
     engine.startSession('sess1', '/t.jsonl', 'owner/repo')
     expect(appended[0]?.events[0]).toMatchObject({ repository: 'owner/repo' })
+  })
+
+  it('returns error when repository cannot be determined', () => {
+    const appended: Array<{ sessionId: string; events: readonly BaseEvent[] }> = []
+    const engine = makeEngine({
+      getRepositoryName: () => undefined,
+      store: {
+        sessionExists: () => false,
+        hasSessionStarted: () => false,
+        appendEvents: (sessionId, events) => appended.push({ sessionId, events }),
+      },
+    })
+
+    const result = engine.startSession('sess1', '/t.jsonl')
+
+    expect(result.type).toStrictEqual('error')
+    expect(result.output).toContain('Could not determine repository name')
+    expect(appended).toHaveLength(0)
   })
 
   it('returns empty output when session already exists', () => {

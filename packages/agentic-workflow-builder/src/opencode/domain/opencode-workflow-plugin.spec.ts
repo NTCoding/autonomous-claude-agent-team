@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs'
 import { z } from 'zod'
 import type { Config as OpenCodeConfig, Hooks } from '@opencode-ai/plugin'
 import type { ToolContext } from '@opencode-ai/plugin/tool'
-import { createOpenCodeWorkflowPlugin } from './opencode-workflow-plugin.js'
+import { createOpenCodeWorkflowPlugin, createSessionIdleEventHook } from './opencode-workflow-plugin.js'
 import type { OpenCodeWorkflowPluginConfig } from './opencode-workflow-plugin.js'
 import { createStore } from '../../event-store/index.js'
 import type {
@@ -192,6 +192,46 @@ describe('createOpenCodeWorkflowPlugin — plugin factory', () => {
     const plugin = createOpenCodeWorkflowPlugin(createConfig())
     const hooks = await plugin()
     expect(hooks['tool.execute.before']).toBeTypeOf('function')
+    expect(hooks.event).toBeTypeOf('function')
+  })
+})
+
+describe('createSessionIdleEventHook', () => {
+  it('sends the recovery prompt when a started session goes idle', async () => {
+    const sendIdleRecoveryPrompt = vi.fn(async () => undefined)
+    const eventHook = createSessionIdleEventHook({
+      hasSessionStarted: () => true,
+      sendIdleRecoveryPrompt,
+    })
+
+    await eventHook({ event: { type: 'session.idle', properties: { sessionID: 'idle-session' } } })
+
+    expect(sendIdleRecoveryPrompt).toHaveBeenCalledTimes(1)
+    expect(sendIdleRecoveryPrompt).toHaveBeenCalledWith('idle-session')
+  })
+
+  it('ignores idle events for sessions that have not started', async () => {
+    const sendIdleRecoveryPrompt = vi.fn(async () => undefined)
+    const eventHook = createSessionIdleEventHook({
+      hasSessionStarted: () => false,
+      sendIdleRecoveryPrompt,
+    })
+
+    await eventHook({ event: { type: 'session.idle', properties: { sessionID: 'never-started' } } })
+
+    expect(sendIdleRecoveryPrompt).not.toHaveBeenCalled()
+  })
+
+  it('ignores non-idle events', async () => {
+    const sendIdleRecoveryPrompt = vi.fn(async () => undefined)
+    const eventHook = createSessionIdleEventHook({
+      hasSessionStarted: () => true,
+      sendIdleRecoveryPrompt,
+    })
+
+    await eventHook({ event: { type: 'session.status', properties: { sessionID: 'session-1', status: { type: 'idle' } } } })
+
+    expect(sendIdleRecoveryPrompt).not.toHaveBeenCalled()
   })
 })
 
@@ -428,6 +468,9 @@ describe('createOpenCodeWorkflowPlugin — routes (workflow tool)', () => {
     const identityVerified = [...events].reverse().find((event) => event.type === 'identity-verified')
 
     expect(sessionStarted?.['transcriptPath']).toBe(databasePath)
+    expect(sessionStarted?.['repository']).toBe('NTCoding/autonomous-claude-agent-team')
+    expect(sessionStarted?.['currentState']).toBe('planning')
+    expect(sessionStarted?.['states']).toEqual(['planning'])
     expect(identityVerified?.['transcriptPath']).toBe(databasePath)
   })
 })
